@@ -16,8 +16,8 @@
 //! }
 //! ```
 
-mod query;
-mod error;
+pub mod query;
+pub mod error;
 
 pub use reqwest::Error;
 pub use query::*;
@@ -41,7 +41,7 @@ use crate::query::QueryResult;
 /// }
 /// ```
 pub struct BgpkitBroker {
-    broker_url: String,
+    pub broker_url: String,
 }
 
 impl BgpkitBroker {
