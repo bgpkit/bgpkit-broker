@@ -21,8 +21,7 @@ pub mod error;
 
 pub use reqwest::Error;
 pub use query::*;
-use crate::error::BrokerError;
-use crate::query::QueryResult;
+pub use error::*;
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
