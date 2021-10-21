@@ -1,0 +1,18 @@
+[package]
+name = "bgpkit-broker"
+version = "0.1.0"
+edition = "2018"
+authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/bgpkit/bgpkit-broker"
+documentation = "https://docs.rs/bgpkit-broker"
+description = """
+A library to access BGPKIT Broker API and enable searching for BGP data archive files over time from public available
+data sources.
+"""
+keywords = ["bgp", "bgpkit", "api"]
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+serde={version="1", features = ["derive"]}
