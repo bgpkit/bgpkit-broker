@@ -1,4 +1,5 @@
 //! Query-related structs and implementation.
+use std::fmt::{Display, Formatter};
 use serde::{Serialize, Deserialize};
 
 /// QueryParams represents the query parameters to the backend API.
@@ -23,7 +24,7 @@ use serde::{Serialize, Deserialize};
 /// - rib table dump files
 /// - second page
 /// - each page contains 20 items
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct QueryParams {
     /// start unix timestamp: files with time after or equals to `start_ts` will match
     pub start_ts: Option<i64>,
@@ -35,12 +36,30 @@ pub struct QueryParams {
     pub project: Option<String>,
     /// archive data type: `rib` or `update`
     pub data_type: Option<String>,
-    /// sort order by time: `desc` or `asc`
-    pub order: Option<String>,
+    /// sort order by time: `desc` or `asc`, see [SortOrder]
+    pub order: SortOrder,
     /// page number to seek to, starting from 1, default to 1
-    pub page: Option<i64>,
+    pub page: i64,
     /// number of items each page contains, default to 10, max to 100000
-    pub page_size: Option<i64>,
+    pub page_size: i64,
+}
+
+/// Sorting order enum
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum SortOrder {
+    /// `ASC` -> sort by increasing on timestamp
+    ASC,
+    /// `DESC` -> sort by decreasing on timestamp
+    DESC
+}
+
+impl Display for SortOrder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SortOrder::ASC => {write!(f, "asc")}
+            SortOrder::DESC => {write!(f, "desc")}
+        }
+    }
 }
 
 impl std::fmt::Display for QueryParams {
@@ -61,15 +80,9 @@ impl std::fmt::Display for QueryParams {
         if let Some(v) = &self.data_type {
             params_vec.push(format!("data_type={}", v));
         }
-        if let Some(v) = &self.order {
-            params_vec.push(format!("order={}", v));
-        }
-        if let Some(v) = &self.page {
-            params_vec.push(format!("page={}", v));
-        }
-        if let Some(v) = &self.page_size {
-            params_vec.push(format!("page_size={}", v));
-        }
+        params_vec.push(format!("order={}", self.order));
+        params_vec.push(format!("page={}", self.page));
+        params_vec.push(format!("page_size={}", self.page_size));
 
         if params_vec.len()>0 {
             write!(f, "?{}", params_vec.join("&"))
@@ -87,9 +100,9 @@ impl QueryParams {
             collector: None,
             project: None,
             data_type: None,
-            order: None,
-            page: None,
-            page_size: None
+            order: SortOrder::ASC,
+            page: 1,
+            page_size: 10
         }
     }
 
@@ -123,7 +136,7 @@ impl QueryParams {
     /// params = params.page(3);
     /// ```
     pub fn page(self, page:i64) -> Self {
-        QueryParams{ page: Some(page), ..self}
+        QueryParams{ page, ..self}
     }
 
     /// set each page's size (number of items per page).
@@ -134,7 +147,7 @@ impl QueryParams {
     /// params = params.page_size(20);
     /// ```
     pub fn page_size(self, page_size:i64) -> Self {
-        QueryParams{ page_size: Some(page_size), ..self}
+        QueryParams{ page_size, ..self}
     }
 
     /// set return objects ordering in terms of timestamps:
@@ -142,12 +155,12 @@ impl QueryParams {
     /// - `desc` for timestamps decreasing order
     ///
     /// ```
-    /// use bgpkit_broker::QueryParams;
+    /// use bgpkit_broker::{QueryParams, SortOrder};
     /// let mut params = QueryParams::new();
-    /// params = params.order("asc");
+    /// params = params.order(SortOrder::DESC);
     /// ```
-    pub fn order(self, order:&str) -> Self {
-        QueryParams{ order: Some(order.to_string()), ..self}
+    pub fn order(self, order:SortOrder) -> Self {
+        QueryParams{ order, ..self}
     }
 
     /// set the type of data to search for:
@@ -192,7 +205,7 @@ impl QueryParams {
 
 /// Returned BGP archive data item.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Item {
+pub struct BrokerItem {
     /// the collector id of the item: e.g. `rrc00`
     pub collector_id: String,
     /// the unix timestamp of the data file (**not the actual data time)
@@ -207,7 +220,7 @@ pub struct Item {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DataWrapper {
     /// the returning data [Item]s
-    pub items: Vec<Item>,
+    pub items: Vec<BrokerItem>,
     /// number of items returned in **current** call
     pub count: i64,
     /// the page number of the current call
@@ -229,6 +242,7 @@ pub struct QueryResult {
 
 #[cfg(test)]
 mod tests {
+    use crate::SortOrder::ASC;
     use super::*;
 
     #[test]
@@ -239,12 +253,12 @@ mod tests {
             collector: None,
             project: Some("test_project".to_string()),
             data_type: None,
-            order: None,
-            page: None,
-            page_size: None
+            order: ASC,
+            page: 1,
+            page_size: 20
         };
 
-        assert_eq!("?start_ts=1&end_ts=2&project=test_project".to_string(), param.to_string());
+        assert_eq!("?start_ts=1&end_ts=2&project=test_project&order=asc&page=1&page_size=20".to_string(), param.to_string());
 
         let param = QueryParams{
             start_ts: None,
@@ -252,11 +266,11 @@ mod tests {
             collector: None,
             project: None,
             data_type: None,
-            order: None,
-            page: None,
-            page_size: None
+            order: ASC,
+            page: 1,
+            page_size: 20
         };
 
-        assert_eq!("".to_string(), param.to_string());
+        assert_eq!("?order=asc&page=1&page_size=20".to_string(), param.to_string());
     }
 }
