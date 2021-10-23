@@ -203,12 +203,18 @@ impl QueryParams {
     }
 }
 
-/// Returned BGP archive data item.
+/// BGPKIT Broker data item.
+///
+/// The fields are:
+/// - [collector_id][BrokerItem::collector_id]: the collector id of the item: e.g. `rrc00`
+/// - [timestamp][BrokerItem::timestamp]: the unitimestamp timestamp of the data file
+/// - [data_type][BrokerItem::data_type]: type of the data item: `rib` or `update`
+/// - [url][BrokerItem::url]: the URL to the data item file
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BrokerItem {
     /// the collector id of the item: e.g. `rrc00`
     pub collector_id: String,
-    /// the unix timestamp of the data file (**not the actual data time)
+    /// the unix timestamp of the data file
     pub timestamp: i64,
     /// type of the data item: `rib` or `update`
     pub data_type: String,
@@ -218,7 +224,7 @@ pub struct BrokerItem {
 
 /// a wrapper struct of the returning values that include some meta information.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DataWrapper {
+pub(crate) struct DataWrapper {
     /// the returning data [Item]s
     pub items: Vec<BrokerItem>,
     /// number of items returned in **current** call
@@ -233,7 +239,7 @@ pub struct DataWrapper {
 
 /// Query result struct that contains data or error message
 #[derive(Debug, Serialize, Deserialize)]
-pub struct QueryResult {
+pub(crate) struct QueryResult {
     /// Option that contains [DataWrapper] if the search call is successful
     pub data: Option<DataWrapper>,
     /// Option that contains an error message if the search call failed
