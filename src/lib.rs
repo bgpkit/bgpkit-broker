@@ -213,6 +213,7 @@ impl Iterator for BrokerItemIterator {
                 return None
             } else {
                 self.cached_items = items;
+                self.cached_items.reverse();
                 self.total_page = total_page;
             }
             self.first_run=false;
@@ -235,6 +236,7 @@ impl Iterator for BrokerItemIterator {
                 return None
             } else {
                 self.cached_items = items;
+                self.cached_items.reverse();
                 self.total_page = total_page;
             }
             return Some(self.cached_items.pop().unwrap())
@@ -336,5 +338,20 @@ mod tests {
                 ..Default::default()
             });
         assert_eq!(broker.into_iter().count(), 48);
+    }
+
+    #[test]
+    fn test_ordering() {
+        let broker = BgpkitBroker::new_with_params("https://api.broker.bgpkit.com/v1", QueryParams {
+            start_ts: Some(1633045400),
+            end_ts: Some(1633050000),
+            collector: Some("route-views2".to_string()),
+            order: SortOrder::ASC,
+            ..Default::default()
+        });
+
+        let items: Vec<BrokerItem> = broker.into_iter().collect();
+        assert!(items[0].timestamp < items[1].timestamp);
+        assert_eq!(items.len(), 7);
     }
 }
