@@ -16,14 +16,15 @@ to worry about pagination.
 ```
 use bgpkit_broker::{BgpkitBroker, BrokerItem, QueryParams};
 
-let mut params = QueryParams::new();
-params = params.start_ts(1634693400);
-params = params.end_ts(1634693400);
-params = params.page_size(10);
-params = params.page(2);
+let broker = BgpkitBroker::new_with_params(
+    "https://api.broker.bgpkit.com/v1",
+    QueryParams{
+        start_ts: Some(1634693400),
+        end_ts: Some(1634693400),
+        page: 2,
+        ..Default::default()
+    });
 
-let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v1");
-broker.set_params(&params);
 
 // method 1: create iterator from reference (so that you can reuse the broker object)
 // same as `&broker.into_iter()`
@@ -77,7 +78,7 @@ use crate::query::QueryResult;
 #[derive(Clone)]
 pub struct BgpkitBroker {
     pub broker_url: String,
-    pub query_params: Option<QueryParams>,
+    pub query_params: QueryParams,
 }
 
 impl BgpkitBroker {
@@ -85,7 +86,13 @@ impl BgpkitBroker {
     /// Construct new BgpkitBroker given a broker URL.
     pub fn new(broker_url: &str) -> Self {
         let url = broker_url.trim_end_matches("/").to_string();
-        Self { broker_url: url , query_params: None}
+        Self { broker_url: url , query_params: QueryParams{..Default::default()}}
+    }
+
+    /// Construct new BgpkitBroker given a broker URL.
+    pub fn new_with_params(broker_url: &str, query_params: QueryParams) -> Self {
+        let url = broker_url.trim_end_matches("/").to_string();
+        Self { broker_url: url , query_params}
     }
 
     /// Send API queries to broker API endpoint.
@@ -122,8 +129,8 @@ impl BgpkitBroker {
     }
 
     /// set query parameters for broker. needed for iterator.
-    pub fn set_params(&mut self, params: &QueryParams) {
-        self.query_params = Some(params.clone());
+    pub fn set_params(&mut self, params: QueryParams) {
+        self.query_params = params;
     }
 }
 
@@ -163,7 +170,7 @@ fn run_query(url: &str) -> Result<(Vec<BrokerItem>, i64), BrokerError>{
 /// params = params.page_size(10);
 /// let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v1");
 /// params = params.page(2);
-/// broker.set_params(&params);
+/// broker.set_params(params);
 ///
 /// // create iterator from reference (so that you can reuse the broker object)
 /// // same as `&broker.into_intr()`
@@ -186,7 +193,7 @@ pub struct BrokerItemIterator {
 
 impl BrokerItemIterator {
     pub fn new(broker: BgpkitBroker) -> BrokerItemIterator {
-        let params = broker.query_params.clone().unwrap();
+        let params = broker.query_params.clone();
         BrokerItemIterator{broker_url: broker.broker_url, query_params: params, total_page: 1, cached_items: vec![], first_run: true}
     }
 }
@@ -310,18 +317,24 @@ mod tests {
     fn test_iterator() {
         env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-        let mut params = QueryParams::new();
-        params = params.start_ts(1634693400);
-        params = params.end_ts(1634693400);
-        params = params.page_size(10);
-        let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v1");
-        broker.set_params(&params);
+        let broker = BgpkitBroker::new_with_params(
+            "https://api.broker.bgpkit.com/v1",
+            QueryParams{
+                start_ts: Some(1634693400),
+                end_ts: Some(1634693400),
+                ..Default::default()
+            });
         assert_eq!(broker.into_iter().count(), 58);
 
         // test iterating from second page
-        let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v1");
-        params = params.page(2);
-        broker.set_params(&params);
+        let broker = BgpkitBroker::new_with_params(
+            "https://api.broker.bgpkit.com/v1",
+            QueryParams{
+                start_ts: Some(1634693400),
+                end_ts: Some(1634693400),
+                page: 2,
+                ..Default::default()
+            });
         assert_eq!(broker.into_iter().count(), 48);
     }
 }

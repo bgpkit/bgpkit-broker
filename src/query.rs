@@ -53,6 +53,22 @@ pub enum SortOrder {
     DESC
 }
 
+/// Default [QueryParams] values
+impl Default for QueryParams {
+    fn default() -> Self {
+        QueryParams{
+            start_ts: None,
+            end_ts: None,
+            collector: None,
+            project: None,
+            data_type: None,
+            order: SortOrder::ASC,
+            page: 1,
+            page_size: 10
+        }
+    }
+}
+
 impl Display for SortOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
