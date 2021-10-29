@@ -23,25 +23,30 @@ This Rust library provides access to the BGPKIT Broker API with the capability t
 ```rust
 use bgpkit_broker::{BgpkitBroker, BrokerItem, QueryParams};
 
-let mut params = QueryParams::new();
-params = params.start_ts(1634693400);
-params = params.end_ts(1634693400);
-params = params.page_size(10);
-params = params.page(2);
+fn main() {
+    
+    let broker = BgpkitBroker::new_with_params(
+        "https://api.broker.bgpkit.com/v1",
+        QueryParams{
+            start_ts: Some(1634693400),
+            end_ts: Some(1634693400),
+            page: 2,
+            ..Default::default()
+        });
 
-let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v1");
-broker.set_params(&params);
 
-// method 1: create iterator from reference (so that you can reuse the broker object)
-// same as `&broker.into_iter()`
-for item in &broker {
-println!("{:?}", item);
+    // method 1: create iterator from reference (so that you can reuse the broker object)
+    // same as `&broker.into_iter()`
+    for item in &broker {
+        println!("{:?}", item);
+    }
+
+    // method 2: create iterator from the broker object (taking ownership)
+    let items = broker.into_iter().collect::<Vec<BrokerItem>>();
+
+    assert_eq!(items.len(), 48);
 }
 
-// method 2: create iterator from the broker object (taking ownership)
-let items = broker.into_iter().collect::<Vec<BrokerItem>>();
-
-assert_eq!(items.len(), 48);
 ```
 
 
