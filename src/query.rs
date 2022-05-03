@@ -161,19 +161,6 @@ impl QueryParams {
         QueryParams{ page_size, ..self}
     }
 
-    /// set return objects ordering in terms of timestamps:
-    /// - `asc` for timestamps increasing order (default)
-    /// - `desc` for timestamps decreasing order
-    ///
-    /// ```
-    /// use bgpkit_broker::{QueryParams, SortOrder};
-    /// let mut params = QueryParams::new();
-    /// params = params.order(SortOrder::DESC);
-    /// ```
-    // pub fn order(self, order:SortOrder) -> Self {
-    //     QueryParams{ order, ..self}
-    // }
-
     /// set the type of data to search for:
     /// - `rib`: table dump files
     /// - `update`: BGP updates files
@@ -207,7 +194,7 @@ impl QueryParams {
     /// ```
     /// use bgpkit_broker::QueryParams;
     /// let mut params = QueryParams::new();
-    /// params = params.collector("rrc00");
+    /// params = params.collector_id("rrc00");
     /// ```
     pub fn collector_id(self, collector_id:&str) -> Self {
         QueryParams{ collector_id: Some(collector_id.to_string()), ..self}

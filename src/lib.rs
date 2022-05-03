@@ -48,15 +48,15 @@ Below is an example of creating an new struct instance and make queries to the A
 use bgpkit_broker::{BgpkitBroker, QueryParams};
 
 let mut params = QueryParams::new();
-params = params.start_ts(1634693400);
-params = params.end_ts(1634693400);
+params = params.ts_start("1634693400");
+params = params.ts_end("1634693400");
 params = params.page(3);
 params = params.page_size(10);
 
 let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
 let res = broker.query(&params);
 for data in res.unwrap() {
-    println!("{} {} {} {}", data.timestamp, data.data_type, data.collector_id, data.url);
+    println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
 }
 ```
 
@@ -147,7 +147,11 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
                         Ok(res.data)
                     }
                 },
-                Err(e) => { return Err(BrokerError::from(e)) }
+                Err(e) => {
+                    // json decoding error. most likely the service returns an error message without
+                    // `data` field.
+                    return Err(BrokerError::BrokerError(e.to_string()))
+                }
             }
         }
         Err(e) => { return Err(BrokerError::from(e)) }
@@ -164,8 +168,8 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
 /// use bgpkit_broker::{BgpkitBroker, BrokerItem, QueryParams};
 ///
 /// let mut params = QueryParams::new();
-/// params = params.start_ts(1634693400);
-/// params = params.end_ts(1634693400);
+/// params = params.ts_start("1634693400");
+/// params = params.ts_end("1634693400");
 /// params = params.page_size(10);
 /// let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
 /// params = params.page(2);
@@ -271,11 +275,6 @@ mod tests {
         assert!(&res.is_ok());
         let data = res.unwrap();
         assert!(data.len()>0);
-        for item in data {
-            dbg!(&item);
-        }
-
-        // assert_eq!(data[0].timestamp, 1634693400);
     }
 
     #[test]
@@ -304,12 +303,12 @@ mod tests {
         let mut params = QueryParams::new();
         params = params.ts_start("1634693400");
         params = params.ts_end("1634693400");
-        params = params.page_size(10);
+        params = params.page_size(100);
 
         let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
         let res = broker.query_all(&params);
         assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap().len(), 58);
+        assert_eq!(res.ok().unwrap().len(), 106);
     }
 
     #[test]
@@ -323,7 +322,7 @@ mod tests {
                 ts_end: Some("1634693400".to_string()),
                 ..Default::default()
             });
-        assert_eq!(broker.into_iter().count(), 104);
+        assert_eq!(broker.into_iter().count(), 106);
 
         // test iterating from second page
         let broker = BgpkitBroker::new_with_params(
@@ -334,6 +333,6 @@ mod tests {
                 page: 2,
                 ..Default::default()
             });
-        assert_eq!(broker.into_iter().count(), 4);
+        assert_eq!(broker.into_iter().count(), 6);
     }
 }
