@@ -1,5 +1,6 @@
 # BGPKIT Broker
 
+[![Rust](https://github.com/bgpkit/bgpkit-broker/actions/workflows/rust.yml/badge.svg)](https://github.com/bgpkit/bgpkit-broker/actions/workflows/rust.yml)
 [![Crates.io][crates-badge]][crates-url]
 [![MIT licensed][mit-badge]][mit-url]
 [![Twitter][twitter-badge]][twitter-url]
