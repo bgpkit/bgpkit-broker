@@ -13,7 +13,7 @@
 [twitter-badge]: https://shields.io/badge/Follow-lightgrey?logo=twitter&style=social
 [twitter-url]: https://twitter.com/bgpkit
 
-[BGPKIT](https://bgpkit.com) Broker is a online data API service that allows users to search for publicly available BGP archive
+[BGPKIT](https://bgpkit.com) Broker is an online data API service that allows users to search for publicly available BGP archive
 files by time, collector, project, or data type. The service indexes the archives in close to real-time (delay is
 less than 5 minutes). Currently, we are indexing BGP table dump and updates files from RIPE RIS and RouteViews.
 
@@ -27,10 +27,10 @@ use bgpkit_broker::{BgpkitBroker, BrokerItem, QueryParams};
 fn main() {
     
     let broker = BgpkitBroker::new_with_params(
-        "https://api.broker.bgpkit.com/v1",
+        "https://api.broker.bgpkit.com/v2",
         QueryParams{
-            start_ts: Some(1634693400),
-            end_ts: Some(1634693400),
+            ts_start: Some(1634693400),
+            ts_end: Some(1634693400),
             page: 2,
             ..Default::default()
         });
@@ -45,7 +45,7 @@ fn main() {
     // method 2: create iterator from the broker object (taking ownership)
     let items = broker.into_iter().collect::<Vec<BrokerItem>>();
 
-    assert_eq!(items.len(), 48);
+    assert_eq!(items.len(), 106);
 }
 
 ```
@@ -63,7 +63,6 @@ issue or pull request. Code or documentation issues/PRs are both welcome.
 If you have publicly available data and want to be indexed BGPKIT Broker service, please send us an email at
 data@bgpkit.com. Our back-end service is designed to be flexible and should be able to adapt to most data archiving
 approaches.
-
 
 ## On-premise Deployment
 
