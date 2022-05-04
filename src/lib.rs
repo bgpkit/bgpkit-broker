@@ -21,7 +21,6 @@ let broker = BgpkitBroker::new_with_params(
     QueryParams{
         ts_start: Some("1634693400".to_string()),
         ts_end: Some("1634693400".to_string()),
-        page: 2,
         ..Default::default()
     });
 
@@ -35,7 +34,7 @@ for item in &broker {
 // method 2: create iterator from the broker object (taking ownership)
 let items = broker.into_iter().collect::<Vec<BrokerItem>>();
 
-assert_eq!(items.len(), 48);
+assert_eq!(items.len(), 106);
 ```
 
 ## Making Individual Queries
@@ -184,7 +183,7 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
 /// // create iterator from the broker object (taking ownership)
 /// let items = broker.into_iter().collect::<Vec<BrokerItem>>();
 ///
-/// assert_eq!(items.len(), 48);
+/// assert_eq!(items.len(), 96);
 /// ```
 pub struct BrokerItemIterator {
     broker_url: String,
