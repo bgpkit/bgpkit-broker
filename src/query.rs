@@ -85,7 +85,7 @@ impl std::fmt::Display for QueryParams {
             params_vec.push(format!("ts_end={}", v));
         }
         if let Some(v) = &self.collector_id {
-            params_vec.push(format!("collector={}", v));
+            params_vec.push(format!("collector_id={}", v));
         }
         if let Some(v) = &self.project {
             params_vec.push(format!("project={}", v));

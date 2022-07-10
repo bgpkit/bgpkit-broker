@@ -334,4 +334,27 @@ mod tests {
             });
         assert_eq!(broker.into_iter().count(), 6);
     }
+
+    #[test]
+    fn test_filters() {
+        env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+        let mut params = QueryParams {
+            ts_start: Some("1634693400".to_string()),
+            ts_end: Some("1634693400".to_string()),
+            ..Default::default()
+        };
+        let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
+        let items = broker.query_all(&params).unwrap();
+        assert_eq!(items.len(), 106);
+
+        params.collector_id = Some("rrc00".to_string());
+        let items = broker.query_all(&params).unwrap();
+        assert_eq!(items.len(), 2);
+
+        params.collector_id = None;
+        params.project = Some("riperis".to_string());
+        let items = broker.query_all(&params).unwrap();
+        assert_eq!(items.len(), 46);
+    }
 }
