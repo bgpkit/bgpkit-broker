@@ -84,13 +84,13 @@ impl BgpkitBroker {
 
     /// Construct new BgpkitBroker given a broker URL.
     pub fn new(broker_url: &str) -> Self {
-        let url = broker_url.trim_end_matches("/").to_string();
+        let url = broker_url.trim_end_matches('/').to_string();
         Self { broker_url: url , query_params: QueryParams{..Default::default()}}
     }
 
     /// Construct new BgpkitBroker given a broker URL.
     pub fn new_with_params(broker_url: &str, query_params: QueryParams) -> Self {
-        let url = broker_url.trim_end_matches("/").to_string();
+        let url = broker_url.trim_end_matches('/').to_string();
         Self { broker_url: url , query_params}
     }
 
@@ -101,9 +101,9 @@ impl BgpkitBroker {
         let url = format!("{}/search{}", &self.broker_url, params);
         log::info!("sending broker query to {}", &url);
         match run_query(url.as_str()) {
-            Ok(res) => return Ok(res),
-            Err(e) => return Err(e)
-        };
+            Ok(res) => Ok(res),
+            Err(e) => Err(e)
+        }
     }
 
     /// Send query to get **all** data times returned.
@@ -150,7 +150,7 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
             {
                 Ok(res) => {
                     if let Some(e) = res.error {
-                        return Err(BrokerError::BrokerError(e));
+                        Err(BrokerError::BrokerError(e))
                     } else {
                         Ok(res.data)
                     }
@@ -158,11 +158,11 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
                 Err(e) => {
                     // json decoding error. most likely the service returns an error message without
                     // `data` field.
-                    return Err(BrokerError::BrokerError(e.to_string()))
+                    Err(BrokerError::BrokerError(e.to_string()))
                 }
             }
         }
-        Err(e) => { return Err(BrokerError::from(e)) }
+        Err(e) => { Err(BrokerError::from(e)) }
     }
 }
 
@@ -218,7 +218,7 @@ impl Iterator for BrokerItemIterator {
                 Ok(i) => i,
                 Err(_)  => return None
             };
-            if items.len()==0 {
+            if items.is_empty() {
                 // first run, nothing returned
                 return None
             } else {
@@ -229,7 +229,7 @@ impl Iterator for BrokerItemIterator {
         }
 
         if let Some(item) = self.cached_items.pop() {
-            return Some(item)
+            Some(item)
         } else {
             self.query_params.page += 1;
             let url = format!("{}/search{}", &self.broker_url, &self.query_params);
@@ -237,14 +237,14 @@ impl Iterator for BrokerItemIterator {
                 Ok(i) => i,
                 Err(_)  => return None
             };
-            if items.len()==0 {
+            if items.is_empty() {
                 // first run, nothing returned
                 return None
             } else {
                 self.cached_items = items;
                 self.cached_items.reverse();
             }
-            return Some(self.cached_items.pop().unwrap())
+            Some(self.cached_items.pop().unwrap())
         }
     }
 }

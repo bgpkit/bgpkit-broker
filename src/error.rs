@@ -17,7 +17,7 @@ pub enum BrokerError {
 impl Display for BrokerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            BrokerError::NetworkError(e) => {write!(f, "NETWORK_ERROR: {}", e.to_string())}
+            BrokerError::NetworkError(e) => {write!(f, "NETWORK_ERROR: {}", e)}
             BrokerError::BrokerError(e) => {write!(f, "BROKER_ERROR: {}", e)}
         }
     }

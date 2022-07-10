@@ -96,7 +96,7 @@ impl std::fmt::Display for QueryParams {
         params_vec.push(format!("page={}", self.page));
         params_vec.push(format!("page_size={}", self.page_size));
 
-        if params_vec.len()>0 {
+        if !params_vec.is_empty() {
             write!(f, "?{}", params_vec.join("&"))
         } else {
             write!(f, "")
