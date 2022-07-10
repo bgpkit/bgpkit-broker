@@ -269,7 +269,6 @@ impl IntoIterator for &BgpkitBroker {
 
 #[cfg(test)]
 mod tests {
-    use env_logger::Env;
     use super::*;
 
     #[test]
@@ -321,8 +320,6 @@ mod tests {
 
     #[test]
     fn test_iterator() {
-        env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-
         let broker = BgpkitBroker::new_with_params(
             "https://api.broker.bgpkit.com/v2",
             QueryParams{
@@ -346,8 +343,6 @@ mod tests {
 
     #[test]
     fn test_filters() {
-        env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-
         let mut params = QueryParams {
             ts_start: Some("1634693400".to_string()),
             ts_end: Some("1634693400".to_string()),
