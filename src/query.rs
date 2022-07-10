@@ -85,7 +85,7 @@ impl std::fmt::Display for QueryParams {
             params_vec.push(format!("ts_end={}", v));
         }
         if let Some(v) = &self.collector_id {
-            params_vec.push(format!("collector={}", v));
+            params_vec.push(format!("collector_id={}", v));
         }
         if let Some(v) = &self.project {
             params_vec.push(format!("project={}", v));
@@ -96,7 +96,7 @@ impl std::fmt::Display for QueryParams {
         params_vec.push(format!("page={}", self.page));
         params_vec.push(format!("page_size={}", self.page_size));
 
-        if params_vec.len()>0 {
+        if !params_vec.is_empty() {
             write!(f, "?{}", params_vec.join("&"))
         } else {
             write!(f, "")
