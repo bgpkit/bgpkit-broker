@@ -116,13 +116,22 @@ impl BgpkitBroker {
                 Ok(res) => res,
                 Err(e) => {return Err(e)}
             };
-            if res_items.len()==0 {
+
+            let items_count = res_items.len() as i64;
+
+            if items_count ==0 {
                 // reaches the end
                 break;
             }
+
             items.extend(res_items);
             let cur_page = p.page;
             p = p.page(cur_page+1);
+
+            if items_count < params.page_size {
+                // reaches the end
+                break;
+            }
         }
         Ok(items)
     }
