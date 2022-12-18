@@ -68,7 +68,7 @@ mod error;
 
 pub use ureq::Error;
 pub use query::{QueryParams, SortOrder, BrokerItem};
-pub use error::{BrokerError};
+pub use error::BrokerError;
 use crate::query::QueryResult;
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
