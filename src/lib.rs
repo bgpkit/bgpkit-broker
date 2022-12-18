@@ -350,22 +350,19 @@ mod tests {
 
     #[test]
     fn test_query() {
-        let mut params = QueryParams::new();
-        params = params.ts_start("1634693400");
-        params = params.ts_end("1634693400");
-
-        let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
-        let res = broker.query(&params);
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400");
+        let res = broker.query();
         assert!(&res.is_ok());
         let data = res.unwrap();
-        assert!(data.len()>0);
+        assert!(!data.is_empty());
     }
 
     #[test]
     fn test_network_error() {
-        let params = QueryParams::new();
-        let broker = BgpkitBroker::new("https://api.broker.example.com/v2");
-        let res = broker.query(&params);
+        let broker = BgpkitBroker::new().broker_url("https://api.broker.example.com/v2");
+        let res = broker.query();
         // when testing a must-fail query, you could use `matches!` macro to do so
         assert!(res.is_err());
         assert!(matches!(res.err(), Some(BrokerError::NetworkError(_))));
@@ -373,10 +370,8 @@ mod tests {
 
     #[test]
     fn test_broker_error() {
-        let mut params = QueryParams::new();
-        params = params.page(-1);
-        let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
-        let res = broker.query(&params);
+        let broker = BgpkitBroker::new().page(-1);
+        let res = broker.query();
 
         // this will result in a 422 network error code from the server
         // when testing a must-fail query, you could use `matches!` macro to do so
@@ -386,58 +381,51 @@ mod tests {
 
     #[test]
     fn test_query_all() {
-        let mut params = QueryParams::new();
-        params = params.ts_start("1634693400");
-        params = params.ts_end("1634693400");
-        params = params.page_size(100);
-
-        let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
-        let res = broker.query_all(&params);
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400")
+            .page_size(100);
+        let res = broker.query();
         assert!(res.is_ok());
         assert_eq!(res.ok().unwrap().len(), 106);
     }
 
     #[test]
     fn test_iterator() {
-        let broker = BgpkitBroker::new_with_params(
-            "https://api.broker.bgpkit.com/v2",
-            QueryParams{
-                ts_start: Some("1634693400".to_string()),
-                ts_end: Some("1634693400".to_string()),
-                ..Default::default()
-            });
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400");
+
         assert_eq!(broker.into_iter().count(), 106);
 
         // test iterating from second page
-        let broker = BgpkitBroker::new_with_params(
-            "https://api.broker.bgpkit.com/v2",
-            QueryParams{
-                ts_start: Some("1634693400".to_string()),
-                ts_end: Some("1634693400".to_string()),
-                page: 2,
-                ..Default::default()
-            });
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400")
+            .page(2);
         assert_eq!(broker.into_iter().count(), 6);
     }
 
     #[test]
     fn test_filters() {
-        let mut params = QueryParams {
-            ts_start: Some("1634693400".to_string()),
-            ts_end: Some("1634693400".to_string()),
-            ..Default::default()
-        };
-        let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
-        let items = broker.query_all(&params).unwrap();
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400");
+        let items = broker.query().unwrap();
         assert_eq!(items.len(), 106);
 
-        params.collector_id = Some("rrc00".to_string());
-        let items = broker.query_all(&params).unwrap();
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400")
+            .collector_id("rrc00");
+        let items = broker.query().unwrap();
         assert_eq!(items.len(), 2);
 
-        params.collector_id = None;
-        params.project = Some("riperis".to_string());
-        let items = broker.query_all(&params).unwrap();
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400")
+            .project("riperis");
+        let items = broker.query().unwrap();
         assert_eq!(items.len(), 46);
     }
 }
