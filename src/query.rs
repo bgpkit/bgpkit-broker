@@ -75,7 +75,7 @@ impl Display for SortOrder {
     }
 }
 
-impl std::fmt::Display for QueryParams {
+impl Display for QueryParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut params_vec = vec![];
         if let Some(v) = &self.ts_start {
@@ -242,6 +242,18 @@ pub(crate) struct QueryResult {
     pub error: Option<String>,
     /// the returning data [Item]s
     pub data: Vec<BrokerItem>,
+}
+
+impl Display for BrokerItem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
+impl Display for QueryResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
 }
 
 #[cfg(test)]
