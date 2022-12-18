@@ -96,17 +96,93 @@ impl BgpkitBroker {
         Self::default()
     }
 
-    /// Construct new BgpkitBroker given a broker URL.
-    pub fn new_with_params(broker_url: &str, query_params: QueryParams) -> Self {
-        let url = broker_url.trim_end_matches('/').to_string();
-        Self { broker_url: url , query_params}
+    /// Configure broker URL.
+    ///
+    /// You can change the default broker URL to point to your own broker instance.
+    pub fn broker_url(self, url: &str) -> Self {
+        Self {
+            broker_url: url.to_string(),
+            query_params: self.query_params
+        }
     }
 
-    /// Send API queries to broker API endpoint.
+    /// Add filter by starting timestamp.
+    pub fn ts_start(self, ts_start: &str) -> Self {
+        let mut query_params = self.query_params;
+        query_params.ts_start = Some(ts_start.to_string());
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Add filter by ending timestamp.
+    pub fn ts_end(self, ts_end: &str) -> Self {
+        let mut query_params = self.query_params;
+        query_params.ts_end = Some(ts_end.to_string());
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Add filter by collector ID (e.g. `rrc00` or `route-views2`).
+    pub fn collector_id(self, collector_id: &str) -> Self {
+        let mut query_params = self.query_params;
+        query_params.collector_id = Some(collector_id.to_string());
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Add filter by project name, i.e. `riperis` or `routeviews`.
+    pub fn project(self, project: &str) -> Self {
+        let mut query_params = self.query_params;
+        query_params.project = Some(project.to_string());
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Add filter by data type, i.e. `rib` or `update`.
+    pub fn data_type(self, data_type: &str) -> Self {
+        let mut query_params = self.query_params;
+        query_params.data_type = Some(data_type.to_string());
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Change current page number, starting from 1.
+    pub fn page(self, page: i64) -> Self {
+        let mut query_params = self.query_params;
+        query_params.page = page;
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Change current page size, default 100.
+    pub fn page_size(self, page_size: i64) -> Self {
+        let mut query_params = self.query_params;
+        query_params.page_size = page_size;
+        Self {
+            broker_url: self.broker_url,
+            query_params
+        }
+    }
+
+    /// Turn to specified page, page starting from 1.
     ///
-    /// See [QueryParams] for the parameters you can pass in.
-    pub fn query(&self, params: &QueryParams) -> Result<Vec<BrokerItem>, BrokerError> {
-        let url = format!("{}/search{}", &self.broker_url, params);
+    /// This works with [Self::query_single_page] function to manually paginate.
+    pub fn turn_page(&mut self, page: i64) {
+        self.query_params.page = page;
+    }
+
         log::info!("sending broker query to {}", &url);
         match run_query(url.as_str()) {
             Ok(res) => Ok(res),
