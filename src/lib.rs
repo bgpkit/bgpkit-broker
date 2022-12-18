@@ -278,16 +278,14 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
 /// assert_eq!(items.len(), 96);
 /// ```
 pub struct BrokerItemIterator {
-    broker_url: String,
-    query_params: QueryParams,
+    broker: BgpkitBroker,
     cached_items: Vec<BrokerItem>,
     first_run: bool,
 }
 
 impl BrokerItemIterator {
     pub fn new(broker: BgpkitBroker) -> BrokerItemIterator {
-        let params = broker.query_params.clone();
-        BrokerItemIterator{broker_url: broker.broker_url, query_params: params, cached_items: vec![], first_run: true}
+        BrokerItemIterator{broker, cached_items: vec![], first_run: true}
     }
 }
 
@@ -295,40 +293,36 @@ impl Iterator for BrokerItemIterator {
     type Item = BrokerItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.first_run {
-            let url = format!("{}/search{}", &self.broker_url, &self.query_params);
-            let items = match run_query(url.as_str()) {
-                Ok(i) => i,
-                Err(_)  => return None
-            };
-            if items.is_empty() {
-                // first run, nothing returned
-                return None
-            } else {
-                self.cached_items = items;
-                self.cached_items.reverse();
-            }
-            self.first_run=false;
+        // if we have cached items, simply pop and return
+        if let Some(item) = self.cached_items.pop() {
+            return Some(item)
         }
 
-        if let Some(item) = self.cached_items.pop() {
-            Some(item)
+        // no more cached items, refill cache by one more broker query
+        if self.first_run {
+            // if it's the first time running, do not change page, and switch the flag.
+            self.first_run = false;
         } else {
-            self.query_params.page += 1;
-            let url = format!("{}/search{}", &self.broker_url, &self.query_params);
-            let items = match run_query(url.as_str()) {
-                Ok(i) => i,
-                Err(_)  => return None
-            };
-            if items.is_empty() {
-                // first run, nothing returned
-                return None
-            } else {
-                self.cached_items = items;
-                self.cached_items.reverse();
-            }
-            Some(self.cached_items.pop().unwrap())
+            // if it's not the first time running, add page number by one.
+            self.broker.query_params.page += 1;
         }
+
+        // query the current page
+        let items = match self.broker.query_single_page() {
+            Ok(i) => i,
+            Err(_)  => return None
+        };
+
+        if items.is_empty() {
+            // break out the iteration
+            return None
+        } else {
+            // fill the cache
+            self.cached_items = items;
+            self.cached_items.reverse();
+        }
+
+        Some(self.cached_items.pop().unwrap())
     }
 }
 
