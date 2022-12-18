@@ -244,6 +244,18 @@ pub(crate) struct QueryResult {
     pub data: Vec<BrokerItem>,
 }
 
+impl Display for BrokerItem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
+impl Display for QueryResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

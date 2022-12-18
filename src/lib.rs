@@ -28,7 +28,7 @@ let broker = BgpkitBroker::new_with_params(
 // method 1: create iterator from reference (so that you can reuse the broker object)
 // same as `&broker.into_iter()`
 for item in &broker {
-    println!("{:?}", item);
+    println!("{}", item);
 }
 
 // method 2: create iterator from the broker object (taking ownership)
