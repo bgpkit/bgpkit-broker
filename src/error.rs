@@ -1,16 +1,15 @@
 //! Error handling module.
-use std::convert;
 use std::fmt::{Display, Formatter};
 
 /// Broker error enum.
 ///
 /// Includes two sub types:
-/// 1. NetworkError: a wrapper around [reqwest::Error], which would be from making network requests
-///     or parsing return value to JSON.
+/// 1. NetworkError: a wrapper around [ureq::Error] string representation, which would be from
+/// making network requests or parsing return value to JSON.
 /// 2. BrokerError: a String type returned from the BGPKIT Broker API.
 #[derive(Debug)]
 pub enum BrokerError {
-    NetworkError(reqwest::Error),
+    NetworkError(String),
     BrokerError(String),
 }
 
@@ -23,8 +22,8 @@ impl Display for BrokerError {
     }
 }
 
-impl convert::From<reqwest::Error> for BrokerError {
-    fn from(e: reqwest::Error) -> Self {
-        BrokerError::NetworkError(e)
+impl From<ureq::Error> for BrokerError {
+    fn from(e: ureq::Error) -> Self {
+        BrokerError::NetworkError(e.to_string())
     }
 }
