@@ -78,6 +78,7 @@ use crate::query::QueryResult;
 pub struct BgpkitBroker {
     pub broker_url: String,
     pub query_params: QueryParams,
+}
 
 impl Default for BgpkitBroker {
     fn default() -> Self {
@@ -91,9 +92,8 @@ impl Default for BgpkitBroker {
 impl BgpkitBroker {
 
     /// Construct new BgpkitBroker given a broker URL.
-    pub fn new(broker_url: &str) -> Self {
-        let url = broker_url.trim_end_matches('/').to_string();
-        Self { broker_url: url , query_params: QueryParams{..Default::default()}}
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Construct new BgpkitBroker given a broker URL.
