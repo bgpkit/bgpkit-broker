@@ -13,16 +13,12 @@ The recommended usage to collect [BrokerItem]s is to use the built-in iterator. 
 it reaches the end of items. This is useful for simply getting **all** matching items without need
 to worry about pagination.
 
-```
-use bgpkit_broker::{BgpkitBroker, BrokerItem, QueryParams};
+```rust
+use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
-let broker = BgpkitBroker::new_with_params(
-    "https://api.broker.bgpkit.com/v2",
-    QueryParams{
-        ts_start: Some("1634693400".to_string()),
-        ts_end: Some("1634693400".to_string()),
-        ..Default::default()
-    });
+let broker = BgpkitBroker::new()
+        .ts_start("1634693400")
+        .ts_end("1634693400");
 
 
 // method 1: create iterator from reference (so that you can reuse the broker object)
@@ -39,28 +35,34 @@ assert_eq!(items.len(), 106);
 
 ## Making Individual Queries
 
-User can make individual queries to the BGPKIT broker backend by calling [BgpkitBroker::query]
-function. The function takes a [QueryParams] reference as parameter to construct the query URL.
+User can make individual queries to the BGPKIT broker backend by calling [BgpkitBroker::query_single_page]
+function.
 
 Below is an example of creating an new struct instance and make queries to the API:
-```
-use bgpkit_broker::{BgpkitBroker, QueryParams};
+```rust
+use bgpkit_broker::BgpkitBroker;
 
-let mut params = QueryParams::new();
-params = params.ts_start("1634693400");
-params = params.ts_end("1634693400");
-params = params.page(3);
-params = params.page_size(10);
+let mut broker = BgpkitBroker::new()
+    .ts_start("1634693400")
+    .ts_end("1634693400")
+    .page(3)
+    .page_size(10);
 
-let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
-let res = broker.query(&params);
+let res = broker.query_single_page();
+for data in res.unwrap() {
+    println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
+}
+
+broker.turn_page(4);
+let res = broker.query_single_page();
 for data in res.unwrap() {
     println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
 }
 ```
 
 Making individual queries is useful when you care about specific pages, or want to implement
-customized iteration procedure.
+customized iteration procedure. Use [BgpkitBroker::turn_page] to manually change to a different
+page.
 */
 
 mod query;
@@ -256,20 +258,18 @@ fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
 /// to iterate.
 ///
 /// ```
-/// use bgpkit_broker::{BgpkitBroker, BrokerItem, QueryParams};
+/// use bgpkit_broker::{BgpkitBroker, BrokerItem};
 ///
-/// let mut params = QueryParams::new();
-/// params = params.ts_start("1634693400");
-/// params = params.ts_end("1634693400");
-/// params = params.page_size(10);
-/// let mut broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
-/// params = params.page(2);
-/// broker.set_params(params);
+/// let mut broker = BgpkitBroker::new()
+///     .ts_start("1634693400")
+///     .ts_end("1634693400")
+///     .page_size(10)
+///     .page(2);
 ///
 /// // create iterator from reference (so that you can reuse the broker object)
 /// // same as `&broker.into_intr()`
 /// for item in &broker {
-///     println!("{:?}", item);
+///     println!("{}", item);
 /// }
 ///
 /// // create iterator from the broker object (taking ownership)
