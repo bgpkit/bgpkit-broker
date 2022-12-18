@@ -66,7 +66,7 @@ customized iteration procedure.
 mod query;
 mod error;
 
-pub use reqwest::Error;
+pub use ureq::Error;
 pub use query::{QueryParams, SortOrder, BrokerItem};
 pub use error::{BrokerError};
 use crate::query::QueryResult;
@@ -144,9 +144,9 @@ impl BgpkitBroker {
 
 fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
     log::info!("sending broker query to {}", &url);
-    match reqwest::blocking::get(url) {
+    match ureq::get(url).call() {
         Ok(res) => {
-            match res.json::<QueryResult>()
+            match res.into_json::<QueryResult>()
             {
                 Ok(res) => {
                     if let Some(e) = res.error {
@@ -300,9 +300,11 @@ mod tests {
         params = params.page(-1);
         let broker = BgpkitBroker::new("https://api.broker.bgpkit.com/v2");
         let res = broker.query(&params);
+
+        // this will result in a 422 network error code from the server
         // when testing a must-fail query, you could use `matches!` macro to do so
         assert!(res.is_err());
-        assert!(matches!(res.err(), Some(BrokerError::BrokerError(_))));
+        assert!(matches!(res.err(), Some(BrokerError::NetworkError(_))));
     }
 
     #[test]
