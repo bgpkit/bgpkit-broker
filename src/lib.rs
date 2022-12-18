@@ -183,6 +183,9 @@ impl BgpkitBroker {
         self.query_params.page = page;
     }
 
+    /// Send API for a single page of items.
+    pub fn query_single_page(&self) -> Result<Vec<BrokerItem>, BrokerError> {
+        let url = format!("{}/search{}", &self.broker_url, &self.query_params);
         log::info!("sending broker query to {}", &url);
         match run_query(url.as_str()) {
             Ok(res) => Ok(res),
@@ -191,8 +194,9 @@ impl BgpkitBroker {
     }
 
     /// Send query to get **all** data times returned.
-    pub fn query_all(&self, params: &QueryParams) -> Result<Vec<BrokerItem>, BrokerError> {
-        let mut p: QueryParams = params.clone();
+    pub fn query(&self) -> Result<Vec<BrokerItem>, BrokerError> {
+        let mut p: QueryParams = self.query_params.clone();
+
         let mut items = vec![];
         loop {
             let url = format!("{}/search{}", &self.broker_url, &p);
@@ -212,17 +216,12 @@ impl BgpkitBroker {
             let cur_page = p.page;
             p = p.page(cur_page+1);
 
-            if items_count < params.page_size {
+            if items_count < p.page_size {
                 // reaches the end
                 break;
             }
         }
         Ok(items)
-    }
-
-    /// set query parameters for broker. needed for iterator.
-    pub fn set_params(&mut self, params: QueryParams) {
-        self.query_params = params;
     }
 }
 
