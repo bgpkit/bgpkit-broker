@@ -76,7 +76,7 @@ impl Display for SortOrder {
 }
 
 impl Display for QueryParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut params_vec = vec![];
         if let Some(v) = &self.ts_start {
             params_vec.push(format!("ts_start={}", v));
