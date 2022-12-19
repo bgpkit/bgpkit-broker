@@ -63,13 +63,29 @@ for data in res.unwrap() {
 Making individual queries is useful when you care about specific pages, or want to implement
 customized iteration procedure. Use [BgpkitBroker::turn_page] to manually change to a different
 page.
+
+## Getting the Latest File for Each Collector
+
+We also provide way to fetch the latest file information for each collector available with the
+[BgpkitBroker::latest] call. The function returns JSON-deserialized result (see [CollectorLatestItem])
+to the RESTful API at <https://api.broker.bgpkit.com/v2/latest>.
+
+```rust
+use bgpkit_broker::BgpkitBroker;
+
+let broker = BgpkitBroker::new();
+for item in broker.latest().unwrap() {
+    println!("{}", item);
+}
+```
 */
 
 mod query;
 mod error;
+mod latest;
 
 pub use ureq::Error;
-pub use query::{QueryParams, SortOrder, BrokerItem};
+pub use query::{QueryParams, SortOrder, BrokerItem, CollectorLatestItem};
 pub use error::BrokerError;
 use crate::query::QueryResult;
 
@@ -93,7 +109,15 @@ impl Default for BgpkitBroker {
 
 impl BgpkitBroker {
 
-    /// Construct new BgpkitBroker given a broker URL.
+    /// Construct new BgpkitBroker object.
+    ///
+    /// The URL and query parameters can be adjusted with other functions.
+    ///
+    /// # Examples
+    /// ```
+    /// use bgpkit_broker::BgpkitBroker;
+    /// let broker = BgpkitBroker::new();
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
@@ -101,6 +125,12 @@ impl BgpkitBroker {
     /// Configure broker URL.
     ///
     /// You can change the default broker URL to point to your own broker instance.
+    ///
+    /// # Examples
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .broker_url("api.broker.example.com/v3");
+    /// ```
     pub fn broker_url(self, url: &str) -> Self {
         Self {
             broker_url: url.to_string(),
@@ -108,7 +138,21 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter by starting timestamp.
+    /// Add filter of starting timestamp.
+    ///
+    /// # Examples
+    ///
+    /// Specify a Unix timestamp.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_start("1640995200");
+    /// ```
+    ///
+    /// Specify a RFC3335-formatted time string.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_start("2022-01-01T00:00:00Z");
+    /// ```
     pub fn ts_start(self, ts_start: &str) -> Self {
         let mut query_params = self.query_params;
         query_params.ts_start = Some(ts_start.to_string());
@@ -118,7 +162,21 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter by ending timestamp.
+    /// Add filter of ending timestamp.
+    ///
+    /// # Examples
+    ///
+    /// Specify a Unix timestamp.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_end("1640995200");
+    /// ```
+    ///
+    /// Specify a RFC3335-formatted time string.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_end("2022-01-01T00:00:00Z");
+    /// ```
     pub fn ts_end(self, ts_end: &str) -> Self {
         let mut query_params = self.query_params;
         query_params.ts_end = Some(ts_end.to_string());
@@ -128,7 +186,21 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter by collector ID (e.g. `rrc00` or `route-views2`).
+    /// Add filter of collector ID (e.g. `rrc00` or `route-views2`).
+    ///
+    /// See the full list of collectors [here](https://github.com/bgpkit/bgpkit-broker-backend/blob/main/deployment/full-config.json).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .collector_id("rrc00");
+    /// ```
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .collector_id("route-views2");
+    /// ```
     pub fn collector_id(self, collector_id: &str) -> Self {
         let mut query_params = self.query_params;
         query_params.collector_id = Some(collector_id.to_string());
@@ -138,7 +210,19 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter by project name, i.e. `riperis` or `routeviews`.
+    /// Add filter of project name, i.e. `riperis` or `routeviews`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .project("riperis");
+    /// ```
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .project("routeviews");
+    ///```
     pub fn project(self, project: &str) -> Self {
         let mut query_params = self.query_params;
         query_params.project = Some(project.to_string());
@@ -148,7 +232,19 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter by data type, i.e. `rib` or `update`.
+    /// Add filter of data type, i.e. `rib` or `update`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .data_type("rib");
+    /// ```
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .data_type("update");
+    /// ```
     pub fn data_type(self, data_type: &str) -> Self {
         let mut query_params = self.query_params;
         query_params.data_type = Some(data_type.to_string());
@@ -159,6 +255,14 @@ impl BgpkitBroker {
     }
 
     /// Change current page number, starting from 1.
+    ///
+    /// # Examples
+    ///
+    /// Start iterating with page 2.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .page(2);
+    /// ```
     pub fn page(self, page: i64) -> Self {
         let mut query_params = self.query_params;
         query_params.page = page;
@@ -169,6 +273,14 @@ impl BgpkitBroker {
     }
 
     /// Change current page size, default 100.
+    ///
+    /// # Examples
+    ///
+    /// Set page size to 20.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .page_size(10);
+    /// ```
     pub fn page_size(self, page_size: i64) -> Self {
         let mut query_params = self.query_params;
         query_params.page_size = page_size;
@@ -181,11 +293,30 @@ impl BgpkitBroker {
     /// Turn to specified page, page starting from 1.
     ///
     /// This works with [Self::query_single_page] function to manually paginate.
+    ///
+    /// # Examples
+    ///
+    /// Manually get the first two pages of items.
+    /// ```
+    /// let mut broker = bgpkit_broker::BgpkitBroker::new();
+    /// let mut items = vec![];
+    /// items.extend(broker.query_single_page().unwrap());
+    /// broker.turn_page(2);
+    /// items.extend(broker.query_single_page().unwrap());
+    /// ```
     pub fn turn_page(&mut self, page: i64) {
         self.query_params.page = page;
     }
 
     /// Send API for a single page of items.
+    ///
+    /// # Examples
+    ///
+    /// Manually get the first page of items.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new();
+    /// let items = broker.query_single_page().unwrap();
+    /// ```
     pub fn query_single_page(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let url = format!("{}/search{}", &self.broker_url, &self.query_params);
         log::info!("sending broker query to {}", &url);
@@ -196,6 +327,23 @@ impl BgpkitBroker {
     }
 
     /// Send query to get **all** data times returned.
+    ///
+    /// This is usually what one needs.
+    ///
+    /// # Examples
+    ///
+    /// Get all RIB files on 2022-01-01 from route-views2.
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_start("2022-01-01T00:00:00Z")
+    ///     .ts_end("2022-01-01T23:59:00Z")
+    ///     .data_type("rib")
+    ///     .collector_id("route-views2");
+    /// let items = broker.query().unwrap();
+    ///
+    /// // 1 RIB dump very 2 hours, total of 12 files for 1 day
+    /// assert_eq!(items.len(), 12);
+    /// ```
     pub fn query(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let mut p: QueryParams = self.query_params.clone();
 
