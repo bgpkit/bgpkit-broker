@@ -225,6 +225,38 @@ impl BgpkitBroker {
         }
         Ok(items)
     }
+
+    /// Send query to get the **latest** data for each collector.
+    ///
+    /// The returning result is structured as a vector of [CollectorLatestItem] objects.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new();
+    /// let latest_items = broker.latest().unwrap();
+    /// for item in &latest_items {
+    ///     println!("{}", item);
+    /// }
+    /// ```
+    pub fn latest(&self) -> Result<Vec<CollectorLatestItem>, BrokerError> {
+        let latest_query_url = format!("{}/latest", self.broker_url);
+        match ureq::get(latest_query_url.as_str()).call() {
+            Ok(response) => {
+                match response.into_json::<Vec<CollectorLatestItem>>() {
+                    Ok(items) => {
+                        Ok(items)
+                    }
+                    Err(_) => {
+                        Err(BrokerError::BrokerError("Error parsing response".to_string()))
+                    }
+                }
+            }
+            Err(_) => {
+                Err(BrokerError::BrokerError(format!("Unable to connect to the URL: {}", latest_query_url)))
+            }
+        }
+    }
 }
 
 fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
@@ -427,5 +459,12 @@ mod tests {
             .project("riperis");
         let items = broker.query().unwrap();
         assert_eq!(items.len(), 46);
+    }
+
+    #[test]
+    fn test_latest() {
+        let broker = BgpkitBroker::new();
+        let items = broker.latest().unwrap();
+        assert!(items.len()>=125);
     }
 }

@@ -229,6 +229,37 @@ pub struct BrokerItem {
     pub exact_size: i64,
 }
 
+/// BGPKIT Broker collector latest data item.
+///
+/// The fields are:
+/// - [timestamp][CollectorLatestItem::timestamp]: the data timestamp of the file
+/// - [delay][CollectorLatestItem::delay]: the delay in seconds between the time file available and the timestamp of the file
+/// - [collector_id][CollectorLatestItem::collector_id]: the collector id of the item: e.g. `rrc00`
+/// - [data_type][CollectorLatestItem::data_type]: type of the data item: `rib` or `update`
+/// - [item_url][CollectorLatestItem::item_url]: the URL to the data item file
+/// - [collector_url][CollectorLatestItem::collector_url]: the URL to the data item file
+/// - [rough_size][CollectorLatestItem::rough_size]: rough file size extracted from the collector webpage
+/// - [exact_size][CollectorLatestItem::exact_size]: exact file size extracted by crawling the file
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CollectorLatestItem {
+    /// timestamp of the file
+    pub timestamp: chrono::NaiveDateTime,
+    /// Delay in seconds between the time file available and the timestamp of the file
+    pub delay: f64,
+    /// the collector id of the item: e.g. `rrc00`
+    pub collector_id: String,
+    /// type of the data item: `rib` or `update`
+    pub data_type: String,
+    /// the URL to the data item file
+    pub item_url: String,
+    /// the URL to the route collector
+    pub collector_url: String,
+    /// rough file size extracted from the hosting site page
+    pub rough_size: i64,
+    /// exact file size extracted by crawling the file
+    pub exact_size: i64,
+}
+
 /// Query result struct that contains data or error message
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct QueryResult {
@@ -245,6 +276,12 @@ pub(crate) struct QueryResult {
 }
 
 impl Display for BrokerItem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
+impl Display for CollectorLatestItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", serde_json::to_string(self).unwrap())
     }
