@@ -1,4 +1,5 @@
 //! Error handling module.
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 /// Broker error enum.
@@ -13,6 +14,8 @@ pub enum BrokerError {
     BrokerError(String),
 }
 
+impl Error for BrokerError {}
+
 impl Display for BrokerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -25,5 +28,19 @@ impl Display for BrokerError {
 impl From<ureq::Error> for BrokerError {
     fn from(e: ureq::Error) -> Self {
         BrokerError::NetworkError(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{BgpkitBroker, CollectorLatestItem};
+
+    #[test]
+    fn test_anyhow() {
+
+        fn test_error() -> anyhow::Result<Vec<CollectorLatestItem>> {
+            Ok(BgpkitBroker::new().latest()?)
+        }
+        let _res = test_error();
     }
 }
