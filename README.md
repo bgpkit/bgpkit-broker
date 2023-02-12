@@ -3,7 +3,9 @@
 [![Rust](https://github.com/bgpkit/bgpkit-broker/actions/workflows/rust.yml/badge.svg)](https://github.com/bgpkit/bgpkit-broker/actions/workflows/rust.yml)
 [![Crates.io][crates-badge]][crates-url]
 [![MIT licensed][mit-badge]][mit-url]
+[![Better Uptime Badge](https://betteruptime.com/status-badges/v1/monitor/mfwr.svg)](https://betteruptime.com/?utm_source=status_badge)
 [![Twitter][twitter-badge]][twitter-url]
+[![Mastodon][mastodon-badge]][mastodon-url]
 
 
 [crates-badge]: https://img.shields.io/crates/v/bgpkit-broker.svg
@@ -12,6 +14,8 @@
 [mit-url]: https://github.com/bgpkit/bgpkit-broker/blob/main/LICENSE
 [twitter-badge]: https://shields.io/badge/Follow-lightgrey?logo=twitter&style=social
 [twitter-url]: https://twitter.com/bgpkit
+[mastodon-url]: https://infosec.exchange/@bgpkit
+[mastodon-badge]: https://img.shields.io/mastodon/follow/109852506691103147?domain=https%3A%2F%2Finfosec.exchange&style=social
 
 [BGPKIT Broker](https://bgpkit.com/broker) is an online data API service that allows users to search for publicly available BGP archive
 files by time, collector, project, or data type. The service indexes the archives in close to real-time (delay is
