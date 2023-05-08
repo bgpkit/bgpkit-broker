@@ -87,7 +87,7 @@ mod latest;
 pub use ureq::Error;
 pub use query::{QueryParams, SortOrder, BrokerItem, CollectorLatestItem};
 pub use error::BrokerError;
-use crate::query::QueryResult;
+use crate::query::{CollectorLatestResult, QueryResult};
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -101,7 +101,7 @@ pub struct BgpkitBroker {
 impl Default for BgpkitBroker {
     fn default() -> Self {
         Self{
-            broker_url: "https://api.broker.bgpkit.com/v2".to_string(),
+            broker_url: "https://api.bgpkit.com/broker".to_string(),
             query_params: Default::default()
         }
     }
@@ -391,9 +391,9 @@ impl BgpkitBroker {
         let latest_query_url = format!("{}/latest", self.broker_url);
         match ureq::get(latest_query_url.as_str()).call() {
             Ok(response) => {
-                match response.into_json::<Vec<CollectorLatestItem>>() {
-                    Ok(items) => {
-                        Ok(items)
+                match response.into_json::<CollectorLatestResult>() {
+                    Ok(result) => {
+                        Ok(result.data)
                     }
                     Err(_) => {
                         Err(BrokerError::BrokerError("Error parsing response".to_string()))
