@@ -68,7 +68,7 @@ page.
 
 We also provide way to fetch the latest file information for each collector available with the
 [BgpkitBroker::latest] call. The function returns JSON-deserialized result (see [CollectorLatestItem])
-to the RESTful API at <https://api.broker.bgpkit.com/v2/latest>.
+to the RESTful API at <https://api.bgpkit.com/broker/latest>.
 
 ```rust
 use bgpkit_broker::BgpkitBroker;
