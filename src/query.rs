@@ -229,6 +229,16 @@ pub struct BrokerItem {
     pub exact_size: i64,
 }
 
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct CollectorLatestResult {
+    /// total number of items
+    pub count: u32,
+
+    /// array of [CollectorLatestItem]
+    pub data: Vec<CollectorLatestItem>
+}
+
 /// BGPKIT Broker collector latest data item.
 ///
 /// The fields are:
