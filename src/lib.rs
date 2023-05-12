@@ -84,7 +84,6 @@ mod query;
 mod error;
 mod latest;
 
-pub use ureq::Error;
 pub use query::{QueryParams, SortOrder, BrokerItem, CollectorLatestItem};
 pub use error::BrokerError;
 use crate::query::{CollectorLatestResult, QueryResult};
@@ -389,9 +388,9 @@ impl BgpkitBroker {
     /// ```
     pub fn latest(&self) -> Result<Vec<CollectorLatestItem>, BrokerError> {
         let latest_query_url = format!("{}/latest", self.broker_url);
-        match ureq::get(latest_query_url.as_str()).call() {
+        match reqwest::blocking::get(latest_query_url.as_str()) {
             Ok(response) => {
-                match response.into_json::<CollectorLatestResult>() {
+                match response.json::<CollectorLatestResult>() {
                     Ok(result) => {
                         Ok(result.data)
                     }
@@ -400,8 +399,8 @@ impl BgpkitBroker {
                     }
                 }
             }
-            Err(_) => {
-                Err(BrokerError::BrokerError(format!("Unable to connect to the URL: {}", latest_query_url)))
+            Err(e) => {
+                Err(BrokerError::BrokerError(format!("Unable to connect to the URL ({}): {}", latest_query_url, e)))
             }
         }
     }
@@ -409,9 +408,9 @@ impl BgpkitBroker {
 
 fn run_query(url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
     log::info!("sending broker query to {}", &url);
-    match ureq::get(url).call() {
+    match reqwest::blocking::get(url) {
         Ok(res) => {
-            match res.into_json::<QueryResult>()
+            match res.json::<QueryResult>()
             {
                 Ok(res) => {
                     if let Some(e) = res.error {
