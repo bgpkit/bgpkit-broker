@@ -25,8 +25,8 @@ impl Display for BrokerError {
     }
 }
 
-impl From<ureq::Error> for BrokerError {
-    fn from(e: ureq::Error) -> Self {
+impl From<reqwest::Error> for BrokerError {
+    fn from(e: reqwest::Error) -> Self {
         BrokerError::NetworkError(e.to_string())
     }
 }
