@@ -82,7 +82,6 @@ for item in broker.latest().unwrap() {
 
 mod query;
 mod error;
-mod latest;
 
 pub use query::{QueryParams, SortOrder, BrokerItem, CollectorLatestItem};
 pub use error::BrokerError;
