@@ -13,12 +13,34 @@ data sources.
 """
 keywords = ["bgp", "bgpkit", "api"]
 
+[[bin]]
+path="src/bin/broker.rs"
+name="bgpkit-broker"
+required-features = ["build-binary"]
+
 [dependencies]
+thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 log="0.4"
 reqwest = {version = "0.11.17", features = ["blocking", "json"]}
 serde={version="1", features = ["derive"]}
 serde_json = "1"
 
+# crawler dependencies
+regex = { version = "1", optional = true }
+scraper = { version = "0.16", optional = true }
+tokio = {version="1", optional = true, features = ["full"] }
+futures = {version="0.3", optional = true}
+duckdb = {version="0.8", optional = true}
+
+# binary cli dependencies
+clap = {version= "4.3", features=["derive"], optional=true}
+
+[features]
+default=["crawler", "build-binary", "db"]
+crawler = ["regex", "scraper", "tokio", "futures"]
+db = ["duckdb"]
+build-binary = ["clap"]
+
 [dev-dependencies]
-anyhow = "1.0"
+tracing-subscriber = "0.3.17"

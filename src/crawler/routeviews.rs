@@ -1,0 +1,146 @@
+use crate::crawler::common::{crawl_months_list, extract_link_size, remove_trailing_slash};
+use crate::crawler::Collector;
+use crate::{BrokerError, BrokerItem};
+use chrono::{NaiveDate, NaiveDateTime};
+use futures::stream::{FuturesOrdered, StreamExt};
+use log::info;
+use regex::Regex;
+
+/// Crawl RouteViews MRT data dump for a given collector.
+///
+/// Example: <https://routeviews.org/bgpdata/>.
+/// A few things to note:
+/// - at the root level, there are one directory per month, e.g. `2001.01/`
+///     - this means a single crawl of the root page will give us all the months available
+/// - each month directory contains two subdirectories, `UPDATES/` and `RIBS/`
+/// - each subdirectory contains a list of files, e.g. `updates.20010101.0000.bz2` or `rib.20010101.0000.bz2`
+///
+/// # Arguments
+///
+/// * `collector`: the [Collector] to crawl
+/// * `from_ts`: optional start date for the crawl to start from, provide None for bootstrap
+///
+/// returns: Result<Vec<Item, Global>, Error>
+pub async fn crawl_routeviews(
+    collector: &Collector,
+    from_ts: Option<NaiveDate>,
+) -> Result<Vec<BrokerItem>, BrokerError> {
+    let collector_url = remove_trailing_slash(collector.url.as_str());
+
+    let months_to_crawl = crawl_months_list(collector_url.as_str(), from_ts).await?;
+    let mut stream = FuturesOrdered::new();
+    for month in months_to_crawl {
+        let url = format!("{}/{}", collector_url.as_str(), month.format("%Y.%m/"));
+        stream.push_back(crawl_month(url, collector.id.clone()));
+    }
+    let mut res = vec![];
+    while let Some(result) = stream.next().await {
+        let items = result?;
+        res.extend(items);
+    }
+    Ok(res)
+}
+
+async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem>, BrokerError> {
+    let root_url = remove_trailing_slash(url.as_str());
+    info!("crawling data for {} ...", root_url.as_str());
+
+    let mut all_items = vec![];
+
+    // RIBS
+    for subdir in ["RIBS", "UPDATES"] {
+        let url = format!("{}/{}", &root_url, subdir);
+        let body = reqwest::get(url.as_str()).await?.text().await?;
+        let collector_id_clone = collector_id.clone();
+        let data_items: Vec<BrokerItem> = tokio::task::spawn_blocking(move || {
+            let items = extract_link_size(body.as_str());
+            items
+                .iter()
+                .map(|(link, size)| {
+                    let url = format!("{}/{}", &url, link);
+                    let link_time_pattern: Regex =
+                        Regex::new(r#".*(........\.....)\.bz2.*"#).unwrap();
+                    let time_str = link_time_pattern
+                        .captures(&url)
+                        .unwrap()
+                        .get(1)
+                        .unwrap()
+                        .as_str();
+                    let unix_time = NaiveDateTime::parse_from_str(time_str, "%Y%m%d.%H%M").unwrap();
+                    match link.contains("update") {
+                        true => BrokerItem {
+                            ts_start: unix_time,
+                            ts_end: unix_time + chrono::Duration::seconds(5 * 60),
+                            url: url.clone(),
+                            rough_size: *size,
+                            collector_id: collector_id_clone.clone(),
+                            data_type: "update".to_string(),
+                            exact_size: 0,
+                        },
+                        false => BrokerItem {
+                            ts_start: unix_time,
+                            ts_end: unix_time,
+                            url: url.clone(),
+                            rough_size: *size,
+                            collector_id: collector_id_clone.clone(),
+                            data_type: "rib".to_string(),
+                            exact_size: 0,
+                        },
+                    }
+                })
+                .collect()
+        })
+        .await
+        .unwrap();
+        all_items.extend(data_items);
+    }
+
+    info!("crawling data for {} ... finished", &root_url);
+    Ok(all_items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[tokio::test]
+    async fn test_crawl_routeviews() {
+        tracing_subscriber::fmt::init();
+        let collector = Collector {
+            id: "route-views2".to_string(),
+            project: "routeviews".to_string(),
+            url: "https://routeviews.org/bgpdata/".to_string(),
+        };
+
+        let two_months_ago = Utc::now().date().naive_utc() - chrono::Duration::days(60);
+        let items = crawl_routeviews(&collector, Some(two_months_ago))
+            .await
+            .unwrap();
+        dbg!(items);
+    }
+
+    #[tokio::test]
+    async fn test_crawl_months() {
+        let root_url = "https://routeviews.org/bgpdata/";
+        let months = crawl_months_list(root_url, None).await.unwrap();
+        dbg!(months);
+        let current_month = crawl_months_list(root_url, Some(Utc::now().date().naive_utc()))
+            .await
+            .unwrap();
+        assert!(!current_month.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_crawl_month() {
+        let items = crawl_month(
+            "https://routeviews.org/bgpdata/2016.11/".to_string(),
+            "route-views2".to_string(),
+        )
+        .await
+        .unwrap();
+        for item in items {
+            println!("{}", item.url);
+        }
+    }
+}

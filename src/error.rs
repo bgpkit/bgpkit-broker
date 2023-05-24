@@ -1,46 +1,23 @@
 //! Error handling module.
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use thiserror::Error;
 
 /// Broker error enum.
-///
-/// Includes two sub types:
-/// 1. NetworkError: a wrapper around [ureq::Error] string representation, which would be from
-/// making network requests or parsing return value to JSON.
-/// 2. BrokerError: a String type returned from the BGPKIT Broker API.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum BrokerError {
-    NetworkError(String),
+    #[error("NetworkError: {0}")]
+    NetworkError(#[from] reqwest::Error),
+
+    #[error("BrokerError: {0}")]
     BrokerError(String),
-}
 
-impl Error for BrokerError {}
+    #[cfg(feature = "crawler")]
+    #[error("CrawlerError: {0}")]
+    CrawlerError(String),
 
-impl Display for BrokerError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BrokerError::NetworkError(e) => {write!(f, "NETWORK_ERROR: {}", e)}
-            BrokerError::BrokerError(e) => {write!(f, "BROKER_ERROR: {}", e)}
-        }
-    }
-}
+    #[error("DateTimeParseError: {0}")]
+    DateTimeParseError(#[from] chrono::ParseError),
 
-impl From<reqwest::Error> for BrokerError {
-    fn from(e: reqwest::Error) -> Self {
-        BrokerError::NetworkError(e.to_string())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{BgpkitBroker, CollectorLatestItem};
-
-    #[test]
-    fn test_anyhow() {
-
-        fn test_error() -> anyhow::Result<Vec<CollectorLatestItem>> {
-            Ok(BgpkitBroker::new().latest()?)
-        }
-        let _res = test_error();
-    }
+    #[cfg(feature = "db")]
+    #[error("DbError: {0}")]
+    DbError(#[from] duckdb::Error),
 }

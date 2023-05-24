@@ -80,12 +80,16 @@ for item in broker.latest().unwrap() {
 ```
 */
 
-mod query;
+#[cfg(feature = "crawler")]
+mod crawler;
+#[cfg(feature = "db")]
+mod db;
 mod error;
+mod query;
 
-pub use query::{QueryParams, SortOrder, BrokerItem, CollectorLatestItem};
-pub use error::BrokerError;
 use crate::query::{CollectorLatestResult, QueryResult};
+pub use error::BrokerError;
+pub use query::{BrokerItem, CollectorLatestItem, QueryParams, SortOrder};
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -99,7 +103,7 @@ pub struct BgpkitBroker {
 
 impl Default for BgpkitBroker {
     fn default() -> Self {
-        Self{
+        Self {
             broker_url: "https://api.bgpkit.com/broker".to_string(),
             query_params: Default::default(),
             client: reqwest::blocking::Client::new(),
@@ -108,7 +112,6 @@ impl Default for BgpkitBroker {
 }
 
 impl BgpkitBroker {
-
     /// Construct new BgpkitBroker object.
     ///
     /// The URL and query parameters can be adjusted with other functions.
@@ -143,7 +146,10 @@ impl BgpkitBroker {
         Self {
             broker_url: self.broker_url,
             query_params: self.query_params,
-            client: reqwest::blocking::ClientBuilder::new().danger_accept_invalid_certs(true).build().unwrap()
+            client: reqwest::blocking::ClientBuilder::new()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap(),
         }
     }
 
@@ -168,7 +174,7 @@ impl BgpkitBroker {
         Self {
             broker_url: self.broker_url,
             query_params,
-            client: self.client
+            client: self.client,
         }
     }
 
@@ -218,7 +224,7 @@ impl BgpkitBroker {
         Self {
             client: self.client,
             broker_url: self.broker_url,
-            query_params
+            query_params,
         }
     }
 
@@ -241,7 +247,7 @@ impl BgpkitBroker {
         Self {
             client: self.client,
             broker_url: self.broker_url,
-            query_params
+            query_params,
         }
     }
 
@@ -264,7 +270,7 @@ impl BgpkitBroker {
         Self {
             broker_url: self.broker_url,
             client: self.client,
-            query_params
+            query_params,
         }
     }
 
@@ -283,7 +289,7 @@ impl BgpkitBroker {
         Self {
             broker_url: self.broker_url,
             client: self.client,
-            query_params
+            query_params,
         }
     }
 
@@ -302,7 +308,7 @@ impl BgpkitBroker {
         Self {
             broker_url: self.broker_url,
             client: self.client,
-            query_params
+            query_params,
         }
     }
 
@@ -338,7 +344,7 @@ impl BgpkitBroker {
         log::info!("sending broker query to {}", &url);
         match self.run_query(url.as_str()) {
             Ok(res) => Ok(res),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 
@@ -368,19 +374,19 @@ impl BgpkitBroker {
             let url = format!("{}/search{}", &self.broker_url, &p);
             let res_items = match self.run_query(url.as_str()) {
                 Ok(res) => res,
-                Err(e) => {return Err(e)}
+                Err(e) => return Err(e),
             };
 
             let items_count = res_items.len() as i64;
 
-            if items_count ==0 {
+            if items_count == 0 {
                 // reaches the end
                 break;
             }
 
             items.extend(res_items);
             let cur_page = p.page;
-            p = p.page(cur_page+1);
+            p = p.page(cur_page + 1);
 
             if items_count < p.page_size {
                 // reaches the end
@@ -406,35 +412,31 @@ impl BgpkitBroker {
     pub fn latest(&self) -> Result<Vec<CollectorLatestItem>, BrokerError> {
         let latest_query_url = format!("{}/latest", self.broker_url);
         match self.client.get(latest_query_url.as_str()).send() {
-            Ok(response) => {
-                match response.json::<CollectorLatestResult>() {
-                    Ok(result) => {
-                        Ok(result.data)
-                    }
-                    Err(_) => {
-                        Err(BrokerError::BrokerError("Error parsing response".to_string()))
-                    }
-                }
-            }
-            Err(e) => {
-                Err(BrokerError::BrokerError(format!("Unable to connect to the URL ({}): {}", latest_query_url, e)))
-            }
+            Ok(response) => match response.json::<CollectorLatestResult>() {
+                Ok(result) => Ok(result.data),
+                Err(_) => Err(BrokerError::BrokerError(
+                    "Error parsing response".to_string(),
+                )),
+            },
+            Err(e) => Err(BrokerError::BrokerError(format!(
+                "Unable to connect to the URL ({}): {}",
+                latest_query_url, e
+            ))),
         }
     }
 
-    fn run_query(&self, url: &str) -> Result<Vec<BrokerItem>, BrokerError>{
+    fn run_query(&self, url: &str) -> Result<Vec<BrokerItem>, BrokerError> {
         log::info!("sending broker query to {}", &url);
         match self.client.get(url).send() {
             Ok(res) => {
-                match res.json::<QueryResult>()
-                {
+                match res.json::<QueryResult>() {
                     Ok(res) => {
                         if let Some(e) = res.error {
                             Err(BrokerError::BrokerError(e))
                         } else {
                             Ok(res.data)
                         }
-                    },
+                    }
                     Err(e) => {
                         // json decoding error. most likely the service returns an error message without
                         // `data` field.
@@ -442,11 +444,10 @@ impl BgpkitBroker {
                     }
                 }
             }
-            Err(e) => { Err(BrokerError::from(e)) }
+            Err(e) => Err(BrokerError::from(e)),
         }
     }
 }
-
 
 /// Iterator for BGPKIT Broker that iterates through one [BrokerItem] at a time.
 ///
@@ -482,7 +483,11 @@ pub struct BrokerItemIterator {
 
 impl BrokerItemIterator {
     pub fn new(broker: BgpkitBroker) -> BrokerItemIterator {
-        BrokerItemIterator{broker, cached_items: vec![], first_run: true}
+        BrokerItemIterator {
+            broker,
+            cached_items: vec![],
+            first_run: true,
+        }
     }
 }
 
@@ -492,7 +497,7 @@ impl Iterator for BrokerItemIterator {
     fn next(&mut self) -> Option<Self::Item> {
         // if we have cached items, simply pop and return
         if let Some(item) = self.cached_items.pop() {
-            return Some(item)
+            return Some(item);
         }
 
         // no more cached items, refill cache by one more broker query
@@ -507,12 +512,12 @@ impl Iterator for BrokerItemIterator {
         // query the current page
         let items = match self.broker.query_single_page() {
             Ok(i) => i,
-            Err(_)  => return None
+            Err(_) => return None,
         };
 
         if items.is_empty() {
             // break out the iteration
-            return None
+            return None;
         } else {
             // fill the cache
             self.cached_items = items;
@@ -628,13 +633,13 @@ mod tests {
     fn test_latest() {
         let broker = BgpkitBroker::new();
         let items = broker.latest().unwrap();
-        assert!(items.len()>=125);
+        assert!(items.len() >= 125);
     }
 
     #[test]
     fn test_latest_no_ssl() {
         let broker = BgpkitBroker::new().disable_ssl_check();
         let items = broker.latest().unwrap();
-        assert!(items.len()>=125);
+        assert!(items.len() >= 125);
     }
 }
