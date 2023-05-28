@@ -14,6 +14,14 @@ pub enum BrokerError {
     #[error("CrawlerError: {0}")]
     CrawlerError(String),
 
+    #[cfg(feature = "crawler")]
+    #[error("ConfigIoError: {0}")]
+    ConfigIoError(#[from] std::io::Error),
+
+    #[cfg(feature = "crawler")]
+    #[error("ConfigConfigError: {0}")]
+    ConfigJsonError(#[from] serde_json::Error),
+
     #[error("DateTimeParseError: {0}")]
     DateTimeParseError(#[from] chrono::ParseError),
 

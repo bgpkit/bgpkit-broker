@@ -1,6 +1,7 @@
 use crate::{BrokerError, BrokerItem};
 use chrono::NaiveDateTime;
 use duckdb::{params, Connection, Row};
+use tracing::info;
 
 pub struct BrokerDb {
     conn: duckdb::Connection,
@@ -28,8 +29,8 @@ impl BrokerDb {
             ts_end TIMESTAMP,
             data_type TEXT,
             url TEXT,
-            rough_size INT,
-            exact_size INT,
+            rough_size UBIGINT,
+            exact_size UBIGINT,
             PRIMARY KEY(collector_id, ts_start, data_type)
         )
         "#,
@@ -40,6 +41,7 @@ impl BrokerDb {
 
     pub fn insert_items(&mut self, items: &Vec<BrokerItem>) -> Result<(), BrokerError> {
         // TODO: should return all inserted items
+        info!("Inserting {} items...", items.len());
         for batch in items.chunks(1000) {
             let tx = self.conn.transaction()?;
             let mut stmt = tx.prepare(
@@ -62,6 +64,7 @@ impl BrokerDb {
             }
             tx.commit()?;
         }
+        info!("Inserting {} items... done", items.len());
         Ok(())
     }
 

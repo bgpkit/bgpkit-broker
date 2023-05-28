@@ -3,7 +3,7 @@ use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{NaiveDate, NaiveDateTime};
 use futures::stream::{FuturesOrdered, StreamExt};
-use log::info;
+use log::debug;
 use regex::Regex;
 
 /// Crawl RIPE RIS MRT data dump for a given collector.
@@ -42,9 +42,9 @@ pub async fn crawl_ripe_ris(
 
 async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem>, BrokerError> {
     let url = remove_trailing_slash(url.as_str());
-    info!("crawling data for {} ...", url.as_str());
+    debug!("crawling data for {} ...", url.as_str());
     let body = reqwest::get(url.as_str()).await?.text().await?;
-    info!("    download for {} finished ", url.as_str());
+    debug!("    download for {} finished ", url.as_str());
 
     let new_url = url.to_string();
 
@@ -92,7 +92,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
     .await
     .unwrap();
 
-    info!("crawling data for {} ... finished", &new_url);
+    debug!("crawling data for {} ... finished", &new_url);
     Ok(data_items)
 }
 

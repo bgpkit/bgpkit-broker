@@ -3,8 +3,8 @@ use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{NaiveDate, NaiveDateTime};
 use futures::stream::{FuturesOrdered, StreamExt};
-use log::info;
 use regex::Regex;
+use tracing::debug;
 
 /// Crawl RouteViews MRT data dump for a given collector.
 ///
@@ -43,7 +43,7 @@ pub async fn crawl_routeviews(
 
 async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem>, BrokerError> {
     let root_url = remove_trailing_slash(url.as_str());
-    info!("crawling data for {} ...", root_url.as_str());
+    debug!("crawling data for {} ...", root_url.as_str());
 
     let mut all_items = vec![];
 
@@ -95,7 +95,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
         all_items.extend(data_items);
     }
 
-    info!("crawling data for {} ... finished", &root_url);
+    debug!("crawling data for {} ... finished", &root_url);
     Ok(all_items)
 }
 

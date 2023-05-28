@@ -88,6 +88,10 @@ mod error;
 mod query;
 
 use crate::query::{CollectorLatestResult, QueryResult};
+#[cfg(feature = "crawler")]
+pub use crawler::{crawl_collector, load_collectors, Collector};
+#[cfg(feature = "db")]
+pub use db::BrokerDb;
 pub use error::BrokerError;
 pub use query::{BrokerItem, CollectorLatestItem, QueryParams, SortOrder};
 

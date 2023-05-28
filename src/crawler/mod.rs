@@ -1,16 +1,31 @@
+mod collector;
 mod common;
 mod riperis;
 mod routeviews;
 
-use serde::{Deserialize, Serialize};
+use chrono::NaiveDate;
+use log::info;
 
 // public interface
-pub use riperis::crawl_ripe_ris;
-pub use routeviews::crawl_routeviews;
+use crate::{BrokerError, BrokerItem};
+use riperis::crawl_ripe_ris;
+use routeviews::crawl_routeviews;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Collector {
-    pub id: String,
-    pub project: String,
-    pub url: String,
+pub use collector::{load_collectors, Collector};
+
+pub async fn crawl_collector(
+    collector: &Collector,
+    from_ts: Option<NaiveDate>,
+) -> Result<Vec<BrokerItem>, BrokerError> {
+    info!("crawl collector {} from {:?}", &collector.id, from_ts);
+    let items = match collector.project.as_str() {
+        "riperis" => crawl_ripe_ris(collector, from_ts).await,
+        "routeviews" => crawl_routeviews(collector, from_ts).await,
+        _ => panic!("unknown project {}", collector.project),
+    };
+    info!(
+        "crawl collector {} from {:?}... done",
+        &collector.id, from_ts
+    );
+    items
 }
