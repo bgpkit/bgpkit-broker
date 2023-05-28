@@ -1,6 +1,6 @@
 use crate::{BrokerError, BrokerItem};
 use chrono::NaiveDateTime;
-use duckdb::{params, Connection, Row};
+use duckdb::{Connection, Row};
 use tracing::info;
 
 pub struct BrokerDb {
@@ -43,26 +43,29 @@ impl BrokerDb {
         // TODO: should return all inserted items
         info!("Inserting {} items...", items.len());
         for batch in items.chunks(1000) {
-            let tx = self.conn.transaction()?;
-            let mut stmt = tx.prepare(
-                    r#"
-            INSERT OR IGNORE INTO items (collector_id, ts_start, ts_end, data_type, url, rough_size, exact_size)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#
+            let values_str = batch
+                .into_iter()
+                .map(|item| {
+                    format!(
+                        "('{}', '{}', '{}', '{}', '{}', {}, {})",
+                        item.collector_id,
+                        item.ts_start,
+                        item.ts_end,
+                        item.data_type,
+                        item.url,
+                        item.rough_size,
+                        item.exact_size,
+                    )
+                })
+                .collect::<Vec<String>>()
+                .join(", ");
+            self.conn.execute(
+                &format!(
+                    r#"INSERT OR IGNORE INTO items (collector_id, ts_start, ts_end, data_type, url, rough_size, exact_size) VALUES {}"#,
+                    values_str
+                ),
+                [],
             )?;
-
-            for item in batch {
-                stmt.execute(params![
-                    &item.collector_id,
-                    &item.ts_start.to_string(),
-                    &item.ts_end.to_string(),
-                    &item.data_type,
-                    &item.url,
-                    &item.rough_size.to_string(),
-                    &item.exact_size.to_string(),
-                ])?;
-            }
-            tx.commit()?;
         }
         info!("Inserting {} items... done", items.len());
         Ok(())
