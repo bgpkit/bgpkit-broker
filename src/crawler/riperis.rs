@@ -110,13 +110,14 @@ mod tests {
             url: "https://data.ris.ripe.net/rrc00/".to_string(),
         };
 
-        let two_months_ago = Utc::now().date().naive_utc() - chrono::Duration::days(60);
+        let two_months_ago = Utc::now().date_naive() - chrono::Duration::days(60);
         let _items = crawl_ripe_ris(&collector, Some(two_months_ago))
             .await
             .unwrap();
         let _after_date = NaiveDate::from_ymd_opt(2023, 5, 3)
             .unwrap()
-            .and_hms(0, 0, 0);
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
     }
 
     #[tokio::test]
@@ -127,7 +128,7 @@ mod tests {
         dbg!(months);
         let current_month = crawl_months_list(
             "https://data.ris.ripe.net/rrc00/",
-            Some(Utc::now().date().naive_utc()),
+            Some(Utc::now().date_naive()),
         )
         .await
         .unwrap();

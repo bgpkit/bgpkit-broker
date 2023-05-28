@@ -1,5 +1,5 @@
 use crate::BrokerError;
-use chrono::{Datelike, NaiveDate, NaiveDateTime, Utc};
+use chrono::{Datelike, NaiveDate, Utc};
 use regex::Regex;
 use scraper::{Html, Selector};
 
@@ -169,7 +169,9 @@ pub(crate) async fn crawl_months_list(
     collector_root_url: &str,
     from_month: Option<NaiveDate>,
 ) -> Result<Vec<NaiveDate>, BrokerError> {
-    let rounded_month = from_month.map(|d| NaiveDate::from_ymd(d.year(), d.month(), 1));
+    let rounded_month = from_month
+        .map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1))
+        .unwrap();
 
     let month_link_pattern: Regex = Regex::new(r#"<a href="(....\...)/">.*"#).unwrap();
     let body = reqwest::get(collector_root_url).await?.text().await?;
@@ -179,7 +181,7 @@ pub(crate) async fn crawl_months_list(
         let parsed_month =
             NaiveDate::parse_from_str(format!("{}.01", month.as_str()).as_str(), "%Y.%m.%d")?;
         if let Some(rounded) = rounded_month {
-            let new_month = NaiveDate::from_ymd(rounded.year(), rounded.month(), 1);
+            let new_month = NaiveDate::from_ymd_opt(rounded.year(), rounded.month(), 1).unwrap();
             if parsed_month < new_month {
                 continue;
             }

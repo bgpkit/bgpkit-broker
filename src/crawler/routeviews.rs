@@ -70,7 +70,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                     match link.contains("update") {
                         true => BrokerItem {
                             ts_start: unix_time,
-                            ts_end: unix_time + chrono::Duration::seconds(5 * 60),
+                            ts_end: unix_time + chrono::Duration::seconds(15 * 60),
                             url: url.clone(),
                             rough_size: *size,
                             collector_id: collector_id_clone.clone(),
@@ -113,7 +113,7 @@ mod tests {
             url: "https://routeviews.org/bgpdata/".to_string(),
         };
 
-        let two_months_ago = Utc::now().date().naive_utc() - chrono::Duration::days(60);
+        let two_months_ago = Utc::now().date_naive() - chrono::Duration::days(60);
         let items = crawl_routeviews(&collector, Some(two_months_ago))
             .await
             .unwrap();
@@ -125,7 +125,7 @@ mod tests {
         let root_url = "https://routeviews.org/bgpdata/";
         let months = crawl_months_list(root_url, None).await.unwrap();
         dbg!(months);
-        let current_month = crawl_months_list(root_url, Some(Utc::now().date().naive_utc()))
+        let current_month = crawl_months_list(root_url, Some(Utc::now().date_naive()))
             .await
             .unwrap();
         assert!(!current_month.is_empty());

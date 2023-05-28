@@ -1,5 +1,4 @@
 mod common;
-mod db;
 mod riperis;
 mod routeviews;
 
