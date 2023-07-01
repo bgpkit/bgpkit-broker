@@ -22,6 +22,10 @@ pub enum BrokerError {
     #[error("ConfigConfigError: {0}")]
     ConfigJsonError(#[from] serde_json::Error),
 
+    #[cfg(feature = "crawler")]
+    #[error("ConfigUnknownError: {0}")]
+    ConfigUnknownError(String),
+
     #[error("DateTimeParseError: {0}")]
     DateTimeParseError(#[from] chrono::ParseError),
 

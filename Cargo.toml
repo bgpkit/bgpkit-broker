@@ -16,7 +16,7 @@ keywords = ["bgp", "bgpkit", "api"]
 [[bin]]
 path="src/bin/broker.rs"
 name="bgpkit-broker"
-required-features = ["build-binary"]
+required-features = ["cli"]
 
 [dependencies]
 thiserror = "1.0"
@@ -32,19 +32,21 @@ regex = { version = "1", optional = true }
 scraper = { version = "0.16", optional = true }
 tokio = {version="1", optional = true, features = ["full"] }
 futures = {version="0.3", optional = true}
-duckdb = {version="0.8", optional = true}
+duckdb = {version="0.8", optional = true, features = ["bundled"]}
 oneio = {version="0.11.0", optional = true}
 
 # binary cli dependencies
 clap = {version= "4.3", features=["derive"], optional=true}
 num_cpus = {version="1.15", optional=true}
 tracing-subscriber = {version="0.3", optional=true}
+config = {version = "0.13.1", features = ["toml"], optional=true}
+dirs = {version="5", optional=true}
 
 [features]
-default=["crawler", "build-binary", "db"]
-crawler = ["regex", "scraper", "tokio", "futures"]
-db = ["duckdb", "oneio"]
-build-binary = ["clap", "num_cpus", "tracing-subscriber"]
+default=["crawler", "cli", "db"]
+crawler = ["regex", "scraper", "tokio", "futures", "oneio"]
+db = ["duckdb"]
+cli = ["clap", "num_cpus", "tracing-subscriber", "config", "dirs"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"

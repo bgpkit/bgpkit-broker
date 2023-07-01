@@ -1,4 +1,5 @@
 use crate::BrokerError;
+use oneio::OneIoError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,8 +25,20 @@ pub fn load_collectors(path: &str) -> Result<Vec<Collector>, BrokerError> {
         url: String,
     }
 
-    let config_file = std::fs::File::open(path)?;
-    let config: Config = serde_json::from_reader(config_file)?;
+    let config = match oneio::read_json_struct::<Config>(path) {
+        Ok(config) => config,
+        Err(e) => match e {
+            OneIoError::IoError(e) => {
+                return Err(BrokerError::ConfigIoError(e));
+            }
+            OneIoError::JsonParsingError(e) => {
+                return Err(BrokerError::ConfigJsonError(e));
+            }
+            _ => {
+                return Err(BrokerError::ConfigUnknownError(e.to_string()));
+            }
+        },
+    };
 
     Ok(config
         .projects

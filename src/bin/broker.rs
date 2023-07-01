@@ -1,4 +1,4 @@
-use bgpkit_broker::{crawl_collector, load_collectors, BrokerDb};
+use bgpkit_broker::{crawl_collector, load_collectors, BrokerConfig, LocalBrokerDb};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
@@ -49,32 +49,40 @@ fn get_tokio_runtime() -> Runtime {
 fn main() {
     let cli = Cli::parse();
 
+    let config = BrokerConfig::new(&cli.config);
+
     tracing_subscriber::fmt().init();
 
     match cli.command {
         Commands::Serve { .. } => {
             // TODO: open with read-only mode
+            // The service should serve via the exported parquet file instead of the database
         }
         Commands::Update { .. } => {
             let rt = get_tokio_runtime();
             rt.block_on(async {
-                let mut db = BrokerDb::new(Some("broker.duckdb".to_string()), true).unwrap();
-                let collectors = load_collectors("deployment/collectors.json").unwrap();
+                // load all collectors from configuration file
+                let collectors = load_collectors(config.collectors_file.as_str()).unwrap();
 
-                let buffer_size = 20;
-
+                // crawl all collectors in parallel, 10 collectors in parallel by default, unordered
+                let buffer_size = 10;
                 let mut stream = futures::stream::iter(&collectors)
                     .map(|c| {
-                        let two_months_ago = Utc::now().date_naive() - chrono::Duration::days(60);
-                        crawl_collector(c, Some(two_months_ago))
+                        // use "two hours ago" as default from_ts to avoid missing data during the bordering days between months
+                        let from_date =
+                            (Utc::now() - chrono::Duration::seconds(60 * 60 * 2)).date_naive();
+                        crawl_collector(c, Some(from_date))
                     })
                     .buffer_unordered(buffer_size);
 
                 info!("start scraping for {} collectors", &collectors.len());
                 while let Some(res) = stream.next().await {
+                    // opening db connection within the loop to reduce lock time
+                    let mut db =
+                        LocalBrokerDb::new(Some(config.local_db_file.clone()), false).unwrap();
                     match res {
                         Ok(items) => {
-                            db.insert_items(&items).unwrap();
+                            let _inserted = db.insert_items(&items).unwrap();
                         }
                         Err(e) => {
                             dbg!(e);

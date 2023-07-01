@@ -92,7 +92,7 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
 /// returns: String
 pub(crate) fn remove_trailing_slash(s: impl ToString) -> String {
     let mut s = s.to_string();
-    if s.ends_with("/") {
+    if s.ends_with('/') {
         s.pop();
     }
     s
