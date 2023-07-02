@@ -121,10 +121,28 @@ impl LocalBrokerDb {
         Ok(inserted)
     }
 
+    pub fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT MAX(ts_start) FROM items
+            "#,
+        )?;
+        let mut rows = statement.query([])?;
+        if let Some(row) = rows.next()? {
+            // the duckdb returns timestamp in microseconds (10^-6 seconds)
+            let ts_end: Option<i64> = row.get(0)?;
+            if let Some(ts_end) = ts_end {
+                dbg!(ts_end);
+                return Ok(Some(NaiveDateTime::from_timestamp_micros(ts_end).unwrap()));
+            }
+        }
+        Ok(None)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn search_items(
         &self,
-        collector_id: Option<String>,
+        collectors: Option<Vec<String>>,
         project: Option<String>,
         data_type: Option<String>,
         ts_start: Option<NaiveDateTime>,
@@ -133,15 +151,23 @@ impl LocalBrokerDb {
         page_size: Option<usize>,
     ) -> Result<Vec<BrokerItem>, BrokerError> {
         let mut where_clauses: Vec<String> = vec![];
-        if let Some(collector_id) = collector_id {
-            where_clauses.push(format!("collector_id = '{}'", collector_id));
+        if let Some(collectors) = collectors {
+            if !collectors.is_empty() {
+                let collectors_array_str = collectors
+                    .into_iter()
+                    .map(|c| format!("'{}'", c))
+                    .collect::<Vec<String>>()
+                    .join(",");
+
+                where_clauses.push(format!("list_has[{}], collector_id]", collectors_array_str));
+            }
         }
         if let Some(project) = project {
             match project.to_lowercase().as_str() {
                 "ris" | "riperis" | "ripe-ris" => {
                     where_clauses.push("collector_id like 'rrc%'".to_string());
                 }
-                "routeviews" | "rv" => {
+                "routeviews" | "rv" | "route-views" => {
                     where_clauses.push("collector_id like 'route-views%'".to_string());
                 }
                 _ => {
@@ -151,7 +177,6 @@ impl LocalBrokerDb {
                     )));
                 }
             }
-            where_clauses.push(format!("project = '{}'", project));
         }
         if let Some(data_type) = data_type {
             where_clauses.push(format!("data_type = '{}'", data_type));
@@ -168,27 +193,34 @@ impl LocalBrokerDb {
                 ts_end, ts_end
             ));
         }
-        let page = page.unwrap_or(0);
-        let page_size = page_size.unwrap_or(100);
-        let offset = page * page_size;
-        let limit = page_size;
+        let (limit, offset) = match (page, page_size) {
+            (Some(page), Some(page_size)) => (page_size, page_size * page),
+            (Some(page), None) => (100, 100 * page),
+            (None, Some(page_size)) => (page_size, 0),
+            (None, None) => (0, 0),
+        };
 
-        let mut stmt = self.conn.prepare(
-            format!(
-                r#"
+        let limit_clause = match limit {
+            0 => "".to_string(),
+            _ => format!("LIMIT {} OFFSET {}", limit, offset),
+        };
+
+        let query_string = format!(
+            r#"
             SELECT collector_id, epoch(ts_start), epoch(ts_end), data_type, url, rough_size, exact_size
             FROM items
-            WHERE {}
-            ORDER BY ts_start ASC
-            LIMIT {}
-            OFFSET {}
+            {}
+            ORDER BY data_type, ts_start ASC, collector_id
+            {}
             "#,
-                where_clauses.join(" AND "),
-                limit,
-                offset
-            )
-                .as_str(),
-        )?;
+            match where_clauses.len() {
+                0 => "".to_string(),
+                _ => format!("WHERE {}", where_clauses.join(" AND ")),
+            },
+            limit_clause,
+        );
+
+        let mut stmt = self.conn.prepare(query_string.as_str())?;
         let mut rows = stmt.query([])?;
         let mut items: Vec<BrokerItem> = vec![];
         while let Some(row) = rows.next()? {
@@ -244,13 +276,13 @@ mod tests {
         assert_eq!(inserted.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_search() {
+    #[test]
+    fn test_search() {
         let db = LocalBrokerDb::new_reader("broker-test.duckdb").unwrap();
 
         let items = db
             .search_items(
-                Some("route-views2".to_string()),
+                Some(vec!["route-views2".to_string()]),
                 None,
                 None,
                 None,
@@ -267,8 +299,8 @@ mod tests {
         assert!(items.iter().all(|item| item.data_type == "rib"));
     }
 
-    #[tokio::test]
-    async fn test_loop() {
+    #[test]
+    fn test_loop() {
         loop {
             let db = LocalBrokerDb::new_reader("broker-test.duckdb").unwrap();
             let _items = db
@@ -283,5 +315,12 @@ mod tests {
                 )
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn test_get_latest_ts() {
+        let db = LocalBrokerDb::new_reader("broker-test.duckdb").unwrap();
+        let ts = db.get_latest_timestamp().unwrap();
+        dbg!(ts);
     }
 }

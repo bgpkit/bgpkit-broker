@@ -2,7 +2,7 @@ use crate::crawler::common::{crawl_months_list, extract_link_size, remove_traili
 use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{NaiveDate, NaiveDateTime};
-use futures::stream::{FuturesOrdered, StreamExt};
+use futures::stream::StreamExt;
 use regex::Regex;
 use tracing::debug;
 
@@ -28,11 +28,12 @@ pub async fn crawl_routeviews(
     let collector_url = remove_trailing_slash(collector.url.as_str());
 
     let months_to_crawl = crawl_months_list(collector_url.as_str(), from_ts).await?;
-    let mut stream = FuturesOrdered::new();
-    for month in months_to_crawl {
+    let mut stream = futures::stream::iter(months_to_crawl.into_iter().map(|month| {
         let url = format!("{}/{}", collector_url.as_str(), month.format("%Y.%m/"));
-        stream.push_back(crawl_month(url, collector.id.clone()));
-    }
+        crawl_month(url, collector.id.clone())
+    }))
+    .buffer_unordered(10);
+
     let mut res = vec![];
     while let Some(result) = stream.next().await {
         let items = result?;

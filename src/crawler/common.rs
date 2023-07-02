@@ -169,9 +169,8 @@ pub(crate) async fn crawl_months_list(
     collector_root_url: &str,
     from_month: Option<NaiveDate>,
 ) -> Result<Vec<NaiveDate>, BrokerError> {
-    let rounded_month = from_month
-        .map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1))
-        .unwrap();
+    let rounded_month =
+        from_month.map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap());
 
     let month_link_pattern: Regex = Regex::new(r#"<a href="(....\...)/">.*"#).unwrap();
     let body = reqwest::get(collector_root_url).await?.text().await?;

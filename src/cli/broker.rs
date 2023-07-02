@@ -1,7 +1,9 @@
-use bgpkit_broker::{crawl_collector, load_collectors, BrokerConfig, LocalBrokerDb};
+use bgpkit_broker::cli::{process_search_query, BrokerConfig, BrokerSearchQuery};
+use bgpkit_broker::{crawl_collector, load_collectors, LocalBrokerDb};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
+use serde_json::json;
 use tokio::runtime::Runtime;
 use tracing::info;
 
@@ -23,10 +25,21 @@ enum Commands {
     Serve {},
 
     /// Update the Broker database, useful in cronjob
-    Update {},
+    Update {
+        /// bootstrap the database
+        #[clap(short, long)]
+        bootstrap: bool,
+
+        /// reset the database
+        #[clap(short, long)]
+        reset: bool,
+    },
 
     /// Search MRT files in Broker db
-    Search {},
+    Search {
+        #[clap(flatten)]
+        query: BrokerSearchQuery,
+    },
 }
 
 fn get_tokio_runtime() -> Runtime {
@@ -58,21 +71,42 @@ fn main() {
             // TODO: open with read-only mode
             // The service should serve via the exported parquet file instead of the database
         }
-        Commands::Update { .. } => {
+        Commands::Update { bootstrap, reset } => {
+            // create a tokio runtime
             let rt = get_tokio_runtime();
+
+            // get the latest data's date from the database
+            let latest_date = match {
+                let db = LocalBrokerDb::new(Some(config.local_db_file.clone()), reset).unwrap();
+                db.get_latest_timestamp().unwrap().map(|t| t.date())
+            } {
+                Some(t) => Some(t),
+                None => {
+                    if bootstrap {
+                        // if bootstrap is true and we have an empty database
+                        // we crawl data from earliest data available
+                        None
+                    } else {
+                        // if bootstrap is false and we have an empty database
+                        // we crawl data from 30 days ago
+                        Some(Utc::now().date_naive() - chrono::Duration::days(30))
+                    }
+                }
+            };
+
             rt.block_on(async {
                 // load all collectors from configuration file
                 let collectors = load_collectors(config.collectors_file.as_str()).unwrap();
 
-                // crawl all collectors in parallel, 10 collectors in parallel by default, unordered
-                let buffer_size = 10;
+                // crawl all collectors in parallel, 10 collectors in parallel by default, unordered.
+                // for bootstrapping (no data in db), we only crawl one collector at a time
+                let buffer_size = match latest_date {
+                    Some(_) => 10,
+                    None => 1,
+                };
+
                 let mut stream = futures::stream::iter(&collectors)
-                    .map(|c| {
-                        // use "two hours ago" as default from_ts to avoid missing data during the bordering days between months
-                        let from_date =
-                            (Utc::now() - chrono::Duration::seconds(60 * 60 * 2)).date_naive();
-                        crawl_collector(c, Some(from_date))
-                    })
+                    .map(|c| crawl_collector(c, latest_date))
                     .buffer_unordered(buffer_size);
 
                 info!("start scraping for {} collectors", &collectors.len());
@@ -92,6 +126,12 @@ fn main() {
                 }
             });
         }
-        Commands::Search { .. } => {}
+        Commands::Search { query } => {
+            let db = LocalBrokerDb::new_reader(config.local_db_file.as_str()).unwrap();
+            let items = process_search_query(query, &db).unwrap();
+
+            let val = json!(items);
+            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+        }
     }
 }

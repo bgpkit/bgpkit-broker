@@ -14,7 +14,8 @@ const EMPTY_CONFIG: &str = r#"### broker configuration file
 
 ### path to the file contains the list of collectors
 # collectors_file="https://spaces.bgpkit.org/broker/collectors.json"
-# local_db_file="~/.bgpkit_broker/broker.duckdb"
+# broker_db_local_path="~/.bgpkit/broker.duckdb"
+# broker_db_backup_path="~/.bgpkit/broker-backup.parquet"
 "#;
 
 impl BrokerConfig {
@@ -61,15 +62,13 @@ impl BrokerConfig {
             None => "https://spaces.bgpkit.org/broker/collectors.json".to_string(),
         };
 
-        let local_db_file = match config.get("local_db_file") {
+        let local_db_file = match config.get("broker_db_local_path") {
             Some(p) => {
                 let path = Path::new(p);
                 path.to_str().unwrap().to_string()
             }
             None => {
-                let dir = format!("{}/.broker/", dirs::home_dir().unwrap().to_str().unwrap());
-                std::fs::create_dir_all(dir.as_str()).unwrap();
-                format!("{}/broker.duckdb", dir.as_str())
+                format!("{}/broker.duckdb", bgpkit_config_dir.as_str())
             }
         };
 

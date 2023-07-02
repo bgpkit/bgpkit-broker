@@ -14,7 +14,7 @@ data sources.
 keywords = ["bgp", "bgpkit", "api"]
 
 [[bin]]
-path="src/bin/broker.rs"
+path= "src/cli/broker.rs"
 name="bgpkit-broker"
 required-features = ["cli"]
 
@@ -41,12 +41,13 @@ num_cpus = {version="1.15", optional=true}
 tracing-subscriber = {version="0.3", optional=true}
 config = {version = "0.13.1", features = ["toml"], optional=true}
 dirs = {version="5", optional=true}
+humantime = {version="2.1", optional = true}
 
 [features]
 default=["crawler", "cli", "db"]
 crawler = ["regex", "scraper", "tokio", "futures", "oneio"]
 db = ["duckdb"]
-cli = ["clap", "num_cpus", "tracing-subscriber", "config", "dirs"]
+cli = ["clap", "num_cpus", "tracing-subscriber", "config", "dirs", "humantime"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"
