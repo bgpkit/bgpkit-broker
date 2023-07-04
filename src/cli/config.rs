@@ -8,6 +8,9 @@ pub struct BrokerConfig {
 
     /// path to the db file that stores the broker data locally
     pub local_db_file: String,
+
+    /// path to the db file bootstrap parquet file
+    pub local_db_bootstrap_path: String,
 }
 
 const EMPTY_CONFIG: &str = r#"### broker configuration file
@@ -16,6 +19,7 @@ const EMPTY_CONFIG: &str = r#"### broker configuration file
 # collectors_file="https://spaces.bgpkit.org/broker/collectors.json"
 # broker_db_local_path="~/.bgpkit/broker.duckdb"
 # broker_db_backup_path="~/.bgpkit/broker-backup.parquet"
+# broker_db_bootstrap_path="https://data.bgpkit.com/broker/items.parquet"
 "#;
 
 impl BrokerConfig {
@@ -72,9 +76,15 @@ impl BrokerConfig {
             }
         };
 
+        let local_db_bootstrap_path = match config.get("broker_db_bootstrap_path") {
+            Some(p) => p.to_owned(),
+            None => "https://data.bgpkit.com/broker/items.parquet".to_string(),
+        };
+
         BrokerConfig {
             collectors_file,
             local_db_file,
+            local_db_bootstrap_path,
         }
     }
 }

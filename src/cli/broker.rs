@@ -75,22 +75,20 @@ fn main() {
             // create a tokio runtime
             let rt = get_tokio_runtime();
 
+            let db = LocalBrokerDb::new(config.local_db_file.as_str(), reset).unwrap();
+
+            if bootstrap {
+                db.bootstrap(config.local_db_bootstrap_path.as_str())
+                    .unwrap()
+            }
+
             // get the latest data's date from the database
-            let latest_date = match {
-                let db = LocalBrokerDb::new(Some(config.local_db_file.clone()), reset).unwrap();
-                db.get_latest_timestamp().unwrap().map(|t| t.date())
-            } {
+            let latest_date = match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
                 Some(t) => Some(t),
                 None => {
-                    if bootstrap {
-                        // if bootstrap is true and we have an empty database
-                        // we crawl data from earliest data available
-                        None
-                    } else {
-                        // if bootstrap is false and we have an empty database
-                        // we crawl data from 30 days ago
-                        Some(Utc::now().date_naive() - chrono::Duration::days(30))
-                    }
+                    // if bootstrap is false and we have an empty database
+                    // we crawl data from 30 days ago
+                    Some(Utc::now().date_naive() - chrono::Duration::days(30))
                 }
             };
 
@@ -105,15 +103,14 @@ fn main() {
                     None => 1,
                 };
 
+                info!("unordered buffer size is {}", buffer_size);
+
                 let mut stream = futures::stream::iter(&collectors)
                     .map(|c| crawl_collector(c, latest_date))
                     .buffer_unordered(buffer_size);
 
                 info!("start scraping for {} collectors", &collectors.len());
                 while let Some(res) = stream.next().await {
-                    // opening db connection within the loop to reduce lock time
-                    let mut db =
-                        LocalBrokerDb::new(Some(config.local_db_file.clone()), false).unwrap();
                     match res {
                         Ok(items) => {
                             let _inserted = db.insert_items(&items).unwrap();
@@ -127,7 +124,7 @@ fn main() {
             });
         }
         Commands::Search { query } => {
-            let db = LocalBrokerDb::new_reader(config.local_db_file.as_str()).unwrap();
+            let db = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
             let items = process_search_query(query, &db).unwrap();
 
             let val = json!(items);

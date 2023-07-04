@@ -102,7 +102,7 @@ pub fn process_search_query(
 
     let collectors = query
         .collectors
-        .map(|s| s.split(",").map(|s| s.trim().to_string()).collect());
+        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
 
     let items = db
         .search_items(

@@ -1,61 +1,50 @@
 use crate::{BrokerError, BrokerItem};
 use chrono::NaiveDateTime;
-use duckdb::{AccessMode, Config, Connection, Error, Row};
-use tracing::info;
+use duckdb::{AccessMode, Config, DuckdbConnectionManager, Row};
+use r2d2::Pool;
+use tracing::{debug, info};
 
+#[derive(Clone)]
 pub struct LocalBrokerDb {
-    conn: Connection,
+    reader_pool: Pool<DuckdbConnectionManager>,
+    writer_pool: Pool<DuckdbConnectionManager>,
 }
 
-fn open_db_with_retry(
-    path: &str,
-    read_only: bool,
-    wait_millis: u64,
-) -> Result<Connection, BrokerError> {
-    loop {
-        let config = Config::default().access_mode(if read_only {
-            AccessMode::ReadOnly
-        } else {
-            AccessMode::Automatic
-        })?;
-        let conn = match Connection::open_with_flags(path, config) {
-            Ok(c) => Some(c),
-            Err(err) => {
-                if let Error::DuckDBFailure(e, _msg) = &err {
-                    if e.extended_code == 1 {
-                        None
-                    } else {
-                        return Err(BrokerError::from(err));
-                    }
-                } else {
-                    return Err(BrokerError::from(err));
-                }
-            }
-        };
-        if let Some(conn) = conn {
-            return Ok(conn);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(wait_millis));
-    }
-}
+unsafe impl Send for LocalBrokerDb {}
+unsafe impl Sync for LocalBrokerDb {}
 
 impl LocalBrokerDb {
-    pub fn new(path: Option<String>, force_reset: bool) -> Result<Self, BrokerError> {
-        let conn = match path {
-            Some(path) => open_db_with_retry(&path, false, 100)?,
-            None => Connection::open_in_memory()?,
+    pub fn new(path: &str, force_reset: bool) -> Result<Self, BrokerError> {
+        let writer_config = Config::default().access_mode(AccessMode::ReadWrite)?;
+        let reader_config = Config::default().access_mode(AccessMode::ReadOnly)?;
+        let writer_manager = DuckdbConnectionManager::file_with_flags(path, writer_config).unwrap();
+        let reader_manager = DuckdbConnectionManager::file_with_flags(path, reader_config).unwrap();
+
+        let writer_pool = Pool::builder().max_size(1).build(writer_manager).unwrap();
+        let reader_pool = Pool::builder().max_size(20).build(reader_manager).unwrap();
+
+        let db = LocalBrokerDb {
+            reader_pool,
+            writer_pool,
         };
-
-        Self::create_table(&conn, force_reset)?;
-        Ok(LocalBrokerDb { conn })
+        db.create_table(force_reset).unwrap();
+        Ok(db)
     }
 
-    pub fn new_reader(path: &str) -> Result<Self, BrokerError> {
-        let conn = open_db_with_retry(path, true, 500)?;
-        Ok(LocalBrokerDb { conn })
+    /// Bootstrap from remote file
+    pub fn bootstrap(&self, path: &str) -> Result<(), BrokerError> {
+        self.create_table(true).unwrap();
+        let conn = self.writer_pool.get().unwrap();
+        info!("bootstrap from {}", path);
+        conn.execute(
+            format!("INSERT INTO items SELECT * FROM read_parquet('{}')", path).as_str(),
+            [],
+        )?;
+        Ok(())
     }
 
-    fn create_table(conn: &Connection, reset: bool) -> Result<(), BrokerError> {
+    fn create_table(&self, reset: bool) -> Result<(), BrokerError> {
+        let conn = self.writer_pool.get().unwrap();
         let create_statement = match reset {
             true => "CREATE OR REPLACE TABLE",
             false => "CREATE TABLE IF NOT EXISTS",
@@ -64,9 +53,9 @@ impl LocalBrokerDb {
             &format!(
                 r#"
         {} items (
-            collector_id TEXT,
             ts_start TIMESTAMP,
             ts_end TIMESTAMP,
+            collector_id TEXT,
             data_type TEXT,
             url TEXT,
             rough_size UBIGINT,
@@ -81,10 +70,8 @@ impl LocalBrokerDb {
         Ok(())
     }
 
-    pub fn insert_items(
-        &mut self,
-        items: &Vec<BrokerItem>,
-    ) -> Result<Vec<BrokerItem>, BrokerError> {
+    pub fn insert_items(&self, items: &Vec<BrokerItem>) -> Result<Vec<BrokerItem>, BrokerError> {
+        let conn = self.writer_pool.get().unwrap();
         info!("Inserting {} items...", items.len());
         let mut inserted: Vec<BrokerItem> = vec![];
         for batch in items.chunks(1000) {
@@ -104,7 +91,7 @@ impl LocalBrokerDb {
                 })
                 .collect::<Vec<String>>()
                 .join(", ");
-            let mut statement = self.conn.prepare(
+            let mut statement = conn.prepare(
                 &format!(
                     r#"INSERT OR IGNORE INTO items (collector_id, ts_start, ts_end, data_type, url, rough_size, exact_size) VALUES {}
                     RETURNING collector_id, epoch(ts_start), epoch(ts_end), data_type, url, rough_size, exact_size
@@ -122,7 +109,8 @@ impl LocalBrokerDb {
     }
 
     pub fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
-        let mut statement = self.conn.prepare(
+        let conn = self.reader_pool.get().unwrap();
+        let mut statement = conn.prepare(
             r#"
             SELECT MAX(ts_start) FROM items
             "#,
@@ -132,7 +120,6 @@ impl LocalBrokerDb {
             // the duckdb returns timestamp in microseconds (10^-6 seconds)
             let ts_end: Option<i64> = row.get(0)?;
             if let Some(ts_end) = ts_end {
-                dbg!(ts_end);
                 return Ok(Some(NaiveDateTime::from_timestamp_micros(ts_end).unwrap()));
             }
         }
@@ -159,7 +146,10 @@ impl LocalBrokerDb {
                     .collect::<Vec<String>>()
                     .join(",");
 
-                where_clauses.push(format!("list_has[{}], collector_id]", collectors_array_str));
+                where_clauses.push(format!(
+                    "list_has([{}], collector_id)",
+                    collectors_array_str
+                ));
             }
         }
         if let Some(project) = project {
@@ -220,7 +210,10 @@ impl LocalBrokerDb {
             limit_clause,
         );
 
-        let mut stmt = self.conn.prepare(query_string.as_str())?;
+        debug!("{}", query_string.as_str());
+        let conn = self.reader_pool.get().unwrap();
+
+        let mut stmt = conn.prepare(query_string.as_str())?;
         let mut rows = stmt.query([])?;
         let mut items: Vec<BrokerItem> = vec![];
         while let Some(row) = rows.next()? {
@@ -255,12 +248,12 @@ mod tests {
 
     #[test]
     fn test_new() {
-        LocalBrokerDb::new(Some("broker-test.duckdb".to_string()), true).unwrap();
+        LocalBrokerDb::new("broker-test.duckdb", true).unwrap();
     }
 
     #[tokio::test]
     async fn test_insert() {
-        let mut db = LocalBrokerDb::new(Some("broker-test.duckdb".to_string()), true).unwrap();
+        let mut db = LocalBrokerDb::new("broker-test.duckdb", true).unwrap();
         let two_months_ago = Utc::now().date_naive() - chrono::Duration::days(1);
         let collector = Collector {
             id: "route-views2".to_string(),
@@ -278,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_search() {
-        let db = LocalBrokerDb::new_reader("broker-test.duckdb").unwrap();
+        tracing_subscriber::fmt::init();
+        let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
 
         let items = db
             .search_items(
@@ -302,10 +296,10 @@ mod tests {
     #[test]
     fn test_loop() {
         loop {
-            let db = LocalBrokerDb::new_reader("broker-test.duckdb").unwrap();
+            let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
             let _items = db
                 .search_items(
-                    Some("route-views2".to_string()),
+                    Some(vec!["route-views2".to_string()]),
                     None,
                     None,
                     None,
@@ -319,8 +313,15 @@ mod tests {
 
     #[test]
     fn test_get_latest_ts() {
-        let db = LocalBrokerDb::new_reader("broker-test.duckdb").unwrap();
+        let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
         let ts = db.get_latest_timestamp().unwrap();
         dbg!(ts);
+    }
+
+    #[test]
+    fn test_bootstrap() {
+        tracing_subscriber::fmt::init();
+        let db = LocalBrokerDb::new("broker-test-bootstrap.duckdb", true).unwrap();
+        db.bootstrap("items.parquet").unwrap();
     }
 }
