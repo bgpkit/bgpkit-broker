@@ -189,22 +189,44 @@ impl LocalBrokerDb {
         if let Some(data_type) = data_type {
             where_clauses.push(format!("data_type = '{}'", data_type));
         }
-        if let Some(ts_start) = ts_start {
-            where_clauses.push(format!(
-                "(ts_end > '{}' OR ts_end='{}' and ts_start=ts_end)",
-                ts_start, ts_start
-            ));
-        }
-        if let Some(ts_end) = ts_end {
-            where_clauses.push(format!(
-                "(ts_start < '{}' OR ts_start='{}' and ts_start=ts_end)",
-                ts_end, ts_end
-            ));
+
+        match (ts_start, ts_end) {
+            (Some(ts_start), None) => {
+                where_clauses.push(format!(
+                    "(ts_end > '{}' OR ts_end='{}' and ts_start=ts_end)",
+                    ts_start, ts_start
+                ));
+            }
+            (None, Some(ts_end)) => {
+                where_clauses.push(format!(
+                    "(ts_start < '{}' OR ts_start='{}' and ts_start=ts_end)",
+                    ts_end, ts_end
+                ));
+            }
+            (Some(ts_start), Some(ts_end)) => {
+                if ts_start == ts_end {
+                    where_clauses.push(format!(
+                        "(ts_start <= '{}' AND (ts_end > '{}' OR ts_end>='{}' and ts_start=ts_end))",
+                        ts_start, ts_start, ts_start
+                    ));
+                } else {
+                    where_clauses.push(format!(
+                        "(ts_end > '{}' OR ts_end='{}' and ts_start=ts_end)",
+                        ts_start, ts_start
+                    ));
+                    where_clauses.push(format!(
+                        "(ts_start < '{}' OR ts_start='{}' and ts_start=ts_end)",
+                        ts_end, ts_end
+                    ));
+                }
+            }
+            (None, None) => {}
         }
 
+        // page starting from 1
         let (limit, offset) = match (page, page_size) {
-            (Some(page), Some(page_size)) => (page_size, page_size * page),
-            (Some(page), None) => (DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE * page),
+            (Some(page), Some(page_size)) => (page_size, page_size * (page - 1)),
+            (Some(page), None) => (DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE * (page - 1)),
             (None, Some(page_size)) => (page_size, 0),
             (None, None) => (0, 0),
         };
@@ -219,7 +241,7 @@ impl LocalBrokerDb {
             SELECT collector_id, epoch(ts_start), epoch(ts_end), data_type, url, rough_size, exact_size
             FROM items
             {}
-            ORDER BY data_type, ts_start ASC, collector_id
+            ORDER BY ts_start ASC, data_type, collector_id
             {}
             "#,
             match where_clauses.len() {

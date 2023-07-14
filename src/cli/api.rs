@@ -54,7 +54,7 @@ impl BrokerAPI {
         /// filter by data types, i.e. `update`, `rib`.
         data_type: Query<Option<String>>,
 
-        /// page number
+        /// page number, default to 1
         page: Query<Option<usize>>,
 
         /// page size
@@ -62,7 +62,16 @@ impl BrokerAPI {
 
         database: Data<&LocalBrokerDb>,
     ) -> BrokerSearchResponse {
-        let (page, page_size) = (page.unwrap_or(0), page_size.unwrap_or(DEFAULT_PAGE_SIZE));
+        let (page, page_size) = (page.unwrap_or(1), page_size.unwrap_or(DEFAULT_PAGE_SIZE));
+        if page == 0 {
+            return BadRequestResponse(Json(BrokerSearchResult {
+                count: 0,
+                page,
+                page_size,
+                error: Some("page number start from 1".to_string()),
+                data: vec![],
+            }));
+        }
 
         let mut ts_start = ts_start.0.map(|s| parse_time_str(s.as_str()).unwrap());
         let mut ts_end = ts_end.0.map(|s| parse_time_str(s.as_str()).unwrap());
