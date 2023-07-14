@@ -8,8 +8,7 @@ pub const DEFAULT_PAGE_SIZE: usize = 100;
 
 #[derive(Clone)]
 pub struct LocalBrokerDb {
-    reader_pool: Pool<DuckdbConnectionManager>,
-    writer_pool: Pool<DuckdbConnectionManager>,
+    conn_pool: Pool<DuckdbConnectionManager>,
 }
 
 unsafe impl Send for LocalBrokerDb {}
@@ -17,20 +16,12 @@ unsafe impl Sync for LocalBrokerDb {}
 
 impl LocalBrokerDb {
     pub fn new(path: &str, force_reset: bool) -> Result<Self, BrokerError> {
-        let writer_config = Config::default()
-            .access_mode(AccessMode::ReadWrite)?
-            .threads(1)?;
-        let reader_config = Config::default().access_mode(AccessMode::ReadOnly)?;
+        info!("open local broker db at {}", path);
+        let writer_config = Config::default().access_mode(AccessMode::ReadWrite)?;
         let writer_manager = DuckdbConnectionManager::file_with_flags(path, writer_config).unwrap();
-        let reader_manager = DuckdbConnectionManager::file_with_flags(path, reader_config).unwrap();
+        let conn_pool = Pool::builder().max_size(20).build(writer_manager).unwrap();
 
-        let writer_pool = Pool::builder().max_size(1).build(writer_manager).unwrap();
-        let reader_pool = Pool::builder().max_size(20).build(reader_manager).unwrap();
-
-        let db = LocalBrokerDb {
-            reader_pool,
-            writer_pool,
-        };
+        let db = LocalBrokerDb { conn_pool };
         db.create_table(force_reset).unwrap();
         Ok(db)
     }
@@ -38,7 +29,7 @@ impl LocalBrokerDb {
     /// Bootstrap from remote file
     pub fn bootstrap(&self, path: &str) -> Result<(), BrokerError> {
         self.create_table(true).unwrap();
-        let conn = self.writer_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
         info!("bootstrap from {}", path);
         conn.execute(
             format!("INSERT INTO items SELECT * FROM read_parquet('{}')", path).as_str(),
@@ -48,7 +39,7 @@ impl LocalBrokerDb {
     }
 
     fn create_table(&self, reset: bool) -> Result<(), BrokerError> {
-        let conn = self.writer_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
         let create_statement = match reset {
             true => "CREATE OR REPLACE TABLE",
             false => "CREATE TABLE IF NOT EXISTS",
@@ -75,7 +66,7 @@ impl LocalBrokerDb {
     }
 
     pub fn insert_items(&self, items: &Vec<BrokerItem>) -> Result<Vec<BrokerItem>, BrokerError> {
-        let conn = self.writer_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
         debug!("Inserting {} items...", items.len());
         let mut inserted: Vec<BrokerItem> = vec![];
         for batch in items.chunks(1000) {
@@ -113,7 +104,7 @@ impl LocalBrokerDb {
     }
 
     pub fn export_parquet(&self, path: &str) -> Result<(), BrokerError> {
-        let conn = self.reader_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
         conn.execute(
             format!(
                 "COPY (select * from items) TO '{}' (FORMAT 'parquet')",
@@ -127,7 +118,7 @@ impl LocalBrokerDb {
 
     /// get the latest timestamp (ts_start) of data entries in broker database
     pub fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
-        let conn = self.reader_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
         let mut statement = conn.prepare(
             r#"
             SELECT MAX(ts_start) FROM items
@@ -252,7 +243,7 @@ impl LocalBrokerDb {
         );
 
         debug!("{}", query_string.as_str());
-        let conn = self.reader_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
 
         let mut stmt = conn.prepare(query_string.as_str())?;
         let mut rows = stmt.query([])?;
@@ -270,7 +261,7 @@ impl LocalBrokerDb {
         SELECT collector_id, epoch(ts_start), epoch(ts_end), data_type, url, rough_size, exact_size
         FROM items JOIN urls ON items.url = urls.max_url;
         "#;
-        let conn = self.reader_pool.get().unwrap();
+        let conn = self.conn_pool.get().unwrap();
 
         let mut stmt = conn.prepare(query_string)?;
         let mut rows = stmt.query([])?;

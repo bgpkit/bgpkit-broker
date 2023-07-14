@@ -2,7 +2,7 @@ use crate::BrokerError;
 use oneio::OneIoError;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collector {
     pub id: String,
     pub project: String,

@@ -5,7 +5,7 @@ mod search;
 use crate::config::BrokerConfig;
 
 use crate::api::start_api_service;
-use bgpkit_broker::{crawl_collector, load_collectors, LocalBrokerDb};
+use bgpkit_broker::{crawl_collector, load_collectors, Collector, LocalBrokerDb};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
@@ -47,11 +47,11 @@ enum Commands {
 
         /// disable updater service
         #[clap(long, group = "disable")]
-        disable_updater: bool,
+        no_updater: bool,
 
         /// disable API service
         #[clap(long, group = "disable")]
-        disable_api: bool,
+        no_api: bool,
     },
 
     /// Update the Broker database, useful in cronjob
@@ -71,11 +71,6 @@ enum Commands {
 }
 
 fn get_tokio_runtime() -> Runtime {
-    // configure async runtime
-    // let blocking_cpus = match num_cpus::get() {
-    //     1 => 1,
-    //     n => n,
-    // };
     let blocking_cpus = num_cpus::get();
 
     debug!("using {} cores for parsing html pages", blocking_cpus);
@@ -85,6 +80,48 @@ fn get_tokio_runtime() -> Runtime {
         .build()
         .unwrap();
     rt
+}
+
+async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
+    let latest_date = match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
+        Some(t) => Some(t),
+        None => {
+            // if bootstrap is false and we have an empty database
+            // we crawl data from 30 days ago
+            Some(Utc::now().date_naive() - chrono::Duration::days(30))
+        }
+    };
+
+    // crawl all collectors in parallel, 10 collectors in parallel by default, unordered.
+    // for bootstrapping (no data in db), we only crawl one collector at a time
+    let buffer_size = match latest_date {
+        Some(_) => 5,
+        None => 1,
+    };
+
+    debug!("unordered buffer size is {}", buffer_size);
+
+    let mut stream = futures::stream::iter(&collectors)
+        .map(|c| crawl_collector(c, latest_date))
+        .buffer_unordered(buffer_size);
+
+    info!(
+        "start updating broker database for {} collectors",
+        &collectors.len()
+    );
+    while let Some(res) = stream.next().await {
+        let db = db.clone();
+        match res {
+            Ok(items) => {
+                let _inserted = db.insert_items(&items).unwrap();
+            }
+            Err(e) => {
+                dbg!(e);
+                break;
+            }
+        }
+    }
+    info!("finished updating broker database");
 }
 
 fn main() {
@@ -101,15 +138,21 @@ fn main() {
         Commands::Serve {
             update_interval,
             api_socket,
-            disable_updater,
-            disable_api,
+            no_updater,
+            no_api,
         } => {
-            let database = LocalBrokerDb::new("broker.duckdb", false).unwrap();
+            // TODO: prompt user to confirm if want to bootstrap database
+
+            let database = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
             let db = database.clone();
 
-            if !disable_updater {
+            if !no_updater {
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
+
+                    // load all collectors from configuration file
+                    let collectors = load_collectors(config.collectors_file.as_str()).unwrap();
+
                     rt.block_on(async {
                         let mut interval =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
@@ -117,50 +160,7 @@ fn main() {
                         loop {
                             interval.tick().await;
 
-                            let latest_date =
-                                match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
-                                    Some(t) => Some(t),
-                                    None => {
-                                        // if bootstrap is false and we have an empty database
-                                        // we crawl data from 30 days ago
-                                        Some(Utc::now().date_naive() - chrono::Duration::days(30))
-                                    }
-                                };
-
-                            // load all collectors from configuration file
-                            let collectors =
-                                load_collectors(config.collectors_file.as_str()).unwrap();
-
-                            // crawl all collectors in parallel, 10 collectors in parallel by default, unordered.
-                            // for bootstrapping (no data in db), we only crawl one collector at a time
-                            let buffer_size = match latest_date {
-                                Some(_) => 5,
-                                None => 1,
-                            };
-
-                            debug!("unordered buffer size is {}", buffer_size);
-
-                            let mut stream = futures::stream::iter(&collectors)
-                                .map(|c| crawl_collector(c, latest_date))
-                                .buffer_unordered(buffer_size);
-
-                            info!(
-                                "start updating broker database for {} collectors",
-                                &collectors.len()
-                            );
-                            while let Some(res) = stream.next().await {
-                                let db = db.clone();
-                                match res {
-                                    Ok(items) => {
-                                        let _inserted = db.insert_items(&items).unwrap();
-                                    }
-                                    Err(e) => {
-                                        dbg!(e);
-                                        break;
-                                    }
-                                }
-                            }
-                            info!("finished updating broker database");
+                            update_database(db.clone(), collectors.clone()).await;
 
                             info!("wait for {} seconds before next update", update_interval);
                         }
@@ -168,7 +168,7 @@ fn main() {
                 });
             }
 
-            if !disable_api {
+            if !no_api {
                 let rt = get_tokio_runtime();
                 rt.block_on(async {
                     start_api_service(database.clone(), api_socket.as_str())
@@ -195,57 +195,12 @@ fn main() {
             let rt = get_tokio_runtime();
 
             let db = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
-            // get the latest data's date from the database
-            let latest_date = match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
-                Some(t) => Some(t),
-                None => {
-                    // if bootstrap is false and we have an empty database
-                    // we crawl data from 30 days ago
-                    Some(Utc::now().date_naive() - chrono::Duration::days(30))
-                }
-            };
+            // load all collectors from configuration file
+            let collectors = load_collectors(config.collectors_file.as_str()).unwrap();
 
             rt.block_on(async {
-                // load all collectors from configuration file
-                let collectors = load_collectors(config.collectors_file.as_str()).unwrap();
-
-                // crawl all collectors in parallel, 10 collectors in parallel by default, unordered.
-                // for bootstrapping (no data in db), we only crawl one collector at a time
-                let buffer_size = match latest_date {
-                    Some(_) => 10,
-                    None => 1,
-                };
-
-                debug!("unordered buffer size is {}", buffer_size);
-
-                let mut stream = futures::stream::iter(&collectors)
-                    .map(|c| crawl_collector(c, latest_date))
-                    .buffer_unordered(buffer_size);
-
-                info!(
-                    "start updating broker database for {} collectors",
-                    &collectors.len()
-                );
-                while let Some(res) = stream.next().await {
-                    let db = db.clone();
-                    match res {
-                        Ok(items) => {
-                            let _inserted = db.insert_items(&items).unwrap();
-                        }
-                        Err(e) => {
-                            dbg!(e);
-                            break;
-                        }
-                    }
-                }
-                info!("finished updating broker database")
+                update_database(db, collectors).await;
             });
-        } // Commands::Search { query } => {
-          //     let db = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
-          //     let items = process_search_query(query, &db).unwrap();
-          //
-          //     let val = json!(items);
-          //     println!("{}", serde_json::to_string_pretty(&val).unwrap());
-          // }
+        }
     }
 }
