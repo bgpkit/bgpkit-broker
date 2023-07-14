@@ -4,7 +4,7 @@ mod riperis;
 mod routeviews;
 
 use chrono::NaiveDate;
-use log::info;
+use tracing::debug;
 
 // public interface
 use crate::{BrokerError, BrokerItem};
@@ -17,13 +17,13 @@ pub async fn crawl_collector(
     collector: &Collector,
     from_ts: Option<NaiveDate>,
 ) -> Result<Vec<BrokerItem>, BrokerError> {
-    info!("crawl collector {} from {:?}", &collector.id, from_ts);
+    debug!("crawl collector {} from {:?}", &collector.id, from_ts);
     let items = match collector.project.as_str() {
         "riperis" => crawl_ripe_ris(collector, from_ts).await,
         "routeviews" => crawl_routeviews(collector, from_ts).await,
         _ => panic!("unknown project {}", collector.project),
     };
-    info!(
+    debug!(
         "crawl collector {} from {:?}... done",
         &collector.id, from_ts
     );

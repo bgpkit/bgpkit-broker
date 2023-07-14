@@ -1,6 +1,6 @@
 //! Query-related structs and implementation.
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use serde::{Serialize, Deserialize};
 
 /// QueryParams represents the query parameters to the backend API.
 ///
@@ -48,20 +48,20 @@ pub enum SortOrder {
     /// `ASC` -> sort by increasing on timestamp
     ASC,
     /// `DESC` -> sort by decreasing on timestamp
-    DESC
+    DESC,
 }
 
 /// Default [QueryParams] values
 impl Default for QueryParams {
     fn default() -> Self {
-        QueryParams{
+        QueryParams {
             ts_start: None,
             ts_end: None,
             collector_id: None,
             project: None,
             data_type: None,
             page: 1,
-            page_size: 100
+            page_size: 100,
         }
     }
 }
@@ -69,8 +69,12 @@ impl Default for QueryParams {
 impl Display for SortOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SortOrder::ASC => {write!(f, "asc")}
-            SortOrder::DESC => {write!(f, "desc")}
+            SortOrder::ASC => {
+                write!(f, "asc")
+            }
+            SortOrder::DESC => {
+                write!(f, "desc")
+            }
         }
     }
 }
@@ -106,14 +110,14 @@ impl Display for QueryParams {
 
 impl QueryParams {
     pub fn new() -> QueryParams {
-        QueryParams{
+        QueryParams {
             ts_start: None,
             ts_end: None,
             collector_id: None,
             project: None,
             data_type: None,
             page: 1,
-            page_size: 10
+            page_size: 10,
         }
     }
 
@@ -124,8 +128,11 @@ impl QueryParams {
     /// let mut params = QueryParams::new();
     /// params = params.ts_start("1633046400");
     /// ```
-    pub fn ts_start(self, ts_start:&str) -> Self {
-        QueryParams{ ts_start: Some(ts_start.to_string()), ..self}
+    pub fn ts_start(self, ts_start: &str) -> Self {
+        QueryParams {
+            ts_start: Some(ts_start.to_string()),
+            ..self
+        }
     }
 
     /// set ending timestamp for the search and returns a new [QueryParams] object.
@@ -136,7 +143,10 @@ impl QueryParams {
     /// params = params.ts_end("1633046400");
     /// ```
     pub fn ts_end(self, ts_end: &str) -> Self {
-        QueryParams{ ts_end: Some(ts_end.to_string()), ..self}
+        QueryParams {
+            ts_end: Some(ts_end.to_string()),
+            ..self
+        }
     }
 
     /// set page number for the each for pagination. **the page number starts from 1**.
@@ -146,8 +156,8 @@ impl QueryParams {
     /// let mut params = QueryParams::new();
     /// params = params.page(3);
     /// ```
-    pub fn page(self, page:i64) -> Self {
-        QueryParams{ page, ..self}
+    pub fn page(self, page: i64) -> Self {
+        QueryParams { page, ..self }
     }
 
     /// set each page's size (number of items per page).
@@ -157,8 +167,8 @@ impl QueryParams {
     /// let mut params = QueryParams::new();
     /// params = params.page_size(20);
     /// ```
-    pub fn page_size(self, page_size:i64) -> Self {
-        QueryParams{ page_size, ..self}
+    pub fn page_size(self, page_size: i64) -> Self {
+        QueryParams { page_size, ..self }
     }
 
     /// set the type of data to search for:
@@ -171,8 +181,11 @@ impl QueryParams {
     /// let mut params = QueryParams::new();
     /// params = params.data_type("rib");
     /// ```
-    pub fn data_type(self, data_type:&str) -> Self {
-        QueryParams{ data_type: Some(data_type.to_string()), ..self}
+    pub fn data_type(self, data_type: &str) -> Self {
+        QueryParams {
+            data_type: Some(data_type.to_string()),
+            ..self
+        }
     }
 
     /// set searching for only data from specific project:
@@ -184,8 +197,11 @@ impl QueryParams {
     /// let mut params = QueryParams::new();
     /// params = params.project("routeviews");
     /// ```
-    pub fn project(self, project:&str) -> Self {
-        QueryParams{ project: Some(project.to_string()), ..self}
+    pub fn project(self, project: &str) -> Self {
+        QueryParams {
+            project: Some(project.to_string()),
+            ..self
+        }
     }
 
     /// set searching for only data from specific collector,
@@ -196,8 +212,11 @@ impl QueryParams {
     /// let mut params = QueryParams::new();
     /// params = params.collector_id("rrc00");
     /// ```
-    pub fn collector_id(self, collector_id:&str) -> Self {
-        QueryParams{ collector_id: Some(collector_id.to_string()), ..self}
+    pub fn collector_id(self, collector_id: &str) -> Self {
+        QueryParams {
+            collector_id: Some(collector_id.to_string()),
+            ..self
+        }
     }
 }
 
@@ -211,7 +230,8 @@ impl QueryParams {
 /// - [url][BrokerItem::url]: the URL to the data item file
 /// - [rough_size][BrokerItem::rough_size]: rough file size extracted from the collector webpage
 /// - [exact_size][BrokerItem::exact_size]: exact file size extracted by crawling the file
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "api", derive(poem_openapi::Object))]
 pub struct BrokerItem {
     /// start timestamp
     pub ts_start: chrono::NaiveDateTime,
@@ -229,14 +249,13 @@ pub struct BrokerItem {
     pub exact_size: i64,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CollectorLatestResult {
     /// total number of items
     pub count: u32,
 
     /// array of [CollectorLatestItem]
-    pub data: Vec<CollectorLatestItem>
+    pub data: Vec<CollectorLatestItem>,
 }
 
 /// BGPKIT Broker collector latest data item.
@@ -309,26 +328,29 @@ mod tests {
 
     #[test]
     fn test_param_to_string() {
-        let param = QueryParams{
+        let param = QueryParams {
             ts_start: Some("1".to_string()),
             ts_end: Some("2".to_string()),
             collector_id: None,
             project: Some("test_project".to_string()),
             data_type: None,
             page: 1,
-            page_size: 20
+            page_size: 20,
         };
 
-        assert_eq!("?ts_start=1&ts_end=2&project=test_project&page=1&page_size=20".to_string(), param.to_string());
+        assert_eq!(
+            "?ts_start=1&ts_end=2&project=test_project&page=1&page_size=20".to_string(),
+            param.to_string()
+        );
 
-        let param = QueryParams{
+        let param = QueryParams {
             ts_start: None,
             ts_end: None,
             collector_id: None,
             project: None,
             data_type: None,
             page: 1,
-            page_size: 20
+            page_size: 20,
         };
 
         assert_eq!("?page=1&page_size=20".to_string(), param.to_string());

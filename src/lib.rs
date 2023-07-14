@@ -80,8 +80,6 @@ for item in broker.latest().unwrap() {
 ```
 */
 
-#[cfg(feature = "cli")]
-pub mod cli;
 #[cfg(feature = "crawler")]
 mod crawler;
 #[cfg(feature = "db")]
@@ -94,7 +92,7 @@ use crate::query::{CollectorLatestResult, QueryResult};
 #[cfg(feature = "crawler")]
 pub use crawler::{crawl_collector, load_collectors, Collector};
 #[cfg(feature = "db")]
-pub use db::LocalBrokerDb;
+pub use db::{LocalBrokerDb, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
 pub use query::{BrokerItem, CollectorLatestItem, QueryParams, SortOrder};
 
