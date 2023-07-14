@@ -1,3 +1,7 @@
 /target
 Cargo.lock
 .idea
+
+*.sqlite3*
+*.duckdb*
+*.parquet
