@@ -53,10 +53,10 @@ enum Commands {
         no_api: bool,
     },
 
-    /// Update the Broker database, useful in cronjob
+    /// Update the Broker database
     Update {},
 
-    /// Bootstrap the Broker database, useful in cronjob
+    /// Bootstrap the Broker database
     Bootstrap { path: Option<String> },
 
     /// Export broker database to parquet file
