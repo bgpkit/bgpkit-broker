@@ -41,7 +41,7 @@ enum Commands {
         update_interval: u64,
 
         /// API socket address
-        #[clap(short = 's', long, default_value = "0.0.0.0:3000")]
+        #[clap(short = 's', long, default_value = "0.0.0.0:40064")]
         api_socket: String,
 
         /// disable updater service
