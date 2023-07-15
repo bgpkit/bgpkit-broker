@@ -3,7 +3,7 @@ use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{Duration, NaiveDateTime};
 use clap::Args;
 use poem::listener::TcpListener;
-use poem::middleware::AddData;
+use poem::middleware::{AddData, Cors};
 use poem::web::Data;
 use poem::{handler, EndpointExt, Route, Server};
 use poem_openapi::{param::Query, payload::Json, ApiResponse, Object, OpenApi, OpenApiService};
@@ -231,10 +231,12 @@ pub async fn start_api_service(database: LocalBrokerDb, socket_addr: &str) -> st
     let api_service = OpenApiService::new(BrokerAPI, "BGPKIT Broker", "3.0.0").server("/");
     let ui = api_service.swagger_ui();
 
+    let cors = Cors::new().allow_methods(vec!["GET"]).allow_origin("*");
     let route = Route::new()
         .nest("/", api_service)
         .nest("/docs", ui)
-        .with(AddData::new(database));
+        .with(AddData::new(database))
+        .with(cors);
 
     Server::new(TcpListener::bind(socket_addr)).run(route).await
 }
