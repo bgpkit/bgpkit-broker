@@ -1,7 +1,8 @@
 use crate::{BrokerError, BrokerItem};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Utc};
 use duckdb::{AccessMode, Config, DuckdbConnectionManager, Row};
 use r2d2::Pool;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
@@ -9,6 +10,17 @@ pub const DEFAULT_PAGE_SIZE: usize = 100;
 #[derive(Clone)]
 pub struct LocalBrokerDb {
     conn_pool: Pool<DuckdbConnectionManager>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "api", derive(poem_openapi::Object))]
+pub struct UpdatesMeta {
+    /// database update timestamp
+    pub update_ts: NaiveDateTime,
+    /// database update duration in seconds
+    pub update_duration: i32,
+    /// number of items inserted
+    pub insert_count: i32,
 }
 
 unsafe impl Send for LocalBrokerDb {}
@@ -62,6 +74,20 @@ impl LocalBrokerDb {
             ),
             [],
         )?;
+
+        conn.execute(
+            &format!(
+                r#"
+        {} updates_meta (
+            update_ts TIMESTAMP,
+            update_duration INTEGER,
+            insert_count INTEGER,
+        )
+        "#,
+                create_statement
+            ),
+            [],
+        )?;
         Ok(())
     }
 
@@ -101,6 +127,45 @@ impl LocalBrokerDb {
         }
         debug!("Inserted {} items", inserted.len());
         Ok(inserted)
+    }
+
+    pub fn insert_meta(
+        &self,
+        crawl_duration: i32,
+        item_inserted: i32,
+    ) -> Result<Vec<UpdatesMeta>, BrokerError> {
+        let conn = self.conn_pool.get().unwrap();
+        let mut inserted = vec![];
+        debug!("Inserting updates_meta...");
+        let now_ts = Utc::now().naive_utc();
+        let mut statement = conn.prepare(&format!(
+            r#"
+            INSERT INTO updates_meta (update_ts, update_duration, insert_count) 
+            VALUES ('{}', {}, {})
+            RETURNING epoch(update_ts), update_duration, insert_count
+            "#,
+            now_ts, crawl_duration, item_inserted
+        ))?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            inserted.push(row.into());
+        }
+        Ok(inserted)
+    }
+
+    pub fn get_latest_updates_meta(&self) -> Result<Option<UpdatesMeta>, BrokerError> {
+        let conn = self.conn_pool.get().unwrap();
+        let mut statement = conn.prepare(
+            r#"
+            SELECT epoch(update_ts), update_duration, insert_count FROM updates_meta ORDER BY update_ts DESC LIMIT 1;
+            "#,
+        )?;
+        let mut rows = statement.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn export_parquet(&self, path: &str) -> Result<(), BrokerError> {
@@ -291,6 +356,16 @@ impl From<&Row<'_>> for BrokerItem {
     }
 }
 
+impl From<&Row<'_>> for UpdatesMeta {
+    fn from(row: &Row) -> Self {
+        UpdatesMeta {
+            update_ts: NaiveDateTime::from_timestamp_opt(row.get::<_, i64>(0).unwrap(), 0).unwrap(),
+            update_duration: row.get(1).unwrap(),
+            insert_count: row.get(2).unwrap(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,5 +456,13 @@ mod tests {
         tracing_subscriber::fmt::init();
         let db = LocalBrokerDb::new("broker-test-bootstrap.duckdb", true).unwrap();
         db.bootstrap("items.parquet").unwrap();
+    }
+
+    #[test]
+    fn test_get_meta() {
+        tracing_subscriber::fmt::init();
+        let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false).unwrap();
+        let meta = db.get_latest_updates_meta().unwrap();
+        dbg!(meta);
     }
 }

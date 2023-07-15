@@ -82,6 +82,7 @@ fn get_tokio_runtime() -> Runtime {
 }
 
 async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
+    let now = Utc::now();
     let latest_date = match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
         Some(t) => Some(t),
         None => {
@@ -108,11 +109,13 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
         "start updating broker database for {} collectors",
         &collectors.len()
     );
+    let mut total_inserted_count = 0;
     while let Some(res) = stream.next().await {
         let db = db.clone();
         match res {
             Ok(items) => {
-                let _inserted = db.insert_items(&items).unwrap();
+                let inserted = db.insert_items(&items).unwrap();
+                total_inserted_count += inserted.len();
             }
             Err(e) => {
                 dbg!(e);
@@ -120,6 +123,11 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
             }
         }
     }
+
+    let duration = Utc::now() - now;
+    // update meta timestamp
+    db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
+        .unwrap();
     info!("finished updating broker database");
 }
 

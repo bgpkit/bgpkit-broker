@@ -54,6 +54,13 @@ struct BrokerSearchResult {
     page_size: usize,
     error: Option<String>,
     data: Vec<BrokerItem>,
+    meta: Option<Meta>,
+}
+
+#[derive(Object, Serialize, Deserialize, Clone, Debug)]
+struct Meta {
+    latest_update_ts: NaiveDateTime,
+    latest_update_duration: i32,
 }
 
 #[derive(ApiResponse)]
@@ -106,6 +113,7 @@ impl BrokerAPI {
                 page_size,
                 error: Some("page number start from 1".to_string()),
                 data: vec![],
+                meta: None,
             }));
         }
 
@@ -129,6 +137,7 @@ impl BrokerAPI {
                                     duration_str
                                 )),
                                 data: vec![],
+                                meta: None,
                             }))
                         }
                     }
@@ -150,6 +159,7 @@ impl BrokerAPI {
                                     duration_str
                                 )),
                                 data: vec![],
+                                meta: None,
                             }))
                         }
                     }
@@ -174,12 +184,20 @@ impl BrokerAPI {
             )
             .unwrap();
 
+        let meta = database
+            .get_latest_updates_meta()
+            .unwrap()
+            .map(|data| Meta {
+                latest_update_ts: data.update_ts,
+                latest_update_duration: data.update_duration,
+            });
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
             page,
             page_size,
             error: None,
             data: items,
+            meta,
         }))
     }
 
@@ -188,6 +206,13 @@ impl BrokerAPI {
     #[oai(path = "/latest", method = "get")]
     async fn latest(&self, database: Data<&LocalBrokerDb>) -> BrokerSearchResponse {
         let items = database.get_latest_items().unwrap();
+        let meta = database
+            .get_latest_updates_meta()
+            .unwrap()
+            .map(|data| Meta {
+                latest_update_ts: data.update_ts,
+                latest_update_duration: data.update_duration,
+            });
 
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
@@ -195,6 +220,7 @@ impl BrokerAPI {
             page_size: items.len(),
             error: None,
             data: items,
+            meta,
         }))
     }
 }
