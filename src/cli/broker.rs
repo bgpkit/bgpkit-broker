@@ -1,6 +1,5 @@
 mod api;
 mod config;
-mod search;
 
 use crate::config::BrokerConfig;
 
@@ -42,7 +41,7 @@ enum Commands {
         update_interval: u64,
 
         /// API socket address
-        #[clap(short = 's', long, default_value = "127.0.0.1:3000")]
+        #[clap(short = 's', long, default_value = "0.0.0.0:3000")]
         api_socket: String,
 
         /// disable updater service

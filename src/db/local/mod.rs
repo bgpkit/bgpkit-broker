@@ -259,7 +259,8 @@ impl LocalBrokerDb {
         let query_string = r#"
         WITH urls AS (SELECT arg_max(url, ts_start) AS max_url FROM items GROUP BY collector_id, data_type)
         SELECT collector_id, epoch(ts_start), epoch(ts_end), data_type, url, rough_size, exact_size
-        FROM items JOIN urls ON items.url = urls.max_url;
+        FROM items JOIN urls ON items.url = urls.max_url
+        ORDER BY collector_id, data_type;
         "#;
         let conn = self.conn_pool.get().unwrap();
 
