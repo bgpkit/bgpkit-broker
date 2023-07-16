@@ -88,6 +88,7 @@ mod error;
 mod query;
 
 use crate::query::{CollectorLatestResult, QueryResult};
+use std::fmt::Display;
 
 #[cfg(feature = "crawler")]
 pub use crawler::{crawl_collector, load_collectors, Collector};
@@ -139,7 +140,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .broker_url("api.broker.example.com/v3");
     /// ```
-    pub fn broker_url(self, url: &str) -> Self {
+    pub fn broker_url<S: Display>(self, url: S) -> Self {
         Self {
             broker_url: url.to_string(),
             query_params: self.query_params,
@@ -173,7 +174,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_start("2022-01-01T00:00:00Z");
     /// ```
-    pub fn ts_start(self, ts_start: &str) -> Self {
+    pub fn ts_start<S: Display>(self, ts_start: S) -> Self {
         let mut query_params = self.query_params;
         query_params.ts_start = Some(ts_start.to_string());
         Self {
@@ -198,7 +199,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_end("2022-01-01T00:00:00Z");
     /// ```
-    pub fn ts_end(self, ts_end: &str) -> Self {
+    pub fn ts_end<S: Display>(self, ts_end: S) -> Self {
         let mut query_params = self.query_params;
         query_params.ts_end = Some(ts_end.to_string());
         Self {
@@ -223,7 +224,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .collector_id("route-views2");
     /// ```
-    pub fn collector_id(self, collector_id: &str) -> Self {
+    pub fn collector_id<S: Display>(self, collector_id: S) -> Self {
         let mut query_params = self.query_params;
         query_params.collector_id = Some(collector_id.to_string());
         Self {
@@ -246,7 +247,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .project("routeviews");
     ///```
-    pub fn project(self, project: &str) -> Self {
+    pub fn project<S: Display>(self, project: S) -> Self {
         let mut query_params = self.query_params;
         query_params.project = Some(project.to_string());
         Self {
@@ -269,7 +270,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .data_type("update");
     /// ```
-    pub fn data_type(self, data_type: &str) -> Self {
+    pub fn data_type<S: Display>(self, data_type: S) -> Self {
         let mut query_params = self.query_params;
         query_params.data_type = Some(data_type.to_string());
         Self {
@@ -350,6 +351,34 @@ impl BgpkitBroker {
         match self.run_query(url.as_str()) {
             Ok(res) => Ok(res),
             Err(e) => Err(e),
+        }
+    }
+
+    /// Check if the broker instance is healthy.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new();
+    /// assert!(broker.health_check())
+    /// ```
+    pub fn health_check(&self) -> Result<(), BrokerError> {
+        let url = format!("{}/health", &self.broker_url);
+        match self.client.get(url.as_str()).send() {
+            Ok(response) => {
+                if response.status() == reqwest::StatusCode::OK {
+                    Ok(())
+                } else {
+                    Err(BrokerError::BrokerError(format!(
+                        "endpoint unhealthy {}",
+                        self.broker_url
+                    )))
+                }
+            }
+            Err(_e) => Err(BrokerError::BrokerError(format!(
+                "endpoint unhealthy {}",
+                self.broker_url
+            ))),
         }
     }
 
@@ -646,5 +675,12 @@ mod tests {
         let broker = BgpkitBroker::new().disable_ssl_check();
         let items = broker.latest().unwrap();
         assert!(items.len() >= 125);
+    }
+
+    #[test]
+    fn test_health_check() {
+        let broker = BgpkitBroker::new();
+        let res = broker.health_check();
+        assert!(res.is_ok());
     }
 }

@@ -45,13 +45,14 @@ tracing-subscriber = {version="0.3", optional=true}
 config = {version = "0.13.1", features = ["toml"], optional=true}
 dirs = {version="5", optional=true}
 humantime = {version="2.1", optional = true}
+tabled = {version = "0.12", optional = true}
 
 [features]
 default=["crawler", "cli", "db"]
 crawler = ["regex", "scraper", "tokio", "futures", "oneio"]
 db = ["duckdb", "r2d2"]
 api = ["poem", "poem-openapi"]
-cli = ["clap", "num_cpus", "tracing-subscriber", "config", "dirs", "humantime", "api"]
+cli = ["clap", "num_cpus", "tracing-subscriber", "config", "dirs", "humantime", "api", "tabled"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"

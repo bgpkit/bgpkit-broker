@@ -232,6 +232,7 @@ impl QueryParams {
 /// - [exact_size][BrokerItem::exact_size]: exact file size extracted by crawling the file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "api", derive(poem_openapi::Object))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerItem {
     /// start timestamp
     pub ts_start: chrono::NaiveDateTime,

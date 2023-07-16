@@ -3,11 +3,14 @@ use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{Duration, NaiveDateTime};
 use clap::Args;
 use poem::listener::TcpListener;
-use poem::middleware::{AddData, Cors};
+use poem::middleware::{AddData, CatchPanic, Cors};
 use poem::web::Data;
 use poem::{handler, EndpointExt, Route, Server};
+use poem_openapi::payload::Response;
 use poem_openapi::{param::Query, payload::Json, ApiResponse, Object, OpenApi, OpenApiService};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::str::FromStr;
 
 struct BrokerAPI;
@@ -22,17 +25,13 @@ pub struct BrokerSearchQuery {
     #[clap(short = 'T', long)]
     pub ts_end: Option<String>,
 
-    /// duration before `ts_end` or after `ts_start`
-    #[clap(short, long)]
-    pub duration: Option<String>,
-
     /// filter by route collector projects, i.e. `route-views` or `riperis`
     #[clap(short, long)]
     pub project: Option<String>,
 
     /// filter by collector IDs, e.g. 'rrc00', 'route-views2. use comma to separate multiple collectors
     #[clap(short, long)]
-    pub collectors: Option<String>,
+    pub collector_id: Option<String>,
 
     /// filter by data types, i.e. 'update', 'rib'.
     #[clap(short, long)]
@@ -233,6 +232,11 @@ impl BrokerAPI {
             meta,
         }))
     }
+
+    #[oai(path = "/health", method = "get", hidden = true)]
+    async fn health(&self) -> Response<Json<Value>> {
+        Response::new(Json(json!({"status": "OK"}))).status(StatusCode::OK)
+    }
 }
 
 /// Parse timestamp string into NaiveDateTime
@@ -276,7 +280,8 @@ pub async fn start_api_service(
         .nest("/", api_service)
         .nest("/docs", ui)
         .with(Cors::new())
-        .with(AddData::new(database));
+        .with(AddData::new(database))
+        .with(CatchPanic::new());
 
     let socket_addr_str = format!("{}:{}", host, port);
 

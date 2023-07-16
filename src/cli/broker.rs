@@ -3,11 +3,15 @@ mod config;
 
 use crate::config::BrokerConfig;
 
-use crate::api::start_api_service;
-use bgpkit_broker::{crawl_collector, load_collectors, Collector, LocalBrokerDb};
+use crate::api::{start_api_service, BrokerSearchQuery};
+use bgpkit_broker::{
+    crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
+use tabled::settings::Style;
+use tabled::Table;
 use tokio::runtime::Runtime;
 use tracing::{debug, info};
 
@@ -69,12 +73,19 @@ enum Commands {
 
     /// Export broker database to parquet file
     Export { path: String },
-    // TODO: search should use the broker SDK (i.e. http queries) instead of query directly to DB
-    // /// Search MRT files in Broker db
-    // Search {
-    //     #[clap(flatten)]
-    //     query: BrokerSearchQuery,
-    // },
+
+    /// Search MRT files in Broker db
+    Search {
+        #[clap(flatten)]
+        query: BrokerSearchQuery,
+
+        #[clap(short, long)]
+        url: Option<String>,
+
+        /// print out search results in JSON format instead of Markdown table
+        #[clap(short, long)]
+        json: bool,
+    },
 }
 
 fn get_tokio_runtime() -> Runtime {
@@ -147,7 +158,6 @@ fn main() {
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "bgpkit_broker=info,poem=debug");
     }
-    tracing_subscriber::fmt::init();
 
     match cli.command {
         Commands::Serve {
@@ -158,6 +168,7 @@ fn main() {
             no_updater,
             no_api,
         } => {
+            tracing_subscriber::fmt::init();
             // TODO: prompt user to confirm if want to bootstrap database
 
             let database = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
@@ -195,10 +206,12 @@ fn main() {
             }
         }
         Commands::Export { path } => {
+            tracing_subscriber::fmt::init();
             let db = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
             db.export_parquet(path.as_str()).unwrap()
         }
         Commands::Bootstrap { path } => {
+            tracing_subscriber::fmt::init();
             let db = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
 
             let path_str = match path {
@@ -208,6 +221,7 @@ fn main() {
             db.bootstrap(path_str.as_str()).unwrap()
         }
         Commands::Update {} => {
+            tracing_subscriber::fmt::init();
             // create a tokio runtime
             let rt = get_tokio_runtime();
 
@@ -218,6 +232,46 @@ fn main() {
             rt.block_on(async {
                 update_database(db, collectors).await;
             });
+        }
+        Commands::Search { query, json, url } => {
+            let mut broker = BgpkitBroker::new();
+            if let Some(url) = url {
+                broker = broker.broker_url(url);
+            }
+            // health check first
+            if broker.health_check().is_err() {
+                println!("broker instance at {} is not available", broker.broker_url);
+                return;
+            }
+
+            if let Some(ts_start) = query.ts_start {
+                broker = broker.ts_start(ts_start);
+            }
+            if let Some(ts_end) = query.ts_end {
+                broker = broker.ts_end(ts_end);
+            }
+            if let Some(project) = query.project {
+                broker = broker.project(project);
+            }
+            if let Some(collector_id) = query.collector_id {
+                broker = broker.collector_id(collector_id);
+            }
+            if let Some(data_type) = query.data_type {
+                broker = broker.data_type(data_type);
+            }
+            let (page, page_size) = (
+                query.page.unwrap_or(1),
+                query.page_size.unwrap_or(DEFAULT_PAGE_SIZE),
+            );
+            broker = broker.page(page as i64);
+            broker = broker.page_size(page_size as i64);
+            let items = broker.query_single_page().unwrap();
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+            } else {
+                println!("{}", Table::new(items).with(Style::markdown()));
+            }
         }
     }
 }
