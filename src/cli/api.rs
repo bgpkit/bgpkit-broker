@@ -5,7 +5,7 @@ use clap::Args;
 use poem::listener::TcpListener;
 use poem::middleware::{AddData, CatchPanic, Cors};
 use poem::web::Data;
-use poem::{handler, EndpointExt, Route, Server};
+use poem::{EndpointExt, Route, Server};
 use poem_openapi::payload::Response;
 use poem_openapi::{param::Query, payload::Json, ApiResponse, Object, OpenApi, OpenApiService};
 use reqwest::StatusCode;
@@ -258,13 +258,6 @@ fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
         }
     };
     Ok(ts)
-}
-
-#[handler]
-async fn search(database: Data<&LocalBrokerDb>) -> Json<serde_json::Value> {
-    let ts = database.get_latest_timestamp().unwrap().unwrap();
-
-    Json(serde_json::json!({ "ts": ts }))
 }
 
 pub async fn start_api_service(

@@ -141,8 +141,9 @@ impl BgpkitBroker {
     ///     .broker_url("api.broker.example.com/v3");
     /// ```
     pub fn broker_url<S: Display>(self, url: S) -> Self {
+        let broker_url = url.to_string().trim_end_matches('/').to_string();
         Self {
-            broker_url: url.to_string(),
+            broker_url,
             query_params: self.query_params,
             client: self.client,
         }
@@ -363,7 +364,7 @@ impl BgpkitBroker {
     /// assert!(broker.health_check())
     /// ```
     pub fn health_check(&self) -> Result<(), BrokerError> {
-        let url = format!("{}/health", &self.broker_url);
+        let url = format!("{}/health", &self.broker_url.trim_end_matches('/'));
         match self.client.get(url.as_str()).send() {
             Ok(response) => {
                 if response.status() == reqwest::StatusCode::OK {
