@@ -40,9 +40,17 @@ enum Commands {
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
         update_interval: u64,
 
-        /// API socket address
-        #[clap(short = 's', long, default_value = "0.0.0.0:40064")]
-        api_socket: String,
+        /// host address
+        #[clap(short = 'h', long, default_value = "0.0.0.0")]
+        host: String,
+
+        /// port number
+        #[clap(short = 'p', long, default_value = "40064")]
+        port: u16,
+
+        /// root path, useful for configuring docs UI
+        #[clap(short = 'r', long, default_value = "/")]
+        root: String,
 
         /// disable updater service
         #[clap(long, group = "disable")]
@@ -144,7 +152,9 @@ fn main() {
     match cli.command {
         Commands::Serve {
             update_interval,
-            api_socket,
+            host,
+            port,
+            root,
             no_updater,
             no_api,
         } => {
@@ -178,7 +188,7 @@ fn main() {
             if !no_api {
                 let rt = get_tokio_runtime();
                 rt.block_on(async {
-                    start_api_service(database.clone(), api_socket.as_str())
+                    start_api_service(database.clone(), host, port, root)
                         .await
                         .unwrap();
                 });

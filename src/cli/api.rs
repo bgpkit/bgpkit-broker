@@ -253,8 +253,13 @@ async fn search(database: Data<&LocalBrokerDb>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ts": ts }))
 }
 
-pub async fn start_api_service(database: LocalBrokerDb, socket_addr: &str) -> std::io::Result<()> {
-    let api_service = OpenApiService::new(BrokerAPI, "BGPKIT Broker", "3.0.0").server("/");
+pub async fn start_api_service(
+    database: LocalBrokerDb,
+    host: String,
+    port: u16,
+    root: String,
+) -> std::io::Result<()> {
+    let api_service = OpenApiService::new(BrokerAPI, "BGPKIT Broker", "3.0.0").server(root);
     let ui = api_service.swagger_ui();
 
     let route = Route::new()
@@ -263,5 +268,9 @@ pub async fn start_api_service(database: LocalBrokerDb, socket_addr: &str) -> st
         .with(Cors::new())
         .with(AddData::new(database));
 
-    Server::new(TcpListener::bind(socket_addr)).run(route).await
+    let socket_addr_str = format!("{}:{}", host, port);
+
+    Server::new(TcpListener::bind(socket_addr_str))
+        .run(route)
+        .await
 }
