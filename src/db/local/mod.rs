@@ -181,6 +181,12 @@ impl LocalBrokerDb {
         Ok(())
     }
 
+    pub fn checkpoint(&self) -> Result<(), BrokerError> {
+        let conn = self.conn_pool.get().unwrap();
+        conn.execute("CHECKPOINT", [])?;
+        Ok(())
+    }
+
     /// get the latest timestamp (ts_start) of data entries in broker database
     pub fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
         let conn = self.conn_pool.get().unwrap();
