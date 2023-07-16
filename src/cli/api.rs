@@ -116,6 +116,16 @@ impl BrokerAPI {
                 meta: None,
             }));
         }
+        if page_size > 1000 {
+            return BadRequestResponse(Json(BrokerSearchResult {
+                count: 0,
+                page,
+                page_size,
+                error: Some("maximum page size is 1000".to_string()),
+                data: vec![],
+                meta: None,
+            }));
+        }
 
         let mut ts_start = ts_start.0.map(|s| parse_time_str(s.as_str()).unwrap());
         let mut ts_end = ts_end.0.map(|s| parse_time_str(s.as_str()).unwrap());
