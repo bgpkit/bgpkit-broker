@@ -267,6 +267,12 @@ fn main() {
                     let temp_file_path = "/tmp/broker.duckdb";
                     info!("copying db file {} to {}", db_path.as_str(), temp_file_path);
                     std::fs::copy(db_path.as_str(), temp_file_path).unwrap();
+                    std::fs::copy(
+                        format!("{}.wal", db_path.as_str()),
+                        format!("{}.wal", temp_file_path),
+                    )
+                    .ok();
+
                     LocalBrokerDb::new(temp_file_path, false).unwrap()
                 }
             };
