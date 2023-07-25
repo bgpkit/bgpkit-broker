@@ -72,7 +72,27 @@ enum Commands {
     Bootstrap { path: Option<String> },
 
     /// Export broker database to parquet file
-    Export { path: String },
+    Export {
+        /// path to the destination parquet file
+        #[clap(short, long)]
+        parquet_path: Option<String>,
+
+        /// path to the db file
+        #[clap(short, long)]
+        db_path: Option<String>,
+
+        /// disable copying db file to temp file, only works when DB is not in use
+        #[clap(short, long)]
+        no_copy: bool,
+
+        /// s3 bucket for uploading the parquet file
+        #[clap(short = 's', long)]
+        s3_bucket: Option<String>,
+
+        /// s3 file path for uploading the parquet file
+        #[clap(short = 'S', long)]
+        s3_path: Option<String>,
+    },
 
     /// Search MRT files in Broker db
     Search {
@@ -100,6 +120,7 @@ fn get_tokio_runtime() -> Runtime {
     rt
 }
 
+/// update the database with data crawled from the given collectors
 async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
     let now = Utc::now();
     let latest_date = match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
@@ -151,6 +172,9 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
 }
 
 fn main() {
+    // load environment variables from .env file
+    dotenvy::dotenv().ok();
+
     let cli = Cli::parse();
 
     let config = BrokerConfig::new(&cli.config);
@@ -205,10 +229,59 @@ fn main() {
                 });
             }
         }
-        Commands::Export { path } => {
+        Commands::Export {
+            parquet_path,
+            db_path,
+            no_copy,
+            s3_bucket,
+            s3_path,
+        } => {
             tracing_subscriber::fmt::init();
-            let db = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
-            db.export_parquet(path.as_str()).unwrap()
+            let do_s3_upload = s3_bucket.is_some() && s3_path.is_some();
+            if do_s3_upload
+                && !(std::env::var("AWS_REGION").is_ok()
+                    && std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+                    && std::env::var("AWS_SECRET_ACCESS_KEY").is_ok()
+                    && std::env::var("AWS_ENDPOINT").is_ok())
+            {
+                panic!("AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT must be set for uploading to S3");
+            }
+
+            let db_path = match db_path {
+                None => config.local_db_file,
+                Some(p) => p,
+            };
+
+            let parquet_path = match parquet_path {
+                None => "/tmp/broker.parquet".to_string(),
+                Some(p) => p,
+            };
+
+            let db = match no_copy {
+                true => {
+                    // do not copy db file to temp file, export in place, will fail if db is in use
+                    LocalBrokerDb::new(db_path.as_str(), false).unwrap()
+                }
+                false => {
+                    // copy db file to a temp file first
+                    let temp_file_path = "/tmp/broker.duckdb";
+                    info!("copying db file {} to {}", db_path.as_str(), temp_file_path);
+                    std::fs::copy(db_path.as_str(), temp_file_path).unwrap();
+                    LocalBrokerDb::new(temp_file_path, false).unwrap()
+                }
+            };
+
+            info!("exporting db to parquet file {}", parquet_path.as_str());
+            db.export_parquet(parquet_path.as_str()).unwrap();
+
+            if do_s3_upload {
+                let bucket = s3_bucket.unwrap();
+                let path = s3_path.unwrap();
+                info!("uploading parquet file to S3 to {}/{}", bucket, path);
+                oneio::s3_upload(bucket.as_str(), path.as_str(), parquet_path.as_str()).unwrap();
+            }
+
+            info!("finished exporting db");
         }
         Commands::Bootstrap { path } => {
             tracing_subscriber::fmt::init();
