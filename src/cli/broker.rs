@@ -19,8 +19,13 @@ use tracing::{debug, info};
 #[clap(author, version, about, long_about = None)]
 #[clap(propagate_version = true)]
 struct Cli {
-    #[clap(long)]
+    /// disable logging
+    #[clap(long, global = true)]
     no_log: bool,
+
+    /// bootstrap from parquet file instead of DuckDB file
+    #[clap(long, global = true)]
+    bootstrap_parquet: bool,
 
     #[clap(subcommand)]
     command: Commands,
@@ -62,23 +67,22 @@ enum Commands {
         /// disable API service
         #[clap(long, group = "disable")]
         no_api: bool,
-
-        /// bootstrap if empty
-        #[clap(long)]
-        bootstrap: bool,
     },
 
     /// Update the Broker database
     Update {},
 
+    /// Print out current configuration
+    Config {},
+
     /// Bootstrap the Broker database
-    Bootstrap { path: Option<String> },
+    Bootstrap {},
 
     /// Export broker database to parquet file
     Backup {
-        /// whether to include the duckdb version in the backup file
-        #[clap(short, long)]
-        include_version: bool,
+        // /// whether to include the duckdb version in the backup file
+        // #[clap(short, long)]
+        // include_version: bool,
     },
 
     /// Search MRT files in Broker db
@@ -156,8 +160,9 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
     db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
         .unwrap();
 
-    info!("running checkpoint...");
-    db.checkpoint().unwrap();
+    // NOTE: running checkpoint may freeze all operations
+    // info!("running checkpoint...");
+    // db.checkpoint().unwrap();
 
     info!("finished updating broker database");
 }
@@ -180,10 +185,7 @@ fn main() {
     }
 
     let config = match envy::prefixed("BGPKIT_BROKER_").from_env::<BrokerConfig>() {
-        Ok(config) => {
-            println!("{:#?}", &config);
-            config
-        }
+        Ok(config) => config,
         Err(error) => panic!("{:#?}", error),
     };
 
@@ -195,22 +197,22 @@ fn main() {
             root,
             no_updater,
             no_api,
-            bootstrap,
         } => {
             if do_log {
                 enable_logging();
             }
 
-            let database = LocalBrokerDb::new(config.local_db_path.as_str(), false).unwrap();
-            let db = database.clone();
+            let bootstrap_path = match cli.bootstrap_parquet {
+                true => config.db_bootstrap_parquet_path.clone(),
+                false => config.db_bootstrap_duckdb_path.clone(),
+            };
 
-            if db.get_entry_count().unwrap() < 100_000 && bootstrap {
-                info!("database needs bootstrap, bootstrapping now...");
-                db.bootstrap(config.db_bootstrap_path.as_str()).unwrap();
-                info!("database needs bootstrap, bootstrapping now... done");
-            }
+            let database =
+                LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
+                    .unwrap();
 
             if !no_updater {
+                let db = database.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
@@ -239,19 +241,25 @@ fn main() {
                 });
             }
         }
-        Commands::Backup { include_version } => {
+        Commands::Backup {} => {
             if do_log {
                 enable_logging();
             }
 
             info!("backing up database...");
 
-            // exporting duckdb file and parquet file
-            let db = LocalBrokerDb::new(config.local_db_path.as_str(), false).unwrap();
-            let exported_db_path = db
-                .backup_duckdb(config.backup_dir.as_str(), include_version)
+            // exporting duckdb file
+            LocalBrokerDb::backup_duckdb(
+                config.db_file_path.as_str(),
+                config.db_backup_duckdb_path.as_str(),
+            )
+            .unwrap();
+
+            // use the exported duckdb file to export parquet file
+            let db =
+                LocalBrokerDb::new(config.db_backup_duckdb_path.as_str(), false, None).unwrap();
+            db.backup_parquet(config.db_backup_parquet_path.as_str())
                 .unwrap();
-            let exported_parquet_path = db.backup_parquet(config.backup_dir.as_str()).unwrap();
 
             if config.do_s3_backup() {
                 let s3_bucket = config.s3_bucket.unwrap();
@@ -259,47 +267,55 @@ fn main() {
                 let s3_parquet_path = format!(
                     "{}/{}",
                     s3_dir,
-                    exported_parquet_path.split('/').last().unwrap()
+                    config.db_backup_parquet_path.split('/').last().unwrap()
                 );
-                let s3_duckdb_path =
-                    format!("{}/{}", s3_dir, exported_db_path.split('/').last().unwrap());
+                let s3_duckdb_path = format!(
+                    "{}/{}",
+                    s3_dir,
+                    config.db_backup_duckdb_path.split('/').last().unwrap()
+                );
 
                 info!(
                     "uploading parquet file {} to S3 at {}",
-                    exported_parquet_path, s3_parquet_path
+                    config.db_backup_parquet_path.as_str(),
+                    s3_parquet_path
                 );
                 oneio::s3_upload(
                     s3_bucket.as_str(),
                     s3_parquet_path.as_str(),
-                    exported_parquet_path.as_str(),
+                    config.db_backup_parquet_path.as_str(),
                 )
                 .unwrap();
 
                 info!(
                     "uploading duckdb file {} to S3 at {}",
-                    exported_db_path, s3_duckdb_path
+                    config.db_backup_duckdb_path.as_str(),
+                    s3_duckdb_path
                 );
                 oneio::s3_upload(
                     s3_bucket.as_str(),
                     s3_duckdb_path.as_str(),
-                    exported_db_path.as_str(),
+                    config.db_backup_duckdb_path.as_str(),
                 )
                 .unwrap();
             }
 
             info!("finished exporting db");
         }
-        Commands::Bootstrap { path } => {
+        Commands::Config {} => {
+            println!("{}", serde_json::to_string_pretty(&config).unwrap());
+        }
+        Commands::Bootstrap {} => {
             if do_log {
                 enable_logging();
             }
-            let db = LocalBrokerDb::new(config.local_db_path.as_str(), false).unwrap();
-
-            let path_str = match path {
-                Some(p) => p,
-                None => config.db_bootstrap_path,
+            let bootstrap_path = match cli.bootstrap_parquet {
+                true => config.db_bootstrap_parquet_path.clone(),
+                false => config.db_bootstrap_duckdb_path.clone(),
             };
-            db.bootstrap(path_str.as_str()).unwrap()
+
+            let _ = LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
+                .unwrap();
         }
         Commands::Update {} => {
             if do_log {
@@ -308,7 +324,7 @@ fn main() {
             // create a tokio runtime
             let rt = get_tokio_runtime();
 
-            let db = LocalBrokerDb::new(config.local_db_path.as_str(), false).unwrap();
+            let db = LocalBrokerDb::new(config.db_file_path.as_str(), false, None).unwrap();
             // load all collectors from configuration file
             let collectors = load_collectors(config.collectors_config.as_str()).unwrap();
 

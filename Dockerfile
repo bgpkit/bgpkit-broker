@@ -20,4 +20,4 @@ FROM debian:bullseye
 COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit-broker
 RUN DEBIAN=NONINTERACTIVE apt update; apt install -y curl libssl-dev ca-certificates tzdata cron; rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT bash -c '/usr/local/bin/bgpkit-broker serve --bootstrap'
+ENTRYPOINT bash -c '/usr/local/bin/bgpkit-broker serve'

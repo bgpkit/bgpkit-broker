@@ -15,8 +15,8 @@ pub enum BrokerError {
     CrawlerError(String),
 
     #[cfg(feature = "crawler")]
-    #[error("ConfigIoError: {0}")]
-    ConfigIoError(#[from] std::io::Error),
+    #[error("IoError: {0}")]
+    IoError(#[from] std::io::Error),
 
     #[cfg(feature = "crawler")]
     #[error("ConfigConfigError: {0}")]

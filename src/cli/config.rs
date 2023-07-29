@@ -1,5 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::env::set_var;
+use std::fs::create_dir_all;
 
 /// BGPKIT Broker configuration
 ///
@@ -11,10 +12,8 @@ use std::env::set_var;
 ///     - default: `./bgpkit/broker.duckdb`
 /// - `BGPKIT_BROKER_DB_BOOTSTRAP_PATH`: path to the db file bootstrap parquet file
 ///     - default: `https://data.bgpkit.com/broker/broker-backup.duckdb`
-/// - `BGPKIT_BROKER_CONFIG_DIR`: configuration file
-///    - default: `./bgpkit/`
-/// - `BGPKIT_BROKER_BACKUP_DIR`: backup directory
-///   - default: `./bgpkit/backup/`
+/// - `BGPKIT_BROKER_DATA_DIR`: configuration file
+///    - default: `~/.bgpkit/broker`
 ///
 /// S3 backup environment variables, all required to enable S3 backup:
 /// - `BGPKIT_BROKER_S3_REGION`: S3 backup configuration: region
@@ -23,27 +22,31 @@ use std::env::set_var;
 /// - `BGPKIT_BROKER_S3_ENDPOINT`: S3 backup configuration: endpoint
 /// - `BGPKIT_BROKER_S3_BUCKET`: S3 backup configuration: bucket
 /// - `BGPKIT_BROKER_S3_DIR`: S3 backup configuration: directory
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BrokerConfig {
     /// path to the file contains the list of collectors
     #[serde(default = "default_collectors_file")]
     pub collectors_config: String,
 
     /// path to the db file that stores the broker data locally
-    #[serde(default = "default_local_db_path")]
-    pub local_db_path: String,
+    #[serde(default = "default_db_file_path")]
+    pub db_file_path: String,
+
+    /// backup duckdb path
+    #[serde(default = "default_db_backup_duckdb_path")]
+    pub db_backup_duckdb_path: String,
+
+    /// backup duckdb path
+    #[serde(default = "default_db_backup_parquet_path")]
+    pub db_backup_parquet_path: String,
+
+    /// path to the db file bootstrap duckdb file
+    #[serde(default = "default_db_bootstrap_duckdb_path")]
+    pub db_bootstrap_duckdb_path: String,
 
     /// path to the db file bootstrap parquet file
-    #[serde(default = "default_bootstrap_path")]
-    pub db_bootstrap_path: String,
-
-    /// configuration file
-    #[serde(default = "default_config_dir")]
-    pub config_dir: String,
-
-    /// backup directory
-    #[serde(default = "default_backup_dir")]
-    pub backup_dir: String,
+    #[serde(default = "default_db_bootstrap_parquet_path")]
+    pub db_bootstrap_parquet_path: String,
 
     /// S3 backup configuration: region
     pub s3_region: Option<String>,
@@ -64,31 +67,35 @@ pub struct BrokerConfig {
     pub s3_dir: Option<String>,
 }
 
+fn get_bgpkit_root_dir() -> String {
+    let home_dir = dirs::home_dir().unwrap().to_str().unwrap().to_owned();
+    let bgpkit_dir = format!("{}/.bgpkit", home_dir.as_str());
+    create_dir_all(bgpkit_dir.as_str()).unwrap();
+    bgpkit_dir
+}
+
 fn default_collectors_file() -> String {
     "https://spaces.bgpkit.org/broker/collectors.json".to_string()
 }
 
-fn default_local_db_path() -> String {
-    let home_dir = dirs::home_dir().unwrap().to_str().unwrap().to_owned();
-    format!("{}/.bgpkit/broker.duckdb", home_dir.as_str())
+fn default_db_file_path() -> String {
+    format!("{}/broker.duckdb", get_bgpkit_root_dir())
 }
 
-fn default_bootstrap_path() -> String {
+fn default_db_backup_duckdb_path() -> String {
+    format!("{}/broker-backup.duckdb", get_bgpkit_root_dir())
+}
+
+fn default_db_backup_parquet_path() -> String {
+    format!("{}/broker-backup.parquet", get_bgpkit_root_dir())
+}
+
+fn default_db_bootstrap_duckdb_path() -> String {
     "https://data.bgpkit.com/broker/broker-backup.duckdb".to_string()
 }
 
-fn default_config_dir() -> String {
-    let home_dir = dirs::home_dir().unwrap().to_str().unwrap().to_owned();
-    let dir_path = format!("{}/.bgpkit", home_dir.as_str());
-    std::fs::create_dir_all(dir_path.as_str()).unwrap();
-    dir_path
-}
-
-fn default_backup_dir() -> String {
-    let home_dir = dirs::home_dir().unwrap().to_str().unwrap().to_owned();
-    let dir_path = format!("{}/.bgpkit/backup", home_dir.as_str());
-    std::fs::create_dir_all(dir_path.as_str()).unwrap();
-    dir_path
+fn default_db_bootstrap_parquet_path() -> String {
+    "https://data.bgpkit.com/broker/broker-backup.parquet".to_string()
 }
 
 impl BrokerConfig {

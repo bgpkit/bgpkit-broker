@@ -29,7 +29,7 @@ pub fn load_collectors(path: &str) -> Result<Vec<Collector>, BrokerError> {
         Ok(config) => config,
         Err(e) => match e {
             OneIoError::IoError(e) => {
-                return Err(BrokerError::ConfigIoError(e));
+                return Err(BrokerError::IoError(e));
             }
             OneIoError::JsonParsingError(e) => {
                 return Err(BrokerError::ConfigJsonError(e));

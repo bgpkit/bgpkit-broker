@@ -3,7 +3,6 @@ use chrono::{NaiveDateTime, Utc};
 use duckdb::{AccessMode, Config, DuckdbConnectionManager, Row};
 use r2d2::Pool;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tracing::{debug, info};
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
@@ -12,9 +11,6 @@ pub const DEFAULT_PAGE_SIZE: usize = 100;
 pub struct LocalBrokerDb {
     /// shared connection pool for reading and writing
     conn_pool: Pool<DuckdbConnectionManager>,
-
-    /// database file path
-    path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,22 +28,48 @@ unsafe impl Send for LocalBrokerDb {}
 unsafe impl Sync for LocalBrokerDb {}
 
 impl LocalBrokerDb {
-    pub fn new(path: &str, force_reset: bool) -> Result<Self, BrokerError> {
+    pub fn new(
+        path: &str,
+        force_reset: bool,
+        try_bootstrap: Option<String>,
+    ) -> Result<Self, BrokerError> {
         info!("open local broker db at {}", path);
         let writer_config = Config::default().access_mode(AccessMode::ReadWrite)?;
         let writer_manager = DuckdbConnectionManager::file_with_flags(path, writer_config).unwrap();
         let conn_pool = Pool::builder().max_size(20).build(writer_manager).unwrap();
 
-        let db = LocalBrokerDb {
-            conn_pool,
-            path: path.to_string(),
-        };
+        let mut db = LocalBrokerDb { conn_pool };
         db.create_table(force_reset).unwrap();
+
+        if let Some(remote_path) = try_bootstrap {
+            if db.get_entry_count()? <= 100_000 {
+                info!(
+                    "database needs bootstrap, bootstrapping from {}...",
+                    remote_path.as_str()
+                );
+                match remote_path.ends_with("duckdb") {
+                    true => {
+                        drop(db);
+                        db = Self::bootstrap_from_duckdb(remote_path.as_str(), path)?;
+                    }
+                    false => db.bootstrap_from_parquet(remote_path.as_str())?,
+                }
+            }
+        }
+
         Ok(db)
     }
 
-    /// Bootstrap from remote file
-    pub fn bootstrap(&self, path: &str) -> Result<(), BrokerError> {
+    /// Bootstrap from remote duckdb file
+    pub fn bootstrap_from_duckdb(remote_path: &str, local_path: &str) -> Result<Self, BrokerError> {
+        if let Err(error) = oneio::download(remote_path, local_path, None) {
+            return Err(BrokerError::BrokerError(error.to_string()));
+        };
+        Ok(LocalBrokerDb::new(local_path, false, None)?)
+    }
+
+    /// Bootstrap from remote parquet file
+    pub fn bootstrap_from_parquet(&self, path: &str) -> Result<(), BrokerError> {
         self.create_table(true).unwrap();
         let conn = self.conn_pool.get().unwrap();
         info!("bootstrap from {}", path);
@@ -196,6 +218,7 @@ impl LocalBrokerDb {
         }
     }
 
+    #[allow(dead_code)]
     fn get_duckdb_version(&self) -> Result<String, BrokerError> {
         let conn = self.conn_pool.get().unwrap();
         let version = conn.query_row("SELECT version()", [], |row| {
@@ -207,56 +230,32 @@ impl LocalBrokerDb {
     }
 
     /// Export current duckdb to another duckdb file using file system copy
-    pub fn backup_duckdb(&self, dir: &str, include_version: bool) -> Result<String, BrokerError> {
-        if !Path::new(dir).is_dir() {
-            return Err(BrokerError::BrokerError(format!(
-                "backup_duckdb: dir {} does not exist",
-                dir
-            )));
-        }
+    pub fn backup_duckdb(db_path: &str, backup_path: &str) -> Result<(), BrokerError> {
+        info!("backing up  duckdb from {} to {}...", db_path, backup_path);
 
-        let path = match include_version {
-            true => format!(
-                "{}/broker-backup-{}.duckdb",
-                dir,
-                self.get_duckdb_version()?
-            ),
-            false => format!("{}/broker-backup.duckdb", dir),
-        };
-
-        info!("backing up  duckdb to {}...", path.as_str());
-
-        if let Err(e) = std::fs::copy(self.path.as_str(), path.as_str()) {
+        if let Err(e) = std::fs::copy(db_path, backup_path) {
             return Err(BrokerError::BrokerError(format!(
                 "backup_duckdb: failed to backup duckdb file: {}",
                 e
             )));
         };
 
-        Ok(path)
+        Ok(())
     }
 
-    pub fn backup_parquet(&self, dir: &str) -> Result<String, BrokerError> {
+    pub fn backup_parquet(&self, path: &str) -> Result<(), BrokerError> {
         let conn = self.conn_pool.get().unwrap();
-        if !Path::new(dir).is_dir() {
-            return Err(BrokerError::BrokerError(format!(
-                "backup_duckdb: dir {} does not exist",
-                dir
-            )));
-        }
-
-        let path = format!("{}/broker-backup.parquet", dir);
-        info!("backing up duckdb to parquet file to {}...", path.as_str());
+        info!("backing up duckdb to parquet file to {}...", path);
 
         conn.execute(
             format!(
                 "COPY (select * from items) TO '{}' (FORMAT 'parquet')",
-                path.as_str()
+                path
             )
             .as_str(),
             [],
         )?;
-        Ok(path)
+        Ok(())
     }
 
     pub fn checkpoint(&self) -> Result<(), BrokerError> {
@@ -458,12 +457,12 @@ mod tests {
 
     #[test]
     fn test_new() {
-        LocalBrokerDb::new("broker-test.duckdb", true).unwrap();
+        LocalBrokerDb::new("broker-test.duckdb", true, None).unwrap();
     }
 
     #[tokio::test]
     async fn test_insert() {
-        let db = LocalBrokerDb::new("broker-test.duckdb", true).unwrap();
+        let db = LocalBrokerDb::new("broker-test.duckdb", true, None).unwrap();
         let two_months_ago = Utc::now().date_naive() - chrono::Duration::days(1);
         let collector = Collector {
             id: "route-views2".to_string(),
@@ -506,7 +505,7 @@ mod tests {
     #[test]
     fn test_loop() {
         loop {
-            let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
+            let db = LocalBrokerDb::new("broker-test.duckdb", false, None).unwrap();
             let _items = db
                 .search_items(
                     Some(vec!["route-views2".to_string()]),
@@ -523,29 +522,22 @@ mod tests {
 
     #[test]
     fn test_get_latest_ts() {
-        let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
+        let db = LocalBrokerDb::new("broker-test.duckdb", false, None).unwrap();
         let ts = db.get_latest_timestamp().unwrap();
         dbg!(ts);
     }
 
     #[test]
     fn test_get_latest_items() {
-        let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
+        let db = LocalBrokerDb::new("broker-test.duckdb", false, None).unwrap();
         let items = db.get_latest_items().unwrap();
         dbg!(items);
     }
 
     #[test]
-    fn test_bootstrap() {
-        tracing_subscriber::fmt::init();
-        let db = LocalBrokerDb::new("broker-test-bootstrap.duckdb", true).unwrap();
-        db.bootstrap("items.parquet").unwrap();
-    }
-
-    #[test]
     fn test_get_meta() {
         tracing_subscriber::fmt::init();
-        let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false).unwrap();
+        let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false, None).unwrap();
         let meta = db.get_latest_updates_meta().unwrap();
         dbg!(meta);
     }
@@ -553,24 +545,7 @@ mod tests {
     #[test]
     fn test_get_count() {
         tracing_subscriber::fmt::init();
-        let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false).unwrap();
+        let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false, None).unwrap();
         dbg!(db.get_entry_count().unwrap());
-    }
-
-    /// test exporting the whole duckdb file by copy to a different directory  
-    #[test]
-    fn test_export_duckdb() {
-        tracing_subscriber::fmt::init();
-        let home_dir = dirs::home_dir().unwrap();
-        let db = LocalBrokerDb::new(
-            format!("{}/.bgpkit/broker.duckdb", home_dir.to_str().unwrap()).as_str(),
-            false,
-        )
-        .unwrap();
-        db.backup_duckdb(
-            format!("{}/.bgpkit/", home_dir.to_str().unwrap()).as_str(),
-            false,
-        )
-        .unwrap();
     }
 }
