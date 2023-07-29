@@ -5,3 +5,4 @@ Cargo.lock
 *.sqlite3*
 *.duckdb*
 *.parquet
+/.env
