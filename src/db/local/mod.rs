@@ -91,6 +91,26 @@ impl LocalBrokerDb {
         Ok(())
     }
 
+    /// Check if data bootstrap is needed
+    pub fn get_entry_count(&self) -> Result<i64, BrokerError> {
+        let conn = self.conn_pool.get().unwrap();
+        let mut statement = conn.prepare(
+            r#"
+            SELECT count(*) FROM items
+            "#,
+        )?;
+        let mut rows = statement.query([])?;
+        if let Some(row) = rows.next()? {
+            // the duckdb returns timestamp in microseconds (10^-6 seconds)
+            let count: Option<i64> = row.get(0)?;
+            Ok(count.unwrap_or(0))
+        } else {
+            Err(BrokerError::BrokerError(
+                "failed to get db entry count".to_string(),
+            ))
+        }
+    }
+
     pub fn insert_items(&self, items: &Vec<BrokerItem>) -> Result<Vec<BrokerItem>, BrokerError> {
         let conn = self.conn_pool.get().unwrap();
         debug!("Inserting {} items...", items.len());
@@ -470,5 +490,12 @@ mod tests {
         let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false).unwrap();
         let meta = db.get_latest_updates_meta().unwrap();
         dbg!(meta);
+    }
+
+    #[test]
+    fn test_get_count() {
+        tracing_subscriber::fmt::init();
+        let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false).unwrap();
+        dbg!(db.get_entry_count().unwrap());
     }
 }
