@@ -3,13 +3,18 @@ use chrono::{NaiveDateTime, Utc};
 use duckdb::{AccessMode, Config, DuckdbConnectionManager, Row};
 use r2d2::Pool;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tracing::{debug, info};
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
 
 #[derive(Clone)]
 pub struct LocalBrokerDb {
+    /// shared connection pool for reading and writing
     conn_pool: Pool<DuckdbConnectionManager>,
+
+    /// database file path
+    path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +38,10 @@ impl LocalBrokerDb {
         let writer_manager = DuckdbConnectionManager::file_with_flags(path, writer_config).unwrap();
         let conn_pool = Pool::builder().max_size(20).build(writer_manager).unwrap();
 
-        let db = LocalBrokerDb { conn_pool };
+        let db = LocalBrokerDb {
+            conn_pool,
+            path: path.to_string(),
+        };
         db.create_table(force_reset).unwrap();
         Ok(db)
     }
@@ -188,17 +196,67 @@ impl LocalBrokerDb {
         }
     }
 
-    pub fn export_parquet(&self, path: &str) -> Result<(), BrokerError> {
+    fn get_duckdb_version(&self) -> Result<String, BrokerError> {
         let conn = self.conn_pool.get().unwrap();
+        let version = conn.query_row("SELECT version()", [], |row| {
+            let version: String = row.get(0)?;
+            Ok(version)
+        })?;
+
+        Ok(version)
+    }
+
+    /// Export current duckdb to another duckdb file using file system copy
+    pub fn backup_duckdb(&self, dir: &str, include_version: bool) -> Result<String, BrokerError> {
+        if !Path::new(dir).is_dir() {
+            return Err(BrokerError::BrokerError(format!(
+                "backup_duckdb: dir {} does not exist",
+                dir
+            )));
+        }
+
+        let path = match include_version {
+            true => format!(
+                "{}/broker-backup-{}.duckdb",
+                dir,
+                self.get_duckdb_version()?
+            ),
+            false => format!("{}/broker-backup.duckdb", dir),
+        };
+
+        info!("backing up  duckdb to {}...", path.as_str());
+
+        if let Err(e) = std::fs::copy(self.path.as_str(), path.as_str()) {
+            return Err(BrokerError::BrokerError(format!(
+                "backup_duckdb: failed to backup duckdb file: {}",
+                e
+            )));
+        };
+
+        Ok(path)
+    }
+
+    pub fn backup_parquet(&self, dir: &str) -> Result<String, BrokerError> {
+        let conn = self.conn_pool.get().unwrap();
+        if !Path::new(dir).is_dir() {
+            return Err(BrokerError::BrokerError(format!(
+                "backup_duckdb: dir {} does not exist",
+                dir
+            )));
+        }
+
+        let path = format!("{}/broker-backup.parquet", dir);
+        info!("backing up duckdb to parquet file to {}...", path.as_str());
+
         conn.execute(
             format!(
                 "COPY (select * from items) TO '{}' (FORMAT 'parquet')",
-                path
+                path.as_str()
             )
             .as_str(),
             [],
         )?;
-        Ok(())
+        Ok(path)
     }
 
     pub fn checkpoint(&self) -> Result<(), BrokerError> {
@@ -497,5 +555,22 @@ mod tests {
         tracing_subscriber::fmt::init();
         let db = LocalBrokerDb::new("~/.bgpkit/broker.duckdb", false).unwrap();
         dbg!(db.get_entry_count().unwrap());
+    }
+
+    /// test exporting the whole duckdb file by copy to a different directory  
+    #[test]
+    fn test_export_duckdb() {
+        tracing_subscriber::fmt::init();
+        let home_dir = dirs::home_dir().unwrap();
+        let db = LocalBrokerDb::new(
+            format!("{}/.bgpkit/broker.duckdb", home_dir.to_str().unwrap()).as_str(),
+            false,
+        )
+        .unwrap();
+        db.backup_duckdb(
+            format!("{}/.bgpkit/", home_dir.to_str().unwrap()).as_str(),
+            false,
+        )
+        .unwrap();
     }
 }

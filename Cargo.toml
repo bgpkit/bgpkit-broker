@@ -42,18 +42,17 @@ poem-openapi = {version= "2", features=['swagger-ui', 'chrono'], optional = true
 clap = {version= "4.3", features=["derive"], optional=true}
 num_cpus = {version="1.15", optional=true}
 tracing-subscriber = {version="0.3", optional=true}
-config = {version = "0.13.1", features = ["toml"], optional=true}
 dirs = {version="5", optional=true}
 humantime = {version="2.1", optional = true}
 tabled = {version = "0.12", optional = true}
-dotenvy = {version = "0.15", optional = true }
+envy = {version = "0.4", optional = true }
 
 [features]
 default=["crawler", "cli", "db"]
 crawler = ["regex", "scraper", "tokio", "futures", "oneio"]
-db = ["duckdb", "r2d2"]
+db = ["duckdb", "r2d2", "dirs"]
 api = ["poem", "poem-openapi"]
-cli = ["clap", "num_cpus", "tracing-subscriber", "config", "dirs", "humantime", "api", "tabled", "dotenvy"]
+cli = ["clap", "num_cpus", "tracing-subscriber", "dirs", "humantime", "api", "tabled", "envy"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"
