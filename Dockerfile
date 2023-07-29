@@ -8,7 +8,6 @@ WORKDIR /my_project
 # copy your source tree
 COPY ./src ./src
 COPY ./Cargo.toml .
-COPY ./Cargo.lock .
 
 # build for release
 RUN cargo build --release
