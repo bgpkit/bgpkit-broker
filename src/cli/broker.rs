@@ -63,6 +63,10 @@ enum Commands {
         /// disable API service
         #[clap(long, group = "disable")]
         no_api: bool,
+
+        /// bootstrap if empty
+        #[clap(long)]
+        bootstrap: bool,
     },
 
     /// Update the Broker database
@@ -191,12 +195,19 @@ fn main() {
             root,
             no_updater,
             no_api,
+            bootstrap,
         } => {
             tracing_subscriber::fmt::init();
-            // TODO: prompt user to confirm if want to bootstrap database
 
             let database = LocalBrokerDb::new(config.local_db_file.as_str(), false).unwrap();
             let db = database.clone();
+
+            if db.get_entry_count().unwrap() < 100_000 && bootstrap {
+                info!("database needs bootstrap, bootstrapping now...");
+                db.bootstrap(config.local_db_bootstrap_path.as_str())
+                    .unwrap();
+                info!("database needs bootstrap, bootstrapping now... done");
+            }
 
             if !no_updater {
                 std::thread::spawn(move || {
@@ -211,9 +222,7 @@ fn main() {
 
                         loop {
                             interval.tick().await;
-
                             update_database(db.clone(), collectors.clone()).await;
-
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
