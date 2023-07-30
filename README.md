@@ -17,22 +17,26 @@
 [mastodon-url]: https://infosec.exchange/@bgpkit
 [mastodon-badge]: https://img.shields.io/mastodon/follow/109852506691103147?domain=https%3A%2F%2Finfosec.exchange&style=social
 
-[BGPKIT Broker](https://bgpkit.com/broker) is an online data API service that allows users to search for publicly available BGP archive
-files by time, collector, project, or data type. The service indexes the archives in close to real-time (delay is
-less than 5 minutes). Currently, we are indexing BGP table dump and updates files from RIPE RIS and RouteViews.
+[BGPKIT Broker](https://bgpkit.com/broker) is an online data API service that allows users to search for publicly available BGP archive files by time, collector, project, or data type. The service indexes the archives in close to real-time (delay is less than 5 minutes). Currently, we are indexing BGP table dump and updates files from [RIPE RIS][ripe-ris] and [RouteViews][route-views].
 
-This Rust library provides access to the BGPKIT Broker API with the capability to search and paginate results. 
+[ripe-ris]: https://www.ripe.net/analyse/internet-measurements/routing-information-service-ris/ris-data-access/mrt-files-store
+[route-views]: http://archive.routeviews.org/
 
-For more details, please check out the BGPKIT API docs at <https://api.bgpkit.com/docs>.
+This Rust library provides SDK access to the BGPKIT Broker API as well as a command-line tool to start a self-hosted broker instance. 
 
-## Usage
+Currently deployed BGPKIT Broker API is available at <https://api.bgpkit.com/docs>.
+
+
+## Broker Rust SDK
+
+### Usage
 
 Add the following dependency line to your project's `Cargo.toml` file:
 ```yaml
-bgpkit-broker = "0.6"
+bgpkit-broker = "0.7.0-alpha.1"
 ```
 
-## Example
+### Example
 
 You can run the follow example with `cargo run --example query` ([source code](./examples/query.rs)).
 
@@ -56,6 +60,9 @@ pub fn main() {
     assert_eq!(items.len(), 106);
 }
 ```
+
+## `bgpkit-broker` CLI Tool
+
 
 ## Contribution
 

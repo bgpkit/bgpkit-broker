@@ -13,7 +13,7 @@ The recommended usage to collect [BrokerItem]s is to use the built-in iterator. 
 it reaches the end of items. This is useful for simply getting **all** matching items without need
 to worry about pagination.
 
-```rust
+```no_run
 use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
 let broker = BgpkitBroker::new()
@@ -80,9 +80,9 @@ for item in broker.latest().unwrap() {
 ```
 */
 
-#[cfg(feature = "crawler")]
+#[cfg(feature = "cli")]
 mod crawler;
-#[cfg(feature = "db")]
+#[cfg(feature = "cli")]
 mod db;
 mod error;
 mod query;
@@ -90,9 +90,9 @@ mod query;
 use crate::query::{CollectorLatestResult, QueryResult};
 use std::fmt::Display;
 
-#[cfg(feature = "crawler")]
+#[cfg(feature = "cli")]
 pub use crawler::{crawl_collector, load_collectors, Collector};
-#[cfg(feature = "db")]
+#[cfg(feature = "cli")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
 pub use query::{BrokerItem, CollectorLatestItem, QueryParams, SortOrder};
@@ -361,7 +361,7 @@ impl BgpkitBroker {
     ///
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new();
-    /// assert!(broker.health_check())
+    /// assert!(broker.health_check().is_ok())
     /// ```
     pub fn health_check(&self) -> Result<(), BrokerError> {
         let url = format!("{}/health", &self.broker_url.trim_end_matches('/'));

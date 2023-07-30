@@ -47,19 +47,19 @@ pub struct BrokerSearchQuery {
 }
 
 #[derive(Object, Serialize, Deserialize, Clone, Debug)]
-struct BrokerSearchResult {
-    count: usize,
-    page: usize,
-    page_size: usize,
-    error: Option<String>,
-    data: Vec<BrokerItem>,
-    meta: Option<Meta>,
+pub struct BrokerSearchResult {
+    pub count: usize,
+    pub page: usize,
+    pub page_size: usize,
+    pub error: Option<String>,
+    pub data: Vec<BrokerItem>,
+    pub meta: Option<Meta>,
 }
 
 #[derive(Object, Serialize, Deserialize, Clone, Debug)]
-struct Meta {
-    latest_update_ts: NaiveDateTime,
-    latest_update_duration: i32,
+pub struct Meta {
+    pub latest_update_ts: NaiveDateTime,
+    pub latest_update_duration: i32,
 }
 
 #[derive(ApiResponse)]

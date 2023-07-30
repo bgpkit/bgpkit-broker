@@ -10,26 +10,26 @@ pub enum BrokerError {
     #[error("BrokerError: {0}")]
     BrokerError(String),
 
-    #[cfg(feature = "crawler")]
+    #[cfg(feature = "cli")]
     #[error("CrawlerError: {0}")]
     CrawlerError(String),
 
-    #[cfg(feature = "crawler")]
+    #[cfg(feature = "cli")]
     #[error("IoError: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[cfg(feature = "crawler")]
+    #[cfg(feature = "cli")]
     #[error("ConfigConfigError: {0}")]
     ConfigJsonError(#[from] serde_json::Error),
 
-    #[cfg(feature = "crawler")]
+    #[cfg(feature = "cli")]
     #[error("ConfigUnknownError: {0}")]
     ConfigUnknownError(String),
 
     #[error("DateTimeParseError: {0}")]
     DateTimeParseError(#[from] chrono::ParseError),
 
-    #[cfg(feature = "db")]
+    #[cfg(feature = "cli")]
     #[error("DbError: {0}")]
     DbError(#[from] duckdb::Error),
 }
