@@ -70,7 +70,9 @@ pub fn main() {
 
 `bgpkit-broker` is a command-line application that packages many functionalities to allow users to self-host a BGPKIT Broker instance with ease.
 
-`bgpkit-broker` has the following subcommands
+Install with `cargo install bgpkit-broker@0.7.0-alpha.1 --features cli`.
+
+`bgpkit-broker` has the following subcommands:
 
 ```text
 A library and command-line to provide indexing and searching functionalities for public BGP data archive files over time.
