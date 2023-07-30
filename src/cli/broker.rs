@@ -62,7 +62,7 @@ enum Commands {
 
         /// disable updater service
         #[clap(long, group = "disable")]
-        no_updater: bool,
+        no_update: bool,
 
         /// disable API service
         #[clap(long, group = "disable")]
@@ -195,7 +195,7 @@ fn main() {
             host,
             port,
             root,
-            no_updater,
+            no_update,
             no_api,
         } => {
             if do_log {
@@ -211,7 +211,7 @@ fn main() {
                 LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
                     .unwrap();
 
-            if !no_updater {
+            if !no_update {
                 let db = database.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
