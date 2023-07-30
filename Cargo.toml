@@ -1,6 +1,6 @@
 [package]
 name = "bgpkit-broker"
-version = "0.6.2"
+version = "0.7.0-alpha.1"
 edition = "2018"
 authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
 readme = "README.md"
@@ -8,17 +8,68 @@ license = "MIT"
 repository = "https://github.com/bgpkit/bgpkit-broker"
 documentation = "https://docs.rs/bgpkit-broker"
 description = """
-A library to access BGPKIT Broker API and enable searching for BGP data archive files over time from public available
-data sources.
+A library and command-line to provide indexing and searching functionalities for public BGP data archive files over time.
 """
 keywords = ["bgp", "bgpkit", "api"]
 
+[[bin]]
+path= "src/cli/broker.rs"
+name="bgpkit-broker"
+required-features = ["cli"]
+
 [dependencies]
+
+#############################################
+# Core Broker Rust SDK dependencies
+#############################################
 chrono = { version = "0.4", features = ["serde"] }
 log="0.4"
 reqwest = {version = "0.11.17", features = ["blocking", "json"]}
 serde={version="1", features = ["derive"]}
 serde_json = "1"
+thiserror = "1.0"
+tracing = "0.1"
+
+#############################################
+# Optional dependencies
+#############################################
+
+# command-line interface dependencies
+clap = {version= "4.3", features=["derive"], optional=true}
+dirs = {version="5", optional=true}
+envy = {version = "0.4", optional = true }
+humantime = {version="2.1", optional = true}
+num_cpus = {version="1.15", optional=true}
+tabled = {version = "0.13", optional = true}
+tracing-subscriber = {version="0.3", optional=true}
+
+# crawler dependencies
+futures = {version="0.3", optional = true}
+oneio = {version="0.11.0", features = ["lib", "s3"], optional = true}
+regex = { version = "1", optional = true }
+scraper = { version = "0.17", optional = true }
+tokio = {version="1", optional = true, features = ["full"] }
+
+# api dependencies
+poem = {version="1", optional = true}
+poem-openapi = {version= "3", features=['swagger-ui', 'chrono'], optional = true}
+
+# database dependencies
+duckdb = {version="0.8", optional = true, features = ["bundled", "parquet", "httpfs", "r2d2"]}
+r2d2 = {version="0.8", optional = true}
+
+[features]
+default=[]
+cli = [
+    # command-line interface
+    "clap", "dirs", "envy", "humantime", "num_cpus", "tracing-subscriber", "tabled",
+    # crawler
+    "futures", "oneio", "regex", "scraper", "tokio",
+    # database
+    "duckdb", "r2d2",
+    # RESTful API
+    "poem", "poem-openapi",
+]
 
 [dev-dependencies]
-anyhow = "1.0"
+tracing-subscriber = "0.3.17"

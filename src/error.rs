@@ -1,46 +1,35 @@
 //! Error handling module.
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use thiserror::Error;
 
 /// Broker error enum.
-///
-/// Includes two sub types:
-/// 1. NetworkError: a wrapper around [ureq::Error] string representation, which would be from
-/// making network requests or parsing return value to JSON.
-/// 2. BrokerError: a String type returned from the BGPKIT Broker API.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum BrokerError {
-    NetworkError(String),
+    #[error("NetworkError: {0}")]
+    NetworkError(#[from] reqwest::Error),
+
+    #[error("BrokerError: {0}")]
     BrokerError(String),
-}
 
-impl Error for BrokerError {}
+    #[cfg(feature = "cli")]
+    #[error("CrawlerError: {0}")]
+    CrawlerError(String),
 
-impl Display for BrokerError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BrokerError::NetworkError(e) => {write!(f, "NETWORK_ERROR: {}", e)}
-            BrokerError::BrokerError(e) => {write!(f, "BROKER_ERROR: {}", e)}
-        }
-    }
-}
+    #[cfg(feature = "cli")]
+    #[error("IoError: {0}")]
+    IoError(#[from] std::io::Error),
 
-impl From<reqwest::Error> for BrokerError {
-    fn from(e: reqwest::Error) -> Self {
-        BrokerError::NetworkError(e.to_string())
-    }
-}
+    #[cfg(feature = "cli")]
+    #[error("ConfigConfigError: {0}")]
+    ConfigJsonError(#[from] serde_json::Error),
 
-#[cfg(test)]
-mod tests {
-    use crate::{BgpkitBroker, CollectorLatestItem};
+    #[cfg(feature = "cli")]
+    #[error("ConfigUnknownError: {0}")]
+    ConfigUnknownError(String),
 
-    #[test]
-    fn test_anyhow() {
+    #[error("DateTimeParseError: {0}")]
+    DateTimeParseError(#[from] chrono::ParseError),
 
-        fn test_error() -> anyhow::Result<Vec<CollectorLatestItem>> {
-            Ok(BgpkitBroker::new().latest()?)
-        }
-        let _res = test_error();
-    }
+    #[cfg(feature = "cli")]
+    #[error("DbError: {0}")]
+    DbError(#[from] duckdb::Error),
 }
