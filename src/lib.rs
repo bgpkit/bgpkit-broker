@@ -80,6 +80,11 @@ for item in broker.latest().unwrap() {
 ```
 */
 
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/bgpkit/assets/main/logos/icon-transparent.png",
+    html_favicon_url = "https://raw.githubusercontent.com/bgpkit/assets/main/logos/favicon.ico"
+)]
+
 #[cfg(feature = "cli")]
 mod crawler;
 #[cfg(feature = "cli")]
