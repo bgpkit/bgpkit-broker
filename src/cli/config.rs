@@ -7,7 +7,7 @@ use std::fs::create_dir_all;
 /// Main environment variables, each with a default value:
 ///
 /// - `BGPKIT_BROKER_COLLECTORS_CONFIG`: path to the file contains the list of collectors
-///     - default: `https://spaces.bgpkit.org/broker/collectors.json`
+///     - default: pre-configured collectors, should be the same as `https://spaces.bgpkit.org/broker/collectors.json`
 /// - `BGPKIT_BROKER_LOCAL_DB_PATH`: path to the db file that stores the broker data locally
 ///     - default: `./bgpkit/broker.duckdb`
 /// - `BGPKIT_BROKER_DB_BOOTSTRAP_PATH`: path to the db file bootstrap parquet file
@@ -25,8 +25,7 @@ use std::fs::create_dir_all;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BrokerConfig {
     /// path to the file contains the list of collectors
-    #[serde(default = "default_collectors_file")]
-    pub collectors_config: String,
+    pub collectors_config: Option<String>,
 
     /// path to the db file that stores the broker data locally
     #[serde(default = "default_db_file_path")]
@@ -72,10 +71,6 @@ fn get_bgpkit_root_dir() -> String {
     let bgpkit_dir = format!("{}/.bgpkit", home_dir.as_str());
     create_dir_all(bgpkit_dir.as_str()).unwrap();
     bgpkit_dir
-}
-
-fn default_collectors_file() -> String {
-    "https://spaces.bgpkit.org/broker/collectors.json".to_string()
 }
 
 fn default_db_file_path() -> String {
