@@ -67,6 +67,10 @@ enum Commands {
         /// disable API service
         #[clap(long, group = "disable")]
         no_api: bool,
+
+        /// do a full database bootstrap from duckdb or parquet file
+        #[clap(long)]
+        full_bootstrap: bool,
     },
 
     /// Update the Broker database
@@ -112,14 +116,19 @@ fn get_tokio_runtime() -> Runtime {
 }
 
 /// update the database with data crawled from the given collectors
-async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>) {
+async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, bootstrap_days: u32) {
     let now = Utc::now();
     let latest_date = match { db.get_latest_timestamp().unwrap().map(|t| t.date()) } {
         Some(t) => Some(t),
         None => {
             // if bootstrap is false and we have an empty database
             // we crawl data from 30 days ago
-            Some(Utc::now().date_naive() - chrono::Duration::days(30))
+            let date = Utc::now().date_naive() - chrono::Duration::days(bootstrap_days as i64);
+            info!(
+                "empty database, bootstrapping data from {} days ago ({})",
+                bootstrap_days, date
+            );
+            Some(date)
         }
     };
 
@@ -197,26 +206,31 @@ fn main() {
             root,
             no_update,
             no_api,
+            full_bootstrap,
         } => {
             if do_log {
                 enable_logging();
             }
 
-            let bootstrap_path = match cli.bootstrap_parquet {
-                true => config.db_bootstrap_parquet_path.clone(),
-                false => config.db_bootstrap_duckdb_path.clone(),
-            };
+            let database = match full_bootstrap {
+                true => {
+                    let bootstrap_path = match cli.bootstrap_parquet {
+                        true => config.db_bootstrap_parquet_path.clone(),
+                        false => config.db_bootstrap_duckdb_path.clone(),
+                    };
 
-            let database =
-                LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
-                    .unwrap();
+                    LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
+                        .unwrap()
+                }
+                false => LocalBrokerDb::new(config.db_file_path.as_str(), false, None).unwrap(),
+            };
 
             if !no_update {
                 let db = database.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
-                    let collectors = load_collectors(config.collectors_config).unwrap();
+                    let collectors = load_collectors(config.collectors_config.clone()).unwrap();
 
                     rt.block_on(async {
                         let mut interval =
@@ -224,7 +238,12 @@ fn main() {
 
                         loop {
                             interval.tick().await;
-                            update_database(db.clone(), collectors.clone()).await;
+                            update_database(
+                                db.clone(),
+                                collectors.clone(),
+                                config.db_bootstrap_days,
+                            )
+                            .await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
@@ -325,10 +344,10 @@ fn main() {
 
             let db = LocalBrokerDb::new(config.db_file_path.as_str(), false, None).unwrap();
             // load all collectors from configuration file
-            let collectors = load_collectors(config.collectors_config).unwrap();
+            let collectors = load_collectors(config.collectors_config.clone()).unwrap();
 
             rt.block_on(async {
-                update_database(db, collectors).await;
+                update_database(db, collectors, config.db_bootstrap_days).await;
             });
         }
         Commands::Search { query, json, url } => {
