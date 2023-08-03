@@ -27,6 +27,10 @@ pub struct BrokerConfig {
     /// path to the file contains the list of collectors
     pub collectors_config: Option<String>,
 
+    /// when need facing empty database, how many days to bootstrap
+    #[serde(default = "default_db_bootstrap_days")]
+    pub db_bootstrap_days: u32,
+
     /// path to the db file that stores the broker data locally
     #[serde(default = "default_db_file_path")]
     pub db_file_path: String,
@@ -79,6 +83,10 @@ fn default_db_file_path() -> String {
 
 fn default_db_backup_duckdb_path() -> String {
     format!("{}/broker-backup.duckdb", get_bgpkit_root_dir())
+}
+
+fn default_db_bootstrap_days() -> u32 {
+    30
 }
 
 fn default_db_backup_parquet_path() -> String {

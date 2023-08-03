@@ -31,7 +31,7 @@ impl LocalBrokerDb {
     pub fn new(
         path: &str,
         force_reset: bool,
-        try_bootstrap: Option<String>,
+        bootstrap_path: Option<String>,
     ) -> Result<Self, BrokerError> {
         info!("open local broker db at {}", path);
         let writer_config = Config::default().access_mode(AccessMode::ReadWrite)?;
@@ -41,10 +41,10 @@ impl LocalBrokerDb {
         let mut db = LocalBrokerDb { conn_pool };
         db.create_table(force_reset).unwrap();
 
-        if let Some(remote_path) = try_bootstrap {
+        if let Some(remote_path) = bootstrap_path {
             if db.get_entry_count()? <= 100_000 {
                 info!(
-                    "database needs bootstrap, bootstrapping from {}...",
+                    "database doing full bootstrap from {}...",
                     remote_path.as_str()
                 );
                 match remote_path.ends_with("duckdb") {
@@ -65,7 +65,7 @@ impl LocalBrokerDb {
         if let Err(error) = oneio::download(remote_path, local_path, None) {
             return Err(BrokerError::BrokerError(error.to_string()));
         };
-        Ok(LocalBrokerDb::new(local_path, false, None)?)
+        LocalBrokerDb::new(local_path, false, None)
     }
 
     /// Bootstrap from remote parquet file
