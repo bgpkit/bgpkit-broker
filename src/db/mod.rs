@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn test_search() {
         tracing_subscriber::fmt::init();
-        let db = LocalBrokerDb::new("broker-test.duckdb", false).unwrap();
+        let db = LocalBrokerDb::new("broker-test.duckdb", false, None).unwrap();
 
         let items = db
             .search_items(

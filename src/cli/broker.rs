@@ -216,8 +216,7 @@ fn main() {
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
-                    // load all collectors from configuration file
-                    let collectors = load_collectors(config.collectors_config.as_str()).unwrap();
+                    let collectors = load_collectors(config.collectors_config).unwrap();
 
                     rt.block_on(async {
                         let mut interval =
@@ -326,7 +325,7 @@ fn main() {
 
             let db = LocalBrokerDb::new(config.db_file_path.as_str(), false, None).unwrap();
             // load all collectors from configuration file
-            let collectors = load_collectors(config.collectors_config.as_str()).unwrap();
+            let collectors = load_collectors(config.collectors_config).unwrap();
 
             rt.block_on(async {
                 update_database(db, collectors).await;

@@ -49,6 +49,7 @@ oneio = {version="0.11.0", features = ["lib", "s3"], optional = true}
 regex = { version = "1", optional = true }
 scraper = { version = "0.17", optional = true }
 tokio = {version="1", optional = true, features = ["full"] }
+lazy_static = {version="1", optional = true}
 
 # api dependencies
 poem = {version="1", optional = true}
@@ -64,7 +65,7 @@ cli = [
     # command-line interface
     "clap", "dirs", "envy", "humantime", "num_cpus", "tracing-subscriber", "tabled",
     # crawler
-    "futures", "oneio", "regex", "scraper", "tokio",
+    "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
     # database
     "duckdb", "r2d2",
     # RESTful API
