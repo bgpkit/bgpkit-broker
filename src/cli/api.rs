@@ -211,7 +211,6 @@ impl BrokerAPI {
     }
 
     /// Get the latest MRT files meta information
-    #[allow(clippy::too_many_arguments)]
     #[oai(path = "/latest", method = "get")]
     async fn latest(&self, database: Data<&LocalBrokerDb>) -> BrokerSearchResponse {
         let items = database.get_latest_items().unwrap();
@@ -233,9 +232,34 @@ impl BrokerAPI {
         }))
     }
 
+    /// check API and database health
     #[oai(path = "/health", method = "get", hidden = true)]
-    async fn health(&self) -> Response<Json<Value>> {
-        Response::new(Json(json!({"status": "OK"}))).status(StatusCode::OK)
+    async fn health(&self, database: Data<&LocalBrokerDb>) -> Response<Json<Value>> {
+        match database.get_latest_timestamp() {
+            Ok(data) => match data {
+                None => return Response::new(Json(
+                    json!({"status": "error", "message": "database not bootstrapped", "meta": {}}),
+                ))
+                .status(StatusCode::SERVICE_UNAVAILABLE),
+                Some(ts) => {
+                    // data is there, service is ok.
+                    // this endpoint does not check for data freshness, as there are applications
+                    // that does not require fresh data (e.g. historical analysis).
+                    return Response::new(Json(
+                        json!({"status": "OK", "message": "database is healthy", "meta": {
+                            "latest_file_ts": ts.timestamp(),
+                        }}),
+                    ))
+                    .status(StatusCode::OK);
+                }
+            },
+            Err(_) => {
+                return Response::new(Json(
+                    json!({"status": "error", "message": "database connection error", "meta": {}}),
+                ))
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
     }
 }
 
