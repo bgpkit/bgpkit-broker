@@ -38,7 +38,7 @@ BGPKIT Broker is used in production at [Cloudflare Radar][radar] powering its [r
 
 Add the following dependency line to your project's `Cargo.toml` file:
 ```yaml
-bgpkit-broker = "0.7.0-alpha.1"
+bgpkit-broker = "0.7.0-alpha.2"
 ```
 
 ### Example
@@ -70,7 +70,7 @@ pub fn main() {
 
 `bgpkit-broker` is a command-line application that packages many functionalities to allow users to self-host a BGPKIT Broker instance with ease.
 
-Install with `cargo install bgpkit-broker@0.7.0-alpha.1 --features cli`.
+Install with `cargo install bgpkit-broker@0.7.0-alpha.2 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
 
 `bgpkit-broker` has the following subcommands:
 
@@ -111,8 +111,9 @@ Options:
   -h, --host <HOST>                        host address [default: 0.0.0.0]
   -p, --port <PORT>                        port number [default: 40064]
   -r, --root <ROOT>                        root path, useful for configuring docs UI [default: /]
-      --no-updater                         disable updater service
+      --no-update                          disable updater service
       --no-api                             disable API service
+      --full-bootstrap                     do a full database bootstrap from duckdb or parquet file
   -h, --help                               Print help
   -V, --version                            Print version
 ```
