@@ -10,7 +10,7 @@ COPY ./src ./src
 COPY ./Cargo.toml .
 
 # build for release
-RUN cargo build --release
+RUN cargo build --release --all-features
 
 # our final base
 FROM debian:bullseye
