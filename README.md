@@ -38,7 +38,7 @@ BGPKIT Broker is used in production at [Cloudflare Radar][radar] powering its [r
 
 Add the following dependency line to your project's `Cargo.toml` file:
 ```yaml
-bgpkit-broker = "0.7.0-alpha.2"
+bgpkit-broker = "0.7.0-alpha.3"
 ```
 
 ### Example
@@ -70,7 +70,7 @@ pub fn main() {
 
 `bgpkit-broker` is a command-line application that packages many functionalities to allow users to self-host a BGPKIT Broker instance with ease.
 
-Install with `cargo install bgpkit-broker@0.7.0-alpha.2 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
+Install with `cargo install bgpkit-broker@0.7.0-alpha.3 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
 
 `bgpkit-broker` has the following subcommands:
 
