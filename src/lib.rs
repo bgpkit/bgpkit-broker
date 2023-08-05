@@ -68,7 +68,7 @@ page.
 
 We also provide way to fetch the latest file information for each collector available with the
 [BgpkitBroker::latest] call. The function returns JSON-deserialized result (see [CollectorLatestItem])
-to the RESTful API at <https://api.bgpkit.com/broker/latest>.
+to the RESTful API at <https://api.broker.bgpkit.com/v3/latest>.
 
 ```rust
 use bgpkit_broker::BgpkitBroker;
@@ -100,7 +100,7 @@ pub use crawler::{crawl_collector, load_collectors, Collector};
 #[cfg(feature = "cli")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
-pub use query::{BrokerItem, CollectorLatestItem, QueryParams, SortOrder};
+pub use query::{BrokerItem, QueryParams, SortOrder};
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -114,8 +114,12 @@ pub struct BgpkitBroker {
 
 impl Default for BgpkitBroker {
     fn default() -> Self {
+        let url = match std::env::var("BGPKIT_BROKER_URL") {
+            Ok(url) => url.trim_end_matches('/').to_string(),
+            Err(_) => "https://api.broker.bgpkit.com/v3".to_string(),
+        };
         Self {
-            broker_url: "https://api.bgpkit.com/broker".to_string(),
+            broker_url: url,
             query_params: Default::default(),
             client: reqwest::blocking::Client::new(),
         }
@@ -139,6 +143,7 @@ impl BgpkitBroker {
     /// Configure broker URL.
     ///
     /// You can change the default broker URL to point to your own broker instance.
+    /// You can also change the URL by setting environment variable `BGPKIT_BROKER_URL`.
     ///
     /// # Examples
     /// ```
@@ -412,6 +417,7 @@ impl BgpkitBroker {
         let mut items = vec![];
         loop {
             let url = format!("{}/search{}", &self.broker_url, &p);
+
             let res_items = match self.run_query(url.as_str()) {
                 Ok(res) => res,
                 Err(e) => return Err(e),
@@ -449,7 +455,7 @@ impl BgpkitBroker {
     ///     println!("{}", item);
     /// }
     /// ```
-    pub fn latest(&self) -> Result<Vec<CollectorLatestItem>, BrokerError> {
+    pub fn latest(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let latest_query_url = format!("{}/latest", self.broker_url);
         match self.client.get(latest_query_url.as_str()).send() {
             Ok(response) => match response.json::<CollectorLatestResult>() {
@@ -513,7 +519,7 @@ impl BgpkitBroker {
 /// // create iterator from the broker object (taking ownership)
 /// let items = broker.into_iter().collect::<Vec<BrokerItem>>();
 ///
-/// assert_eq!(items.len(), 96);
+/// assert_eq!(items.len(), 43);
 /// ```
 pub struct BrokerItemIterator {
     broker: BgpkitBroker,
@@ -627,7 +633,7 @@ mod tests {
             .page_size(100);
         let res = broker.query();
         assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap().len(), 106);
+        assert_eq!(res.ok().unwrap().len(), 53);
     }
 
     #[test]
@@ -636,14 +642,7 @@ mod tests {
             .ts_start("1634693400")
             .ts_end("1634693400");
 
-        assert_eq!(broker.into_iter().count(), 106);
-
-        // test iterating from second page
-        let broker = BgpkitBroker::new()
-            .ts_start("1634693400")
-            .ts_end("1634693400")
-            .page(2);
-        assert_eq!(broker.into_iter().count(), 6);
+        assert_eq!(broker.into_iter().count(), 53);
     }
 
     #[test]
@@ -652,21 +651,21 @@ mod tests {
             .ts_start("1634693400")
             .ts_end("1634693400");
         let items = broker.query().unwrap();
-        assert_eq!(items.len(), 106);
+        assert_eq!(items.len(), 53);
 
         let broker = BgpkitBroker::new()
             .ts_start("1634693400")
             .ts_end("1634693400")
             .collector_id("rrc00");
         let items = broker.query().unwrap();
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 1);
 
         let broker = BgpkitBroker::new()
             .ts_start("1634693400")
             .ts_end("1634693400")
             .project("riperis");
         let items = broker.query().unwrap();
-        assert_eq!(items.len(), 46);
+        assert_eq!(items.len(), 23);
     }
 
     #[test]

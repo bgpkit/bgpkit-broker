@@ -1,9 +1,9 @@
 use crate::api::BrokerSearchResponse::BadRequestResponse;
 use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
-use chrono::{Duration, NaiveDateTime};
+use chrono::{DateTime, Duration, NaiveDateTime};
 use clap::Args;
 use poem::listener::TcpListener;
-use poem::middleware::{AddData, CatchPanic, Cors};
+use poem::middleware::{AddData, CatchPanic, Cors, Tracing};
 use poem::web::Data;
 use poem::{EndpointExt, Route, Server};
 use poem_openapi::payload::Response;
@@ -11,7 +11,6 @@ use poem_openapi::{param::Query, payload::Json, ApiResponse, Object, OpenApi, Op
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::str::FromStr;
 
 struct BrokerAPI;
 
@@ -237,7 +236,7 @@ impl BrokerAPI {
     async fn health(&self, database: Data<&LocalBrokerDb>) -> Response<Json<Value>> {
         match database.get_latest_timestamp() {
             Ok(data) => match data {
-                None => return Response::new(Json(
+                None => Response::new(Json(
                     json!({"status": "error", "message": "database not bootstrapped", "meta": {}}),
                 ))
                 .status(StatusCode::SERVICE_UNAVAILABLE),
@@ -245,20 +244,18 @@ impl BrokerAPI {
                     // data is there, service is ok.
                     // this endpoint does not check for data freshness, as there are applications
                     // that does not require fresh data (e.g. historical analysis).
-                    return Response::new(Json(
+                    Response::new(Json(
                         json!({"status": "OK", "message": "database is healthy", "meta": {
                             "latest_file_ts": ts.timestamp(),
                         }}),
                     ))
-                    .status(StatusCode::OK);
+                    .status(StatusCode::OK)
                 }
             },
-            Err(_) => {
-                return Response::new(Json(
-                    json!({"status": "error", "message": "database connection error", "meta": {}}),
-                ))
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-            }
+            Err(_) => Response::new(Json(
+                json!({"status": "error", "message": "database connection error", "meta": {}}),
+            ))
+            .status(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }
 }
@@ -271,8 +268,9 @@ fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
         // it's unix timestamp
         NaiveDateTime::from_timestamp_opt(ts_end, 0).unwrap()
     } else {
-        match NaiveDateTime::from_str(ts_str) {
-            Ok(t) => t,
+        let ts_str = ts_str.trim_end_matches('Z').to_string() + "+00:00";
+        match DateTime::parse_from_rfc3339(ts_str.as_str()) {
+            Ok(t) => t.naive_utc(),
             Err(_) => {
                 return Err(format!(
                     "Invalid timestamp format: {}, should be either unix timestamp or RFC3339",
@@ -296,6 +294,7 @@ pub async fn start_api_service(
     let route = Route::new()
         .nest("/", api_service)
         .nest("/docs", ui)
+        .with(Tracing)
         .with(Cors::new())
         .with(AddData::new(database))
         .with(CatchPanic::new());
