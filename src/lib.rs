@@ -457,18 +457,67 @@ impl BgpkitBroker {
     /// ```
     pub fn latest(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let latest_query_url = format!("{}/latest", self.broker_url);
-        match self.client.get(latest_query_url.as_str()).send() {
+        let mut items = match self.client.get(latest_query_url.as_str()).send() {
             Ok(response) => match response.json::<CollectorLatestResult>() {
-                Ok(result) => Ok(result.data),
-                Err(_) => Err(BrokerError::BrokerError(
-                    "Error parsing response".to_string(),
-                )),
+                Ok(result) => result.data,
+                Err(_) => {
+                    return Err(BrokerError::BrokerError(
+                        "Error parsing response".to_string(),
+                    ))
+                }
             },
-            Err(e) => Err(BrokerError::BrokerError(format!(
-                "Unable to connect to the URL ({}): {}",
-                latest_query_url, e
-            ))),
-        }
+            Err(e) => {
+                return Err(BrokerError::BrokerError(format!(
+                    "Unable to connect to the URL ({}): {}",
+                    latest_query_url, e
+                )))
+            }
+        };
+
+        items.retain(|item| {
+            let mut matches = true;
+            if let Some(project) = &self.query_params.project {
+                match project.to_lowercase().as_str() {
+                    "rrc" | "riperis" | "ripe_ris" => {
+                        if !item.collector_id.starts_with("rrc") {
+                            matches = false
+                        }
+                    }
+                    "routeviews" | "route_views" | "rv" => {
+                        if !item.collector_id.starts_with("route-views") {
+                            matches = false
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(data_type) = &self.query_params.data_type {
+                match data_type.to_lowercase().as_str() {
+                    "rib" | "ribs" | "r" => {
+                        if item.data_type.as_str() != "rib" {
+                            matches = false
+                        }
+                    }
+                    "update" | "updates" => {
+                        if item.data_type.as_str() != "update" {
+                            matches = false
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(collector_id) = &self.query_params.collector_id {
+                if item.collector_id.as_str() != collector_id.as_str() {
+                    matches = false
+                }
+            }
+
+            matches
+        });
+
+        Ok(items)
     }
 
     fn run_query(&self, url: &str) -> Result<Vec<BrokerItem>, BrokerError> {
@@ -673,6 +722,33 @@ mod tests {
         let broker = BgpkitBroker::new();
         let items = broker.latest().unwrap();
         assert!(items.len() >= 125);
+
+        let broker = BgpkitBroker::new().project("routeviews".to_string());
+        let items = broker.latest().unwrap();
+        assert!(items
+            .iter()
+            .all(|item| item.collector_id.starts_with("route-views")));
+
+        let broker = BgpkitBroker::new().project("riperis".to_string());
+        let items = broker.latest().unwrap();
+        assert!(items
+            .iter()
+            .all(|item| item.collector_id.starts_with("rrc")));
+
+        let broker = BgpkitBroker::new().data_type("rib".to_string());
+        let items = broker.latest().unwrap();
+        assert!(items.iter().all(|item| item.data_type.as_str() == "rib"));
+
+        let broker = BgpkitBroker::new().data_type("update".to_string());
+        let items = broker.latest().unwrap();
+        assert!(items.iter().all(|item| item.data_type.as_str() == "update"));
+
+        let broker = BgpkitBroker::new().collector_id("rrc00".to_string());
+        let items = broker.latest().unwrap();
+        assert!(items
+            .iter()
+            .all(|item| item.collector_id.as_str() == "rrc00"));
+        assert_eq!(items.len(), 2);
     }
 
     #[test]
