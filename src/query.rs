@@ -249,6 +249,23 @@ pub struct BrokerItem {
     pub exact_size: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled, poem_openapi::Object))]
+pub struct BrokerCollector {
+    pub id: i64,
+    pub name: String,
+    pub url: String,
+    pub project: String,
+    pub updates_interval: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled, poem_openapi::Object))]
+pub struct BrokerItemType {
+    pub id: i64,
+    pub name: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CollectorLatestResult {
     /// total number of items

@@ -87,7 +87,7 @@ for item in broker.latest().unwrap() {
 
 #[cfg(feature = "cli")]
 mod crawler;
-#[cfg(feature = "cli")]
+#[cfg(feature = "backend")]
 mod db;
 mod error;
 mod query;

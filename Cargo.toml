@@ -56,20 +56,23 @@ poem = {version="1", optional = true}
 poem-openapi = {version= "3", features=['swagger-ui', 'chrono'], optional = true}
 
 # database dependencies
-duckdb = {version="0.8", optional = true, features = ["bundled", "parquet", "httpfs", "r2d2"]}
-r2d2 = {version="0.8", optional = true}
+sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = true }
 
 [features]
-default=[]
+default=["backend"]
 cli = [
     # command-line interface
     "clap", "dirs", "envy", "humantime", "num_cpus", "tracing-subscriber", "tabled",
     # crawler
     "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
     # database
-    "duckdb", "r2d2",
+    "backend",
     # RESTful API
     "poem", "poem-openapi",
+]
+backend = [
+    "tokio",
+    "sqlx"
 ]
 
 [dev-dependencies]
