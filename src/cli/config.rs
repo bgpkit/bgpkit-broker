@@ -35,22 +35,6 @@ pub struct BrokerConfig {
     #[serde(default = "default_db_file_path")]
     pub db_file_path: String,
 
-    /// backup duckdb path
-    #[serde(default = "default_db_backup_duckdb_path")]
-    pub db_backup_duckdb_path: String,
-
-    /// backup duckdb path
-    #[serde(default = "default_db_backup_parquet_path")]
-    pub db_backup_parquet_path: String,
-
-    /// path to the db file bootstrap duckdb file
-    #[serde(default = "default_db_bootstrap_duckdb_path")]
-    pub db_bootstrap_duckdb_path: String,
-
-    /// path to the db file bootstrap parquet file
-    #[serde(default = "default_db_bootstrap_parquet_path")]
-    pub db_bootstrap_parquet_path: String,
-
     /// S3 backup configuration: region
     pub s3_region: Option<String>,
 

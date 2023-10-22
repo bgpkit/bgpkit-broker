@@ -74,7 +74,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                         url: url.clone(),
                         rough_size: *size,
                         collector_id: collector_id.clone(),
-                        data_type: "update".to_string(),
+                        data_type: "updates".to_string(),
                         exact_size: 0,
                     },
                     false => BrokerItem {

@@ -28,8 +28,4 @@ pub enum BrokerError {
 
     #[error("DateTimeParseError: {0}")]
     DateTimeParseError(#[from] chrono::ParseError),
-
-    #[cfg(feature = "cli")]
-    #[error("DbError: {0}")]
-    DbError(#[from] duckdb::Error),
 }

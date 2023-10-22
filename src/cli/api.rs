@@ -52,13 +52,6 @@ pub struct BrokerSearchResult {
     pub page_size: usize,
     pub error: Option<String>,
     pub data: Vec<BrokerItem>,
-    pub meta: Option<Meta>,
-}
-
-#[derive(Object, Serialize, Deserialize, Clone, Debug)]
-pub struct Meta {
-    pub latest_update_ts: NaiveDateTime,
-    pub latest_update_duration: i32,
 }
 
 #[derive(ApiResponse)]
@@ -111,7 +104,6 @@ impl BrokerAPI {
                 page_size,
                 error: Some("page number start from 1".to_string()),
                 data: vec![],
-                meta: None,
             }));
         }
         if page_size > 1000 {
@@ -121,7 +113,6 @@ impl BrokerAPI {
                 page_size,
                 error: Some("maximum page size is 1000".to_string()),
                 data: vec![],
-                meta: None,
             }));
         }
 
@@ -145,7 +136,6 @@ impl BrokerAPI {
                                     duration_str
                                 )),
                                 data: vec![],
-                                meta: None,
                             }))
                         }
                     }
@@ -167,7 +157,6 @@ impl BrokerAPI {
                                     duration_str
                                 )),
                                 data: vec![],
-                                meta: None,
                             }))
                         }
                     }
@@ -181,7 +170,7 @@ impl BrokerAPI {
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
 
         let items = database
-            .search_items(
+            .search(
                 collectors,
                 project.0,
                 data_type.0,
@@ -190,36 +179,22 @@ impl BrokerAPI {
                 Some(page),
                 Some(page_size),
             )
+            .await
             .unwrap();
 
-        let meta = database
-            .get_latest_updates_meta()
-            .unwrap()
-            .map(|data| Meta {
-                latest_update_ts: data.update_ts,
-                latest_update_duration: data.update_duration,
-            });
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
             page,
             page_size,
             error: None,
             data: items,
-            meta,
         }))
     }
 
     /// Get the latest MRT files meta information
     #[oai(path = "/latest", method = "get")]
     async fn latest(&self, database: Data<&LocalBrokerDb>) -> BrokerSearchResponse {
-        let items = database.get_latest_items().unwrap();
-        let meta = database
-            .get_latest_updates_meta()
-            .unwrap()
-            .map(|data| Meta {
-                latest_update_ts: data.update_ts,
-                latest_update_duration: data.update_duration,
-            });
+        let items = database.get_latest_files().await;
 
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
@@ -227,14 +202,13 @@ impl BrokerAPI {
             page_size: items.len(),
             error: None,
             data: items,
-            meta,
         }))
     }
 
     /// check API and database health
     #[oai(path = "/health", method = "get", hidden = true)]
     async fn health(&self, database: Data<&LocalBrokerDb>) -> Response<Json<Value>> {
-        match database.get_latest_timestamp() {
+        match database.get_latest_timestamp().await {
             Ok(data) => match data {
                 None => Response::new(Json(
                     json!({"status": "error", "message": "database not bootstrapped", "meta": {}}),
