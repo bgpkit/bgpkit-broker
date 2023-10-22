@@ -1,7 +1,4 @@
 mod api;
-mod config;
-
-use crate::config::BrokerConfig;
 
 use crate::api::{start_api_service, BrokerSearchQuery};
 use bgpkit_broker::{
@@ -58,27 +55,13 @@ enum Commands {
         /// disable API service
         #[clap(long, group = "disable")]
         no_api: bool,
-
-        /// do a full database bootstrap from sqlite file dump
-        #[clap(long)]
-        full_bootstrap: bool,
     },
 
     /// Update the Broker database
     Update {},
 
-    /// Print out current configuration
-    Config {},
-
     /// Bootstrap the Broker database
     Bootstrap {},
-
-    /// Export broker database to parquet file
-    Backup {
-        // /// whether to include the duckdb version in the backup file
-        // #[clap(short, long)]
-        // include_version: bool,
-    },
 
     /// Search MRT files in Broker db
     Search {
@@ -193,11 +176,6 @@ fn main() {
         std::env::set_var("RUST_LOG", "bgpkit_broker=info,poem=debug");
     }
 
-    let config = match envy::prefixed("BGPKIT_BROKER_").from_env::<BrokerConfig>() {
-        Ok(config) => config,
-        Err(error) => panic!("{:#?}", error),
-    };
-
     let db_file_path: String = cli.db.clone();
     // TODO: check db file exists
     // TODO: check db file basic schema correct
@@ -210,19 +188,18 @@ fn main() {
             root,
             no_update,
             no_api,
-            full_bootstrap,
         } => {
             if do_log {
                 enable_logging();
             }
 
-            // // TODO: handle periodical update
             if !no_update {
+                // starting a new dedicated thread to periodically fetch new data from collectors
                 let path = db_file_path.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
-                    let collectors = load_collectors(config.collectors_config.clone()).unwrap();
+                    let collectors = load_collectors().unwrap();
 
                     rt.block_on(async {
                         let db = LocalBrokerDb::new(path.as_str()).await.unwrap();
@@ -231,12 +208,7 @@ fn main() {
 
                         loop {
                             interval.tick().await;
-                            update_database(
-                                db.clone(),
-                                collectors.clone(),
-                                config.db_bootstrap_days,
-                            )
-                            .await;
+                            update_database(db.clone(), collectors.clone(), 60).await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
@@ -253,74 +225,9 @@ fn main() {
                 });
             }
         }
-        Commands::Backup {} => {
-            // TODO: handle backup
-            if do_log {
-                enable_logging();
-            }
-
-            info!("backing up database...");
-
-            // // exporting duckdb file
-            // LocalBrokerDb::backup_duckdb(
-            //     config.db_file_path.as_str(),
-            //     config.db_backup_duckdb_path.as_str(),
-            // )
-            // .unwrap();
-            //
-            // // use the exported duckdb file to export parquet file
-            // let db =
-            //     LocalBrokerDb::new(config.db_backup_duckdb_path.as_str(), false, None).unwrap();
-            // db.backup_parquet(config.db_backup_parquet_path.as_str())
-            //     .unwrap();
-            //
-            // if config.do_s3_backup() {
-            //     let s3_bucket = config.s3_bucket.unwrap();
-            //     let s3_dir = config.s3_dir.unwrap();
-            //     let s3_parquet_path = format!(
-            //         "{}/{}",
-            //         s3_dir,
-            //         config.db_backup_parquet_path.split('/').last().unwrap()
-            //     );
-            //     let s3_duckdb_path = format!(
-            //         "{}/{}",
-            //         s3_dir,
-            //         config.db_backup_duckdb_path.split('/').last().unwrap()
-            //     );
-            //
-            //     info!(
-            //         "uploading parquet file {} to S3 at {}",
-            //         config.db_backup_parquet_path.as_str(),
-            //         s3_parquet_path
-            //     );
-            //     oneio::s3_upload(
-            //         s3_bucket.as_str(),
-            //         s3_parquet_path.as_str(),
-            //         config.db_backup_parquet_path.as_str(),
-            //     )
-            //     .unwrap();
-            //
-            //     info!(
-            //         "uploading duckdb file {} to S3 at {}",
-            //         config.db_backup_duckdb_path.as_str(),
-            //         s3_duckdb_path
-            //     );
-            //     oneio::s3_upload(
-            //         s3_bucket.as_str(),
-            //         s3_duckdb_path.as_str(),
-            //         config.db_backup_duckdb_path.as_str(),
-            //     )
-            //     .unwrap();
-            // }
-
-            info!("finished exporting db");
-        }
-        Commands::Config {} => {
-            println!("{}", serde_json::to_string_pretty(&config).unwrap());
-        }
         Commands::Bootstrap {} => {
-            // handle bootstrap
             todo!()
+            // handle bootstrap
             // if do_log {
             //     enable_logging();
             // }
@@ -340,14 +247,15 @@ fn main() {
             let rt = get_tokio_runtime();
 
             // load all collectors from configuration file
-            let collectors = load_collectors(config.collectors_config.clone()).unwrap();
+            let collectors = load_collectors().unwrap();
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(db_file_path.as_str()).await.unwrap();
-                update_database(db, collectors, config.db_bootstrap_days).await;
+                update_database(db, collectors, 60).await;
             });
         }
         Commands::Search { query, json, url } => {
+            // TODO: add support for search against local database
             let mut broker = BgpkitBroker::new();
             if let Some(url) = url {
                 broker = broker.broker_url(url);

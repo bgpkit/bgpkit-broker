@@ -45,7 +45,7 @@ tracing-subscriber = {version="0.3", optional=true}
 
 # crawler dependencies
 futures = {version="0.3", optional = true}
-oneio = {version="0.11.0", features = ["lib", "s3"], optional = true}
+oneio = {version="0.11.0", features = ["lib"], optional = true}
 regex = { version = "1", optional = true }
 scraper = { version = "0.17", optional = true }
 tokio = {version="1", optional = true, features = ["full"] }
@@ -54,6 +54,7 @@ lazy_static = {version="1", optional = true}
 # api dependencies
 poem = {version="1", optional = true}
 poem-openapi = {version= "3", features=['swagger-ui', 'chrono'], optional = true}
+dotenvy = {version="0.15", optional = true}
 
 # database dependencies
 sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = true }
@@ -62,7 +63,7 @@ sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = tr
 default=["backend"]
 cli = [
     # command-line interface
-    "clap", "dirs", "envy", "humantime", "num_cpus", "tracing-subscriber", "tabled",
+    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled",
     # crawler
     "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
     # database

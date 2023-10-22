@@ -7,9 +7,9 @@ use crate::{BrokerError, BrokerItem};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
+use sqlx::{Executor, Row};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
@@ -127,6 +127,8 @@ impl LocalBrokerDb {
             FROM "collectors" c
             JOIN "files" i ON c."id" = i."collector_id"
             JOIN "types" t ON t."id" = i."type_id";
+            
+            PRAGMA journal_mode=WAL;
         "#,
         )
         .execute(&self.conn_pool)
@@ -154,6 +156,13 @@ impl LocalBrokerDb {
             .unwrap();
 
         Ok(())
+    }
+
+    async fn force_checkpoint(&self) {
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
+            .execute(&self.conn_pool)
+            .await
+            .unwrap();
     }
 
     /// Check if data bootstrap is needed
@@ -266,7 +275,6 @@ impl LocalBrokerDb {
             },
             limit_clause,
         );
-
         debug!("{}", query_string.as_str());
 
         let collector_name_to_info = self
@@ -397,6 +405,8 @@ impl LocalBrokerDb {
         if update_latest {
             self.update_latest_files(&inserted, false).await;
         }
+
+        self.force_checkpoint().await;
         Ok(inserted)
     }
 }
