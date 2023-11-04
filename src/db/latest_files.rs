@@ -1,10 +1,12 @@
 use crate::db::utils::infer_url;
 use crate::query::BrokerCollector;
-use crate::{BrokerError, BrokerItem, LocalBrokerDb};
+use crate::{BrokerError, BrokerItem};
 use chrono::NaiveDateTime;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use std::collections::HashMap;
+
+use super::LocalBrokerDb;
 
 impl LocalBrokerDb {
     /// get the latest timestamp (ts_start) of data entries in broker database
@@ -125,7 +127,7 @@ impl LocalBrokerDb {
             .iter()
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
-        let files = sqlx::query(
+        sqlx::query(
             "select timestamp, collector_name, type, rough_size, exact_size from latest",
         )
         .map(|row: SqliteRow| {
@@ -153,8 +155,6 @@ impl LocalBrokerDb {
         })
         .fetch_all(&self.conn_pool)
         .await
-        .unwrap();
-
-        files
+        .unwrap()
     }
 }

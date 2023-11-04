@@ -59,7 +59,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                     false => format!("{}/{}", url, link).replace("http", "https"),
                 };
                 let updates_link_pattern: Regex =
-                    Regex::new(r#".*(........\.....)\.gz.*"#).unwrap();
+                    Regex::new(r".*(........\.....)\.gz.*").unwrap();
                 let time_str = updates_link_pattern
                     .captures(&url)
                     .unwrap()

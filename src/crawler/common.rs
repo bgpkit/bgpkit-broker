@@ -37,7 +37,7 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
     let mut res: Vec<(String, i64)> = vec![];
 
     if body.contains("table") {
-        let size_pattern: Regex = Regex::new(r#" *([\d.]+)([MKGmkg]*)"#).unwrap();
+        let size_pattern: Regex = Regex::new(r" *([\d.]+)([MKGmkg]*)").unwrap();
         // table-based html pages, works with RouteViews and RIPE RIS old version
         let fragment = Html::parse_fragment(body);
         let row_selector = Selector::parse("tr").unwrap();
@@ -65,7 +65,7 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
         }
     } else {
         for line in body.lines() {
-            let size_pattern: Regex = Regex::new(r#" +([\d.]+)([MKGmkg]*)$"#).unwrap();
+            let size_pattern: Regex = Regex::new(r" +([\d.]+)([MKGmkg]*)$").unwrap();
             let size = size_str_to_bytes(line, &size_pattern);
             if size.is_none() {
                 continue;

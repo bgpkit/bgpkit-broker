@@ -60,7 +60,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                 .map(|(link, size)| {
                     let url = format!("{}/{}", &url, link);
                     let link_time_pattern: Regex =
-                        Regex::new(r#".*(........\.....)\.bz2.*"#).unwrap();
+                        Regex::new(r".*(........\.....)\.bz2.*").unwrap();
                     let time_str = link_time_pattern
                         .captures(&url)
                         .unwrap()

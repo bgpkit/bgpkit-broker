@@ -176,7 +176,7 @@ fn main() {
     }
 
     let db_file_path: String = cli.db.clone();
-    if !std::fs::metadata(&db_file_path).is_ok() {
+    if std::fs::metadata(&db_file_path).is_err() {
         eprintln!("The specified database file does not exist.");
         exit(1);
     }
