@@ -127,34 +127,32 @@ impl LocalBrokerDb {
             .iter()
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
-        sqlx::query(
-            "select timestamp, collector_name, type, rough_size, exact_size from latest",
-        )
-        .map(|row: SqliteRow| {
-            let timestamp = row.get::<i64, _>(0);
-            let collector_name = row.get::<String, _>(1);
-            let type_name = row.get::<String, _>(2);
-            let rough_size = row.get::<i64, _>(3);
-            let exact_size = row.get::<i64, _>(4);
-            let collector = collector_name_to_info.get(&collector_name).unwrap();
+        sqlx::query("select timestamp, collector_name, type, rough_size, exact_size from latest")
+            .map(|row: SqliteRow| {
+                let timestamp = row.get::<i64, _>(0);
+                let collector_name = row.get::<String, _>(1);
+                let type_name = row.get::<String, _>(2);
+                let rough_size = row.get::<i64, _>(3);
+                let exact_size = row.get::<i64, _>(4);
+                let collector = collector_name_to_info.get(&collector_name).unwrap();
 
-            let is_rib = type_name.as_str() == "rib";
+                let is_rib = type_name.as_str() == "rib";
 
-            let ts_start = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
-            let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
+                let ts_start = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+                let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
 
-            BrokerItem {
-                ts_start,
-                ts_end,
-                collector_id: collector_name,
-                data_type: type_name,
-                url,
-                rough_size,
-                exact_size,
-            }
-        })
-        .fetch_all(&self.conn_pool)
-        .await
-        .unwrap()
+                BrokerItem {
+                    ts_start,
+                    ts_end,
+                    collector_id: collector_name,
+                    data_type: type_name,
+                    url,
+                    rough_size,
+                    exact_size,
+                }
+            })
+            .fetch_all(&self.conn_pool)
+            .await
+            .unwrap()
     }
 }
