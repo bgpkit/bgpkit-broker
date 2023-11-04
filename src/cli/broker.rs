@@ -60,12 +60,13 @@ enum Commands {
 
     /// Update the Broker database
     Update {
-        /// number of months to look back
+        /// force number of days to look back.
+        /// by default resume from the latest available data time.
         #[clap(short, long)]
         days: Option<u32>,
     },
 
-    /// Bootstrap the Broker database
+    /// TODO: Bootstrap the Broker database
     Bootstrap {},
 
     /// Search MRT files in Broker db
@@ -113,7 +114,7 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Op
         // otherwise, we crawl data from the latest timestamp in the database
         latest_date = match { db.get_latest_timestamp().await.unwrap().map(|t| t.date()) } {
             Some(t) => {
-                info!("latest timestamp in database is {}", t);
+                info!("update broker db from the latest date in db: {}", t);
                 Some(t)
             }
             None => {
