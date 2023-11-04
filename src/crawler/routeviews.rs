@@ -107,7 +107,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_crawl_routeviews() {
-        tracing_subscriber::fmt::init();
         let collector = Collector {
             id: "route-views2".to_string(),
             project: "routeviews".to_string(),
