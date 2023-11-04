@@ -7,6 +7,7 @@ use bgpkit_broker::{
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
+use std::process::exit;
 use tabled::settings::Style;
 use tabled::Table;
 use tokio::runtime::Runtime;
@@ -58,7 +59,11 @@ enum Commands {
     },
 
     /// Update the Broker database
-    Update {},
+    Update {
+        /// number of months to look back
+        #[clap(short, long)]
+        days: Option<u32>,
+    },
 
     /// Bootstrap the Broker database
     Bootstrap {},
@@ -99,46 +104,49 @@ fn get_tokio_runtime() -> Runtime {
 }
 
 /// update the database with data crawled from the given collectors
-async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, bootstrap_days: u32) {
-    let now = Utc::now();
-    let latest_date = match { db.get_latest_timestamp().await.unwrap().map(|t| t.date()) } {
-        Some(t) => Some(t),
-        None => {
-            // if bootstrap is false and we have an empty database
-            // we crawl data from 30 days ago
-            let date = Utc::now().date_naive() - chrono::Duration::days(bootstrap_days as i64);
-            info!(
-                "empty database, bootstrapping data from {} days ago ({})",
-                bootstrap_days, date
-            );
-            Some(date)
-        }
-    };
+async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Option<u32>) {
+    let latest_date;
+    if let Some(d) = days {
+        // if days is specified, we crawl data from d days ago
+        latest_date = Some(Utc::now().date_naive() - chrono::Duration::days(d as i64));
+    } else {
+        // otherwise, we crawl data from the latest timestamp in the database
+        latest_date = match { db.get_latest_timestamp().await.unwrap().map(|t| t.date()) } {
+            Some(t) => {
+                info!("latest timestamp in database is {}", t);
+                Some(t)
+            }
+            None => {
+                // if bootstrap is false and we have an empty database we crawl data from 30 days ago
+                let date = Utc::now().date_naive() - chrono::Duration::days(30);
+                info!(
+                    "empty database, bootstrapping data from {} days ago ({})",
+                    30, date
+                );
+                Some(date)
+            }
+        };
+    }
 
-    // crawl all collectors in parallel, 10 collectors in parallel by default, unordered.
+    // crawl all collectors in parallel, 5 collectors in parallel by default, unordered.
     // for bootstrapping (no data in db), we only crawl one collector at a time
-    let buffer_size = match latest_date {
-        Some(_) => 5,
-        None => 1,
-    };
+    const BUFFER_SIZE: usize = 5;
 
-    debug!("unordered buffer size is {}", buffer_size);
+    debug!("unordered buffer size is {}", BUFFER_SIZE);
 
     let mut stream = futures::stream::iter(&collectors)
         .map(|c| crawl_collector(c, latest_date))
-        .buffer_unordered(buffer_size);
+        .buffer_unordered(BUFFER_SIZE);
 
     info!(
         "start updating broker database for {} collectors",
         &collectors.len()
     );
-    let mut total_inserted_count = 0;
     while let Some(res) = stream.next().await {
         let db = db.clone();
         match res {
             Ok(items) => {
-                let inserted = db.insert_items(&items, true).await.unwrap();
-                total_inserted_count += inserted.len();
+                let _inserted = db.insert_items(&items, true).await.unwrap();
             }
             Err(e) => {
                 dbg!(e);
@@ -146,15 +154,6 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, bootstra
             }
         }
     }
-
-    let duration = Utc::now() - now;
-    // TODO: update meta timestamp
-    // db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
-    //     .unwrap();
-
-    // NOTE: running checkpoint may freeze all operations
-    // info!("running checkpoint...");
-    // db.checkpoint().unwrap();
 
     info!("finished updating broker database");
 }
@@ -177,8 +176,10 @@ fn main() {
     }
 
     let db_file_path: String = cli.db.clone();
-    // TODO: check db file exists
-    // TODO: check db file basic schema correct
+    if !std::fs::metadata(&db_file_path).is_ok() {
+        eprintln!("The specified database file does not exist.");
+        exit(1);
+    }
 
     match cli.command {
         Commands::Serve {
@@ -208,7 +209,7 @@ fn main() {
 
                         loop {
                             interval.tick().await;
-                            update_database(db.clone(), collectors.clone(), 60).await;
+                            update_database(db.clone(), collectors.clone(), Some(60)).await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
@@ -239,7 +240,7 @@ fn main() {
             // let _ = LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
             //     .unwrap();
         }
-        Commands::Update {} => {
+        Commands::Update { days } => {
             if do_log {
                 enable_logging();
             }
@@ -251,7 +252,7 @@ fn main() {
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(db_file_path.as_str()).await.unwrap();
-                update_database(db, collectors, 60).await;
+                update_database(db, collectors, days).await;
             });
         }
         Commands::Search { query, json, url } => {

@@ -7,9 +7,9 @@ use crate::{BrokerError, BrokerItem};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
+use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
-use sqlx::{Executor, Row};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
@@ -166,6 +166,7 @@ impl LocalBrokerDb {
     }
 
     /// Check if data bootstrap is needed
+    #[allow(dead_code)]
     async fn get_entry_count(&self) -> Result<i64, BrokerError> {
         let count = sqlx::query(
             r#"
@@ -286,13 +287,13 @@ impl LocalBrokerDb {
         let items = sqlx::query(query_string.as_str())
             .map(|row: SqliteRow| {
                 let collector_name = row.get::<String, _>("collector_name");
-                let collector_url = row.get::<String, _>("collector_url");
-                let project_name = row.get::<String, _>("project_name");
+                let _collector_url = row.get::<String, _>("collector_url");
+                let _project_name = row.get::<String, _>("project_name");
                 let timestamp = row.get::<i64, _>("timestamp");
                 let type_name = row.get::<String, _>("type");
                 let rough_size = row.get::<i64, _>("rough_size");
                 let exact_size = row.get::<i64, _>("exact_size");
-                let updates_interval = row.get::<i64, _>("updates_interval");
+                let _updates_interval = row.get::<i64, _>("updates_interval");
 
                 let collector = collector_name_to_info.get(collector_name.as_str()).unwrap();
 
