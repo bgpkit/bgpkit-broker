@@ -60,7 +60,7 @@ dotenvy = {version="0.15", optional = true}
 sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = true }
 
 [features]
-default=["backend"]
+default=[]
 cli = [
     # command-line interface
     "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled",
