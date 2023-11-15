@@ -114,8 +114,12 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Op
         // otherwise, we crawl data from the latest timestamp in the database
         latest_date = match { db.get_latest_timestamp().await.unwrap().map(|t| t.date()) } {
             Some(t) => {
-                info!("update broker db from the latest date in db: {}", t);
-                Some(t)
+                let start_date = t - chrono::Duration::days(1);
+                info!(
+                    "update broker db from the latest date - 1 in db: {}",
+                    start_date
+                );
+                Some(start_date)
             }
             None => {
                 // if bootstrap is false and we have an empty database we crawl data from 30 days ago
@@ -210,7 +214,8 @@ fn main() {
 
                         loop {
                             interval.tick().await;
-                            update_database(db.clone(), collectors.clone(), Some(60)).await;
+                            // updating from the latest data available
+                            update_database(db.clone(), collectors.clone(), None).await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });

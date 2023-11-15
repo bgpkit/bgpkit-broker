@@ -4,7 +4,7 @@ mod utils;
 use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem};
-use chrono::NaiveDateTime;
+use chrono::{Duration, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -33,15 +33,15 @@ fn get_ts_start_clause(ts: i64) -> String {
             )
                 "#,
         ts,
-        15 * 60,
-        ts,
         5 * 60,
+        ts,
+        15 * 60,
         ts
     )
 }
 
 fn get_ts_end_clause(ts: i64) -> String {
-    format!("timestamp <= {}", ts)
+    format!("timestamp < {}", ts)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,8 +243,16 @@ impl LocalBrokerDb {
                 where_clauses.push(get_ts_end_clause(ts_end.timestamp()));
             }
             (Some(ts_start), Some(ts_end)) => {
-                where_clauses.push(get_ts_start_clause(ts_start.timestamp()));
-                where_clauses.push(get_ts_end_clause(ts_end.timestamp()));
+                let start = ts_start;
+                let end = match ts_start == ts_end {
+                    true => {
+                        // making sure when searching with the same timestamp, we always include the given timestamp
+                        ts_start + Duration::seconds(1)
+                    }
+                    false => ts_end,
+                };
+                where_clauses.push(get_ts_start_clause(start.timestamp()));
+                where_clauses.push(get_ts_end_clause(end.timestamp()));
             }
             (None, None) => {}
         }
