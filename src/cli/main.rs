@@ -1,6 +1,8 @@
 mod api;
+mod bootstrap;
 
 use crate::api::{start_api_service, BrokerSearchQuery};
+use crate::bootstrap::download_file;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
@@ -66,8 +68,12 @@ enum Commands {
         days: Option<u32>,
     },
 
-    /// TODO: Bootstrap the Broker database
-    Bootstrap {},
+    /// Bootstrap the Broker database
+    Bootstrap {
+        /// disable progress bar
+        #[clap(short, long)]
+        silent: bool,
+    },
 
     /// Search MRT files in Broker db
     Search {
@@ -181,11 +187,6 @@ fn main() {
     }
 
     let db_file_path: String = cli.db.clone();
-    if std::fs::metadata(&db_file_path).is_err() {
-        eprintln!("The specified database file does not exist.");
-        exit(1);
-    }
-
     match cli.command {
         Commands::Serve {
             update_interval,
@@ -195,6 +196,13 @@ fn main() {
             no_update,
             no_api,
         } => {
+            if std::fs::metadata(&db_file_path).is_err() {
+                eprintln!(
+                    "The specified database file does not exist. Consider run bootstrap command?"
+                );
+                exit(1);
+            }
+
             if do_log {
                 enable_logging();
             }
@@ -232,21 +240,37 @@ fn main() {
                 });
             }
         }
-        Commands::Bootstrap {} => {
-            todo!()
-            // handle bootstrap
-            // if do_log {
-            //     enable_logging();
-            // }
-            // let bootstrap_path = match cli.bootstrap_parquet {
-            //     true => config.db_bootstrap_parquet_path.clone(),
-            //     false => config.db_bootstrap_duckdb_path.clone(),
-            // };
-            //
-            // let _ = LocalBrokerDb::new(config.db_file_path.as_str(), false, Some(bootstrap_path))
-            //     .unwrap();
+        Commands::Bootstrap { silent } => {
+            const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3";
+
+            if do_log {
+                enable_logging();
+            }
+
+            // check if file exists
+            if std::fs::metadata(&db_file_path).is_ok() {
+                eprintln!("The specified database path already exists, skip bootstrapping.");
+                exit(1);
+            }
+
+            // download the database file
+            let rt = get_tokio_runtime();
+            rt.block_on(async {
+                info!(
+                    "downloading bootstrap database file {} to {}",
+                    BOOTSTRAP_URL, &db_file_path
+                );
+                download_file(BOOTSTRAP_URL, &db_file_path, silent)
+                    .await
+                    .unwrap();
+            });
         }
         Commands::Update { days } => {
+            if std::fs::metadata(&db_file_path).is_err() {
+                eprintln!("The specified database file does not exist.");
+                exit(1);
+            }
+
             if do_log {
                 enable_logging();
             }
