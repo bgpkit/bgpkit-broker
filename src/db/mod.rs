@@ -48,7 +48,7 @@ fn get_ts_end_clause(ts: i64) -> String {
 #[cfg_attr(feature = "cli", derive(poem_openapi::Object))]
 pub struct UpdatesMeta {
     /// database update timestamp
-    pub update_ts: NaiveDateTime,
+    pub update_ts: i64,
     /// database update duration in seconds
     pub update_duration: i32,
     /// number of items inserted
@@ -78,61 +78,68 @@ impl LocalBrokerDb {
     }
 
     async fn initialize(&mut self) -> Result<(), BrokerError> {
-        let _ = sqlx::query(
+        sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS "collectors" (
-                "id" INTEGER PRIMARY KEY,
-                "name" TEXT, 
-                "url" TEXT, 
-                "project" TEXT,
-                "update_interval INTEGER
+            CREATE TABLE IF NOT EXISTS meta(
+                update_ts INTEGER,
+                update_duration INTEGER,
+                insert_count INTEGER
+            );
+            
+            CREATE TABLE IF NOT EXISTS collectors (
+                id INTEGER PRIMARY KEY,
+                name TEXT, 
+                url TEXT, 
+                project TEXT,
+                update_interval INTEGER
                 );
 
-            CREATE TABLE IF NOT EXISTS "types" (
-                "id" INTEGER PRIMARY KEY,
-                "name" TEXT
+            CREATE TABLE IF NOT EXISTS types (
+                id INTEGER PRIMARY KEY,
+                name TEXT
             );
 
-            CREATE TABLE IF NOT EXISTS "files"(
-                "timestamp" INTEGER,
-                "collector_id" INTEGER,
-                "type_id" INTEGER,
-                "rough_size" INTEGER,
-                "exact_size" INTEGER,
+            CREATE TABLE IF NOT EXISTS files(
+                timestamp INTEGER,
+                collector_id INTEGER,
+                type_id INTEGER,
+                rough_size INTEGER,
+                exact_size INTEGER,
                 constraint files_unique_pk
                     unique (timestamp, collector_id, type_id)
             );
             
-            CREATE TABLE IF NOT EXISTS "latest"(
-                "timestamp" INTEGER,
-                "collector_name" TEXT,
-                "type" TEXT,
-                "rough_size" INTEGER,
-                "exact_size" INTEGER,
+            CREATE TABLE IF NOT EXISTS latest(
+                timestamp INTEGER,
+                collector_name TEXT,
+                type TEXT,
+                rough_size INTEGER,
+                exact_size INTEGER,
                 constraint latest_unique_pk
                     unique (collector_name, type)
             );
             
             CREATE INDEX IF NOT EXISTS idx_files_timestamp 
-                ON "files"("timestamp");
+                ON files(timestamp);
 
             CREATE VIEW IF NOT EXISTS files_view AS
             SELECT
-                i."timestamp", i."rough_size", i."exact_size",
-                t."name" AS type,
-                c."name" AS collector_name,
-                c."url" AS collector_url,
-                c."project" AS project_name,
-                c."updates_interval" AS updates_interval
-            FROM "collectors" c
-            JOIN "files" i ON c."id" = i."collector_id"
-            JOIN "types" t ON t."id" = i."type_id";
+                i.timestamp, i.rough_size, i.exact_size,
+                t.name AS type,
+                c.name AS collector_name,
+                c.url AS collector_url,
+                c.project AS project_name,
+                c.updates_interval AS updates_interval
+            FROM collectors c
+            JOIN files i ON c.id = i.collector_id
+            JOIN types t ON t.id = i.type_id;
             
             PRAGMA journal_mode=WAL;
         "#,
         )
         .execute(&self.conn_pool)
-        .await;
+        .await
+        .unwrap();
 
         self.collectors =
             sqlx::query("select id, name, url, project, updates_interval from collectors")
@@ -163,6 +170,37 @@ impl LocalBrokerDb {
             .execute(&self.conn_pool)
             .await
             .unwrap();
+    }
+
+    pub async fn insert_meta(
+        &self,
+        crawl_duration: i32,
+        item_inserted: i32,
+    ) -> Result<Vec<UpdatesMeta>, BrokerError> {
+        debug!("Inserting meta information...");
+        let now_ts = chrono::Utc::now().naive_utc().timestamp();
+        let inserted: Vec<UpdatesMeta> = sqlx::query(&format!(
+            r#"
+            INSERT INTO meta (update_ts, update_duration, insert_count) 
+            VALUES ('{}', {}, {})
+            RETURNING update_ts, update_duration, insert_count
+            "#,
+            now_ts, crawl_duration, item_inserted
+        ))
+        .map(|row: SqliteRow| {
+            let update_ts = row.get::<i64, _>(0);
+            let update_duration = row.get::<i32, _>(1);
+            let insert_count = row.get::<i32, _>(2);
+            UpdatesMeta {
+                update_ts,
+                update_duration,
+                insert_count,
+            }
+        })
+        .fetch_all(&self.conn_pool)
+        .await
+        .unwrap();
+        Ok(inserted)
     }
 
     /// Check if data bootstrap is needed

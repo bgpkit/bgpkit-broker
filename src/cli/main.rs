@@ -1,7 +1,9 @@
 mod api;
+mod backup;
 mod bootstrap;
 
 use crate::api::{start_api_service, BrokerSearchQuery};
+use crate::backup::backup_database;
 use crate::bootstrap::download_file;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
@@ -9,11 +11,20 @@ use bgpkit_broker::{
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
+use std::path::Path;
 use std::process::exit;
 use tabled::settings::Style;
 use tabled::Table;
 use tokio::runtime::Runtime;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
+
+fn is_local_path(path: &str) -> bool {
+    if path.contains("://") {
+        return false;
+    }
+    let path = Path::new(path);
+    path.is_absolute() || path.is_relative()
+}
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -25,16 +36,15 @@ struct Cli {
 
     #[clap(subcommand)]
     command: Commands,
-
-    /// broker db file location
-    #[clap(short, long, global = true, default_value = "bgpkit_broker.sqlite3")]
-    db: String,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Serve the Broker content via RESTful API
     Serve {
+        /// broker db file location
+        db_path: String,
+
         /// update interval in seconds
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
         update_interval: u64,
@@ -62,17 +72,48 @@ enum Commands {
 
     /// Update the Broker database
     Update {
+        /// broker db file location
+        #[clap()]
+        db_path: String,
+
         /// force number of days to look back.
         /// by default resume from the latest available data time.
         #[clap(short, long)]
         days: Option<u32>,
     },
 
-    /// Bootstrap the Broker database
+    /// Bootstrap the broker database
     Bootstrap {
+        /// Bootstrap from location (remote or local)
+        #[clap(
+            short,
+            long,
+            default_value = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3"
+        )]
+        from: String,
+
+        /// broker db file location
+        #[clap()]
+        db_path: String,
+
         /// disable progress bar
         #[clap(short, long)]
         silent: bool,
+    },
+
+    /// Backup Broker database
+    Backup {
+        /// source database location
+        #[clap()]
+        from: String,
+
+        /// remote database location
+        #[clap()]
+        to: String,
+
+        /// force writing backup file to existing file if specified
+        #[clap(short, long)]
+        force: bool,
     },
 
     /// Search MRT files in Broker db
@@ -112,6 +153,7 @@ fn get_tokio_runtime() -> Runtime {
 
 /// update the database with data crawled from the given collectors
 async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Option<u32>) {
+    let now = Utc::now();
     let latest_date;
     if let Some(d) = days {
         // if days is specified, we crawl data from d days ago
@@ -153,18 +195,25 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Op
         "start updating broker database for {} collectors",
         &collectors.len()
     );
+    let mut total_inserted_count = 0;
     while let Some(res) = stream.next().await {
         let db = db.clone();
         match res {
             Ok(items) => {
-                let _inserted = db.insert_items(&items, true).await.unwrap();
+                let inserted = db.insert_items(&items, true).await.unwrap();
+                total_inserted_count += inserted.len();
             }
             Err(e) => {
                 dbg!(e);
-                break;
+                continue;
             }
         }
     }
+
+    let duration = Utc::now() - now;
+    db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
+        .await
+        .unwrap();
 
     info!("finished updating broker database");
 }
@@ -186,9 +235,9 @@ fn main() {
         std::env::set_var("RUST_LOG", "bgpkit_broker=info,poem=debug");
     }
 
-    let db_file_path: String = cli.db.clone();
     match cli.command {
         Commands::Serve {
+            db_path,
             update_interval,
             host,
             port,
@@ -196,8 +245,8 @@ fn main() {
             no_update,
             no_api,
         } => {
-            if std::fs::metadata(&db_file_path).is_err() {
-                eprintln!(
+            if std::fs::metadata(&db_path).is_err() {
+                error!(
                     "The specified database file does not exist. Consider run bootstrap command?"
                 );
                 exit(1);
@@ -209,7 +258,7 @@ fn main() {
 
             if !no_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
-                let path = db_file_path.clone();
+                let path = db_path.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
@@ -233,23 +282,25 @@ fn main() {
             if !no_api {
                 let rt = get_tokio_runtime();
                 rt.block_on(async {
-                    let database = LocalBrokerDb::new(db_file_path.as_str()).await.unwrap();
+                    let database = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
                     start_api_service(database.clone(), host, port, root)
                         .await
                         .unwrap();
                 });
             }
         }
-        Commands::Bootstrap { silent } => {
-            const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3";
-
+        Commands::Bootstrap {
+            from,
+            db_path,
+            silent,
+        } => {
             if do_log {
                 enable_logging();
             }
 
             // check if file exists
-            if std::fs::metadata(&db_file_path).is_ok() {
-                eprintln!("The specified database path already exists, skip bootstrapping.");
+            if std::fs::metadata(&db_path).is_ok() {
+                error!("The specified database path already exists, skip bootstrapping.");
                 exit(1);
             }
 
@@ -258,16 +309,34 @@ fn main() {
             rt.block_on(async {
                 info!(
                     "downloading bootstrap database file {} to {}",
-                    BOOTSTRAP_URL, &db_file_path
+                    &from, &db_path
                 );
-                download_file(BOOTSTRAP_URL, &db_file_path, silent)
-                    .await
-                    .unwrap();
+                download_file(&from, &db_path, silent).await.unwrap();
             });
         }
-        Commands::Update { days } => {
-            if std::fs::metadata(&db_file_path).is_err() {
-                eprintln!("The specified database file does not exist.");
+        Commands::Backup { from, to, force } => {
+            if do_log {
+                enable_logging();
+            }
+
+            // check if file exists
+            if std::fs::metadata(&from).is_err() {
+                error!("The specified database path does not exist.");
+                exit(1);
+            }
+
+            if !is_local_path(&to) {
+                // we
+                error!("only backing up to local path supported");
+                exit(1);
+            }
+
+            // back up to local directory
+            backup_database(&from, &to, force);
+        }
+        Commands::Update { db_path, days } => {
+            if std::fs::metadata(&db_path).is_err() {
+                error!("The specified database file does not exist.");
                 exit(1);
             }
 
@@ -281,7 +350,7 @@ fn main() {
             let collectors = load_collectors().unwrap();
 
             rt.block_on(async {
-                let db = LocalBrokerDb::new(db_file_path.as_str()).await.unwrap();
+                let db = LocalBrokerDb::new(&db_path).await.unwrap();
                 update_database(db, collectors, days).await;
             });
         }
