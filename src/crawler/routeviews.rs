@@ -1,4 +1,6 @@
-use crate::crawler::common::{crawl_months_list, extract_link_size, remove_trailing_slash};
+use crate::crawler::common::{
+    crawl_months_list, extract_link_size, fetch_body, remove_trailing_slash,
+};
 use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{NaiveDate, NaiveDateTime};
@@ -51,7 +53,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
     // RIBS
     for subdir in ["RIBS", "UPDATES"] {
         let url = format!("{}/{}", &root_url, subdir);
-        let body = reqwest::get(url.as_str()).await?.text().await?;
+        let body = fetch_body(url.as_str()).await?;
         let collector_id_clone = collector_id.clone();
         let data_items: Vec<BrokerItem> = tokio::task::spawn_blocking(move || {
             let items = extract_link_size(body.as_str());

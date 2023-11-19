@@ -83,6 +83,15 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
     res
 }
 
+pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
+    let client = reqwest::Client::builder()
+        .user_agent("bgpkit-broker/3")
+        .pool_max_idle_per_host(0)
+        .build()?;
+    let body = client.get(url).send().await?.text().await?;
+    Ok(body)
+}
+
 /// Remove trailing slash from a string.
 ///
 /// # Arguments

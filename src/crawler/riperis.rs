@@ -1,4 +1,6 @@
-use crate::crawler::common::{crawl_months_list, extract_link_size, remove_trailing_slash};
+use crate::crawler::common::{
+    crawl_months_list, extract_link_size, fetch_body, remove_trailing_slash,
+};
 use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{NaiveDate, NaiveDateTime};
@@ -44,7 +46,7 @@ pub async fn crawl_ripe_ris(
 async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem>, BrokerError> {
     let url = remove_trailing_slash(url.as_str());
     debug!("crawling data for {} ...", url.as_str());
-    let body = reqwest::get(url.as_str()).await?.text().await?;
+    let body = fetch_body(url.as_str()).await?;
     debug!("    download for {} finished ", url.as_str());
 
     let new_url = url.to_string();
