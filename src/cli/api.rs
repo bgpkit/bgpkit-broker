@@ -52,6 +52,13 @@ pub struct BrokerSearchResult {
     pub page_size: usize,
     pub error: Option<String>,
     pub data: Vec<BrokerItem>,
+    pub meta: Option<Meta>,
+}
+
+#[derive(Object, Serialize, Deserialize, Clone, Debug)]
+pub struct Meta {
+    pub latest_update_ts: NaiveDateTime,
+    pub latest_update_duration: i32,
 }
 
 #[derive(ApiResponse)]
@@ -104,6 +111,7 @@ impl BrokerAPI {
                 page_size,
                 error: Some("page number start from 1".to_string()),
                 data: vec![],
+                meta: None,
             }));
         }
         if page_size > 1000 {
@@ -113,6 +121,7 @@ impl BrokerAPI {
                 page_size,
                 error: Some("maximum page size is 1000".to_string()),
                 data: vec![],
+                meta: None,
             }));
         }
 
@@ -136,6 +145,7 @@ impl BrokerAPI {
                                     duration_str
                                 )),
                                 data: vec![],
+                                meta: None,
                             }))
                         }
                     }
@@ -157,6 +167,7 @@ impl BrokerAPI {
                                     duration_str
                                 )),
                                 data: vec![],
+                                meta: None,
                             }))
                         }
                     }
@@ -182,12 +193,23 @@ impl BrokerAPI {
             .await
             .unwrap();
 
+        let meta = database
+            .get_latest_updates_meta()
+            .await
+            .unwrap()
+            .map(|data| Meta {
+                latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0)
+                    .unwrap(),
+                latest_update_duration: data.update_duration,
+            });
+
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
             page,
             page_size,
             error: None,
             data: items,
+            meta,
         }))
     }
 
@@ -195,6 +217,15 @@ impl BrokerAPI {
     #[oai(path = "/latest", method = "get")]
     async fn latest(&self, database: Data<&LocalBrokerDb>) -> BrokerSearchResponse {
         let items = database.get_latest_files().await;
+        let meta = database
+            .get_latest_updates_meta()
+            .await
+            .unwrap()
+            .map(|data| Meta {
+                latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0)
+                    .unwrap(),
+                latest_update_duration: data.update_duration,
+            });
 
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
@@ -202,6 +233,7 @@ impl BrokerAPI {
             page_size: items.len(),
             error: None,
             data: items,
+            meta,
         }))
     }
 

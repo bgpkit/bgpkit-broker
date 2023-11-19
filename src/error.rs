@@ -28,4 +28,7 @@ pub enum BrokerError {
 
     #[error("DateTimeParseError: {0}")]
     DateTimeParseError(#[from] chrono::ParseError),
+
+    #[error("DatabaseError: {0}")]
+    DatabaseError(#[from] sqlx::Error),
 }

@@ -203,6 +203,28 @@ impl LocalBrokerDb {
         Ok(inserted)
     }
 
+    pub async fn get_latest_updates_meta(&self) -> Result<Option<UpdatesMeta>, BrokerError> {
+        let entries = sqlx::query(
+            r#"
+            SELECT update_ts, update_duration, insert_count FROM meta ORDER BY update_ts DESC LIMIT 1;
+            "#,
+        ).map(|row: SqliteRow| {
+            let update_ts = row.get::<i64, _>(0);
+            let update_duration = row.get::<i32, _>(1);
+            let insert_count = row.get::<i32, _>(2);
+            UpdatesMeta {
+                update_ts,
+                update_duration,
+                insert_count,
+            }
+        }).fetch_all(&self.conn_pool).await?;
+        if entries.len() == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(entries[0].clone()))
+        }
+    }
+
     /// Check if data bootstrap is needed
     #[allow(dead_code)]
     async fn get_entry_count(&self) -> Result<i64, BrokerError> {
