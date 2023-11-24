@@ -26,6 +26,22 @@ fn is_local_path(path: &str) -> bool {
     path.is_absolute() || path.is_relative()
 }
 
+fn parse_s3_path(path: &str) -> Option<(String, String)> {
+    // split a path like s3://bucket/path/to/file into (bucket, path/to/file)
+    let parts = path.split("://").collect::<Vec<&str>>();
+    if parts.len() != 2 || parts[0] != "s3" {
+        return None;
+    }
+    let parts = parts[1].split('/').collect::<Vec<&str>>();
+    let bucket = parts[0].to_string();
+    // join the rest delimited by `/`
+    let path = format!("/{}", parts[1..].join("/"));
+    if parts.ends_with(&["/"]) {
+        return None;
+    }
+    Some((bucket, path))
+}
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 #[clap(propagate_version = true)]
@@ -104,11 +120,9 @@ enum Commands {
     /// Backup Broker database
     Backup {
         /// source database location
-        #[clap()]
         from: String,
 
         /// remote database location
-        #[clap()]
         to: String,
 
         /// force writing backup file to existing file if specified
@@ -325,14 +339,44 @@ fn main() {
                 exit(1);
             }
 
-            if !is_local_path(&to) {
-                // we
-                error!("only backing up to local path supported");
-                exit(1);
+            if is_local_path(&to) {
+                // back up to local directory
+                backup_database(&from, &to, force).unwrap();
+                return;
             }
 
-            // back up to local directory
-            backup_database(&from, &to, force);
+            if let Some((bucket, s3_path)) = parse_s3_path(&to) {
+                // back up to S3
+                let temp_dir = tempfile::tempdir().unwrap();
+                let temp_file_path = temp_dir
+                    .path()
+                    .join("temp.db")
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+
+                match backup_database(&from, &temp_file_path, force) {
+                    Ok(_) => {
+                        info!(
+                            "uploading backup file {} to S3 at s3://{}/{}",
+                            &temp_file_path, &bucket, &s3_path
+                        );
+                        match oneio::s3_upload(&bucket, &s3_path, &temp_file_path) {
+                            Ok(_) => {
+                                info!("backup file uploaded to S3");
+                            }
+                            Err(e) => {
+                                error!("failed to upload backup file to S3: {}", e);
+                                exit(1);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        error!("failed to backup database");
+                        exit(1);
+                    }
+                }
+            }
         }
         Commands::Update { db_path, days } => {
             if std::fs::metadata(&db_path).is_err() {

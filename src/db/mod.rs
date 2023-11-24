@@ -218,7 +218,7 @@ impl LocalBrokerDb {
                 insert_count,
             }
         }).fetch_all(&self.conn_pool).await?;
-        if entries.len() == 0 {
+        if entries.is_empty() {
             Ok(None)
         } else {
             Ok(Some(entries[0].clone()))

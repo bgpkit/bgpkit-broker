@@ -38,9 +38,9 @@ pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), St
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
-        let chunk = item.or(Err(format!("Error while downloading file")))?;
+        let chunk = item.or(Err("Error while downloading file".to_string()))?;
         file.write_all(&chunk)
-            .or(Err(format!("Error while writing to file")))?;
+            .or(Err("Error while writing to file".to_string()))?;
         let new = min(downloaded + (chunk.len() as u64), total_size);
         downloaded = new;
         if !silent {
@@ -51,5 +51,5 @@ pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), St
     if !silent {
         pb.finish_with_message(format!("Downloading {} to {}... Done", url, path));
     }
-    return Ok(());
+    Ok(())
 }
