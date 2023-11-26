@@ -22,3 +22,5 @@ jobs:
       run: cargo build --features cli --verbose
     - name: Test SDK
       run: cargo test --no-default-features --verbose
+    - name: Run clippy
+      run: cargo clippy --all-features -- -D warnings
