@@ -54,6 +54,8 @@ struct Cli {
     command: Commands,
 }
 
+const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3";
+
 #[derive(Subcommand)]
 enum Commands {
     /// Serve the Broker content via RESTful API
@@ -64,6 +66,14 @@ enum Commands {
         /// update interval in seconds
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
         update_interval: u64,
+
+        /// bootstrap the database if it does not exist
+        #[clap(short, long)]
+        bootstrap: bool,
+
+        /// disable bootstrap progress bar
+        #[clap(short, long)]
+        silent: bool,
 
         /// host address
         #[clap(short = 'h', long, default_value = "0.0.0.0")]
@@ -104,7 +114,7 @@ enum Commands {
         #[clap(
             short,
             long,
-            default_value = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3"
+            default_value = BOOTSTRAP_URL
         )]
         from: String,
 
@@ -112,7 +122,7 @@ enum Commands {
         #[clap()]
         db_path: String,
 
-        /// disable progress bar
+        /// disable bootstrap progress bar
         #[clap(short, long)]
         silent: bool,
     },
@@ -253,21 +263,36 @@ fn main() {
         Commands::Serve {
             db_path,
             update_interval,
+            bootstrap,
+            silent,
             host,
             port,
             root,
             no_update,
             no_api,
         } => {
-            if std::fs::metadata(&db_path).is_err() {
-                error!(
-                    "The specified database file does not exist. Consider run bootstrap command?"
-                );
-                exit(1);
-            }
-
             if do_log {
                 enable_logging();
+            }
+
+            if std::fs::metadata(&db_path).is_err() {
+                if bootstrap {
+                    // bootstrap the database
+                    let rt = get_tokio_runtime();
+                    let from = BOOTSTRAP_URL.to_string();
+                    rt.block_on(async {
+                        info!(
+                            "downloading bootstrap database file {} to {}",
+                            &from, &db_path
+                        );
+                        download_file(&from, &db_path, silent).await.unwrap();
+                    });
+                } else {
+                    error!(
+                    "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
+                );
+                    exit(1);
+                }
             }
 
             if !no_update {
