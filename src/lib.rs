@@ -235,7 +235,7 @@ impl BgpkitBroker {
     /// filter by multiple collector
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
-    ///     .collector_id("route-views2,route-views6")
+    ///     .collector_id("route-views2,route-views6");
     /// ```
     pub fn collector_id<S: Display>(self, collector_id: S) -> Self {
         let mut query_params = self.query_params;
