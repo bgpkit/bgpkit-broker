@@ -1,6 +1,5 @@
 use crate::BrokerError;
 use lazy_static::lazy_static;
-use oneio::OneIoError;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -26,32 +25,10 @@ pub struct ConfCollector {
     url: String,
 }
 
-pub fn load_collectors(path: Option<impl Into<String>>) -> Result<Vec<Collector>, BrokerError> {
+pub fn load_collectors() -> Result<Vec<Collector>, BrokerError> {
     // load config
-    let config: Config = match path {
-        None => {
-            info!("loading default collectors config");
-            DEFAULT_COLLECTORS_CONFIG.clone()
-        }
-        Some(path) => {
-            let path_str: String = path.into();
-            info!("loading collectors config from {}", path_str.as_str());
-            match oneio::read_json_struct::<Config>(path_str.as_str()) {
-                Ok(config) => config,
-                Err(e) => match e {
-                    OneIoError::IoError(e) => {
-                        return Err(BrokerError::IoError(e));
-                    }
-                    OneIoError::JsonParsingError(e) => {
-                        return Err(BrokerError::ConfigJsonError(e));
-                    }
-                    _ => {
-                        return Err(BrokerError::ConfigUnknownError(e.to_string()));
-                    }
-                },
-            }
-        }
-    };
+    info!("loading default collectors config");
+    let config: Config = DEFAULT_COLLECTORS_CONFIG.clone();
 
     Ok(config
         .projects
@@ -352,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_load_collectors() {
-        let collectors = load_collectors(Some("deployment/collectors.json")).unwrap();
+        let collectors = load_collectors().unwrap();
         dbg!(collectors);
     }
 }

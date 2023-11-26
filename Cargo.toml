@@ -1,7 +1,7 @@
 [package]
 name = "bgpkit-broker"
 version = "0.7.0-beta.1"
-edition = "2018"
+edition = "2021"
 authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ A library and command-line to provide indexing and searching functionalities for
 keywords = ["bgp", "bgpkit", "api"]
 
 [[bin]]
-path= "src/cli/broker.rs"
+path= "src/cli/main.rs"
 name="bgpkit-broker"
 required-features = ["cli"]
 
@@ -24,7 +24,7 @@ required-features = ["cli"]
 #############################################
 chrono = { version = "0.4", features = ["serde"] }
 log="0.4"
-reqwest = {version = "0.11.17", features = ["blocking", "json"]}
+reqwest = {version = "0.11.17", features = ["blocking", "json", "stream"]}
 serde={version="1", features = ["derive"]}
 serde_json = "1"
 thiserror = "1.0"
@@ -37,39 +37,46 @@ tracing = "0.1"
 # command-line interface dependencies
 clap = {version= "4.3", features=["derive"], optional=true}
 dirs = {version="5", optional=true}
-envy = {version = "0.4", optional = true }
 humantime = {version="2.1", optional = true}
 num_cpus = {version="1.15", optional=true}
 tabled = {version = "0.13", optional = true}
 tracing-subscriber = {version="0.3", optional=true}
+indicatif = { version = "0.17.7", optional = true }
+futures-util = { version = "0.3.28", optional = true }
+itertools = { version = "0.12.0" , optional = true }
+tempfile = "3.8"
 
 # crawler dependencies
 futures = {version="0.3", optional = true}
-oneio = {version="0.11.0", features = ["lib", "s3"], optional = true}
+oneio = {version="0.15.0", features = ["lib", "s3"], optional = true}
 regex = { version = "1", optional = true }
 scraper = { version = "0.17", optional = true }
 tokio = {version="1", optional = true, features = ["full"] }
 lazy_static = {version="1", optional = true}
 
 # api dependencies
-poem = {version="1", optional = true}
+poem = {version="1.3", optional = true}
 poem-openapi = {version= "3", features=['swagger-ui', 'chrono'], optional = true}
 
 # database dependencies
-duckdb = {version="0.8", optional = true, features = ["bundled", "parquet", "httpfs", "r2d2"]}
-r2d2 = {version="0.8", optional = true}
+sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = true }
 
 [features]
 default=[]
 cli = [
     # command-line interface
-    "clap", "dirs", "envy", "humantime", "num_cpus", "tracing-subscriber", "tabled",
+    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools",
     # crawler
     "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
     # database
-    "duckdb", "r2d2",
+    "backend",
+    # bootstrap
+    "indicatif", "futures-util",
     # RESTful API
     "poem", "poem-openapi",
+]
+backend = [
+    "tokio", "sqlx",
 ]
 
 [dev-dependencies]

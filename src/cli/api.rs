@@ -181,7 +181,7 @@ impl BrokerAPI {
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
 
         let items = database
-            .search_items(
+            .search(
                 collectors,
                 project.0,
                 data_type.0,
@@ -190,15 +190,19 @@ impl BrokerAPI {
                 Some(page),
                 Some(page_size),
             )
+            .await
             .unwrap();
 
         let meta = database
             .get_latest_updates_meta()
+            .await
             .unwrap()
             .map(|data| Meta {
-                latest_update_ts: data.update_ts,
+                latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0)
+                    .unwrap(),
                 latest_update_duration: data.update_duration,
             });
+
         BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
             count: items.len(),
             page,
@@ -212,12 +216,14 @@ impl BrokerAPI {
     /// Get the latest MRT files meta information
     #[oai(path = "/latest", method = "get")]
     async fn latest(&self, database: Data<&LocalBrokerDb>) -> BrokerSearchResponse {
-        let items = database.get_latest_items().unwrap();
+        let items = database.get_latest_files().await;
         let meta = database
             .get_latest_updates_meta()
+            .await
             .unwrap()
             .map(|data| Meta {
-                latest_update_ts: data.update_ts,
+                latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0)
+                    .unwrap(),
                 latest_update_duration: data.update_duration,
             });
 
@@ -234,7 +240,7 @@ impl BrokerAPI {
     /// check API and database health
     #[oai(path = "/health", method = "get", hidden = true)]
     async fn health(&self, database: Data<&LocalBrokerDb>) -> Response<Json<Value>> {
-        match database.get_latest_timestamp() {
+        match database.get_latest_timestamp().await {
             Ok(data) => match data {
                 None => Response::new(Json(
                     json!({"status": "error", "message": "database not bootstrapped", "meta": {}}),

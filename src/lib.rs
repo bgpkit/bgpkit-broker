@@ -87,8 +87,8 @@ for item in broker.latest().unwrap() {
 
 #[cfg(feature = "cli")]
 mod crawler;
-#[cfg(feature = "cli")]
-mod db;
+#[cfg(feature = "backend")]
+pub mod db;
 mod error;
 mod query;
 
@@ -97,7 +97,7 @@ use std::fmt::Display;
 
 #[cfg(feature = "cli")]
 pub use crawler::{crawl_collector, load_collectors, Collector};
-#[cfg(feature = "cli")]
+#[cfg(feature = "backend")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
 pub use query::{BrokerItem, QueryParams, SortOrder};

@@ -3,6 +3,9 @@ Cargo.lock
 .idea
 
 *.sqlite3*
+*.db
+*shm
+*wal
 *.duckdb*
 *.parquet
 /.env

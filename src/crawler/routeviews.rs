@@ -1,4 +1,6 @@
-use crate::crawler::common::{crawl_months_list, extract_link_size, remove_trailing_slash};
+use crate::crawler::common::{
+    crawl_months_list, extract_link_size, fetch_body, remove_trailing_slash,
+};
 use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{NaiveDate, NaiveDateTime};
@@ -51,7 +53,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
     // RIBS
     for subdir in ["RIBS", "UPDATES"] {
         let url = format!("{}/{}", &root_url, subdir);
-        let body = reqwest::get(url.as_str()).await?.text().await?;
+        let body = fetch_body(url.as_str()).await?;
         let collector_id_clone = collector_id.clone();
         let data_items: Vec<BrokerItem> = tokio::task::spawn_blocking(move || {
             let items = extract_link_size(body.as_str());
@@ -60,7 +62,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                 .map(|(link, size)| {
                     let url = format!("{}/{}", &url, link);
                     let link_time_pattern: Regex =
-                        Regex::new(r#".*(........\.....)\.bz2.*"#).unwrap();
+                        Regex::new(r".*(........\.....)\.bz2.*").unwrap();
                     let time_str = link_time_pattern
                         .captures(&url)
                         .unwrap()
@@ -75,7 +77,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                             url: url.clone(),
                             rough_size: *size,
                             collector_id: collector_id_clone.clone(),
-                            data_type: "update".to_string(),
+                            data_type: "updates".to_string(),
                             exact_size: 0,
                         },
                         false => BrokerItem {
@@ -107,7 +109,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_crawl_routeviews() {
-        tracing_subscriber::fmt::init();
         let collector = Collector {
             id: "route-views2".to_string(),
             project: "routeviews".to_string(),

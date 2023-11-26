@@ -1,4 +1,4 @@
-use bgpkit_broker::{BgpkitBroker};
+use bgpkit_broker::BgpkitBroker;
 
 pub fn main() {
     let broker = BgpkitBroker::new();
