@@ -6,13 +6,14 @@ use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem};
 use chrono::{Duration, NaiveDateTime};
-use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
 use std::collections::HashMap;
 use tracing::{debug, info};
+
+pub use meta::UpdatesMeta;
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
 
