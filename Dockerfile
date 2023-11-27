@@ -19,5 +19,7 @@ FROM debian:bookworm
 COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit-broker
 RUN DEBIAN=NONINTERACTIVE apt update; apt install -y curl libssl-dev ca-certificates tzdata cron; rm -rf /var/lib/apt/lists/*
 
+WORKDIR /bgpkit-broker
+
 EXPOSE 40064
 ENTRYPOINT bash -c '/usr/local/bin/bgpkit-broker serve bgpkit-broker.sqlite3 --bootstrap --silent'
