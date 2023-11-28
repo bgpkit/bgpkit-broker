@@ -1,20 +1,17 @@
 job "bgpkit-broker-api" {
-
     type = "service"
-
-    group "bsd" {
-
-        task "api" {
-          driver = "raw_exec"
-
-          config {
+    task "api" {
+        driver = "raw_exec"
+        config {
             command = "/usr/local/bin/bgpkit-broker"
-            args    = ["serve"]
-          }
-
-          resources {
+            args    = [
+                "serve",
+                "--port", "40065",
+                "/var/db/bgpkit/bgpkit_broker.sqlite3"
+            ]
+        }
+        resources {
             memory = 4000
-          }
         }
     }
 }
