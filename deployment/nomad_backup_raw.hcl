@@ -1,9 +1,10 @@
 job "bgpkit-broker-backup" {
   type = "batch"
   periodic {
-    cron             = "5 8 * * *"
+    crons            = ["5 8 * * *"]
     prohibit_overlap = true
   }
+
 
   task "bgpkit-broker-backup" {
     driver = "raw_exec"
