@@ -50,6 +50,9 @@ struct Cli {
     #[clap(long, global = true)]
     no_log: bool,
 
+    #[clap(long, global = true)]
+    env: Option<String>,
+
     #[clap(subcommand)]
     command: Commands,
 }
@@ -254,6 +257,18 @@ fn main() {
     let cli = Cli::parse();
 
     let do_log = !cli.no_log;
+
+    if let Some(env_path) = cli.env {
+        match dotenvy::from_path_override(env_path.as_str()) {
+            Ok(_) => {
+                info!("loaded environment variables from {}", env_path);
+            }
+            Err(_) => {
+                error!("failed to load environment variables from {}", env_path);
+                exit(1);
+            }
+        };
+    }
 
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "bgpkit_broker=info,poem=debug");

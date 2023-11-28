@@ -45,6 +45,7 @@ indicatif = { version = "0.17.7", optional = true }
 futures-util = { version = "0.3.28", optional = true }
 itertools = { version = "0.12.0" , optional = true }
 tempfile = "3.8"
+dotenvy = { version = "0.15" , optional = true }
 
 # crawler dependencies
 futures = {version="0.3", optional = true}
@@ -65,7 +66,7 @@ sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = tr
 default=[]
 cli = [
     # command-line interface
-    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools",
+    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools", "dotenvy",
     # crawler
     "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
     # database
