@@ -9,7 +9,15 @@ pub(crate) fn backup_database(from: &str, to: &str, force: bool) -> Result<(), S
         exit(1);
     }
 
-    let mut command = Command::new("sqlite3");
+    let sqlite_path = match which::which("sqlite3") {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(_) => {
+            error!("sqlite3 not found in PATH, please install sqlite3 first.");
+            exit(1);
+        }
+    };
+
+    let mut command = Command::new(sqlite_path.as_str());
     command.arg(from).arg(format!(".backup {}", to).as_str());
 
     let command_str = format!(
