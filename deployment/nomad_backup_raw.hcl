@@ -15,7 +15,8 @@ job "bgpkit-broker-backup" {
           "backup",
           "--env", "/usr/local/etc/bgpkit.d/broker.env",
           "/var/db/bgpkit/bgpkit_broker.sqlite3",
-          "s3://spaces/broker/bgpkit_broker.sqlite3"
+          "s3://spaces/broker/bgpkit_broker.sqlite3",
+          "--sqlite-cmd-path", "/usr/local/bin/sqlite3"
         ]
     }
 
