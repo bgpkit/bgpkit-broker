@@ -141,6 +141,10 @@ enum Commands {
         /// force writing backup file to existing file if specified
         #[clap(short, long)]
         force: bool,
+
+        /// specify sqlite3 command path
+        #[clap(short, long)]
+        sqlite_cmd_path: Option<String>,
     },
 
     /// Search MRT files in Broker db
@@ -368,7 +372,12 @@ fn main() {
                 download_file(&from, &db_path, silent).await.unwrap();
             });
         }
-        Commands::Backup { from, to, force } => {
+        Commands::Backup {
+            from,
+            to,
+            force,
+            sqlite_cmd_path,
+        } => {
             if do_log {
                 enable_logging();
             }
@@ -381,7 +390,7 @@ fn main() {
 
             if is_local_path(&to) {
                 // back up to local directory
-                backup_database(&from, &to, force).unwrap();
+                backup_database(&from, &to, force, sqlite_cmd_path).unwrap();
                 return;
             }
 
@@ -395,7 +404,7 @@ fn main() {
                     .unwrap()
                     .to_string();
 
-                match backup_database(&from, &temp_file_path, force) {
+                match backup_database(&from, &temp_file_path, force, sqlite_cmd_path) {
                     Ok(_) => {
                         info!(
                             "uploading backup file {} to S3 at s3://{}/{}",
