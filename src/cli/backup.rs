@@ -2,19 +2,27 @@ use itertools::Itertools;
 use std::process::{exit, Command};
 use tracing::{error, info};
 
-pub(crate) fn backup_database(from: &str, to: &str, force: bool) -> Result<(), String> {
+pub(crate) fn backup_database(
+    from: &str,
+    to: &str,
+    force: bool,
+    sqlite_cmd_path: Option<String>,
+) -> Result<(), String> {
     // back up to local directory
     if std::fs::metadata(to).is_ok() && !force {
         error!("The specified database path already exists, skip backing up.");
         exit(1);
     }
 
-    let sqlite_path = match which::which("sqlite3") {
-        Ok(p) => p.to_string_lossy().to_string(),
-        Err(_) => {
-            error!("sqlite3 not found in PATH, please install sqlite3 first.");
-            exit(1);
-        }
+    let sqlite_path = match sqlite_cmd_path {
+        Some(p) => p,
+        None => match which::which("sqlite3") {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => {
+                error!("sqlite3 not found in PATH, please install sqlite3 first.");
+                exit(1);
+            }
+        },
     };
 
     let mut command = Command::new(sqlite_path.as_str());
