@@ -58,9 +58,11 @@ lazy_static = {version="1", optional = true}
 
 # api dependencies
 axum = {version = "0.7", optional = true}
+tower-http = {version = "0.5", optional = true, features = ["cors"]}
 http = {version="1.0", optional = true}
 utoipa = {version = "4", optional = true, features = ["axum_extras", "chrono"]}
 utoipa-swagger-ui = { version = "5", optional = true, features = ["axum"] }
+axum-prometheus = { version = "0.5.0", optional = true }
 
 
 # database dependencies
@@ -77,8 +79,8 @@ cli = [
     "backend",
     # bootstrap
     "indicatif", "futures-util",
-    # RESTful API
-    "axum", "utoipa", "utoipa-swagger-ui", "http"
+    # API
+    "axum", "axum-prometheus", "utoipa", "utoipa-swagger-ui", "http", "tower-http",
 ]
 backend = [
     "tokio", "sqlx",

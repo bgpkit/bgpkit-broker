@@ -2,13 +2,15 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use axum_prometheus::PrometheusMetricLayerBuilder;
 use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{DateTime, Duration, NaiveDateTime};
 use clap::Args;
-use http::StatusCode;
+use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -330,13 +332,27 @@ pub async fn start_api_service(
     )]
     struct ApiDoc;
 
+    let (metric_layer, metric_handle) = PrometheusMetricLayerBuilder::new()
+        .with_ignore_patterns(&["/metrics"])
+        .with_prefix("bgpkit_broker")
+        .with_default_metrics()
+        .build_pair();
+    let cors_layer = CorsLayer::new()
+        // allow `GET` and `POST` when accessing the resource
+        .allow_methods([Method::GET, Method::POST])
+        // allow requests from any origin
+        .allow_origin(Any);
+
     let database = Arc::new(AppState { database });
     let app = Router::new()
         .merge(SwaggerUi::new("/docs").url("/openapi.json", ApiDoc::openapi()))
         .route("/search", get(search))
         .route("/latest", get(latest))
         .route("/health", get(health))
-        .with_state(database);
+        .route("/metrics", get(|| async move { metric_handle.render() }))
+        .with_state(database)
+        .layer(metric_layer)
+        .layer(cors_layer);
     let root_app = Router::new().nest(root.as_str(), app);
 
     let socket_str = format!("{}:{}", host, port);
