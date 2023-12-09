@@ -231,7 +231,7 @@ impl QueryParams {
 /// - [rough_size][BrokerItem::rough_size]: rough file size extracted from the collector webpage
 /// - [exact_size][BrokerItem::exact_size]: exact file size extracted by crawling the file
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, poem_openapi::Object))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
 pub struct BrokerItem {
     /// start timestamp
     pub ts_start: chrono::NaiveDateTime,
@@ -250,7 +250,7 @@ pub struct BrokerItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, poem_openapi::Object))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
 pub struct BrokerCollector {
     pub id: i64,
     pub name: String,
@@ -260,7 +260,7 @@ pub struct BrokerCollector {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, poem_openapi::Object))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
 pub struct BrokerItemType {
     pub id: i64,
     pub name: String,

@@ -1,20 +1,22 @@
-use crate::api::BrokerSearchResponse::BadRequestResponse;
+use axum::extract::{Query, State};
+use axum::response::IntoResponse;
+use axum::routing::get;
+use axum::{Json, Router};
 use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{DateTime, Duration, NaiveDateTime};
 use clap::Args;
-use poem::listener::TcpListener;
-use poem::middleware::{AddData, CatchPanic, Cors, Tracing};
-use poem::web::Data;
-use poem::{EndpointExt, Route, Server};
-use poem_openapi::payload::Response;
-use poem_openapi::{param::Query, payload::Json, ApiResponse, Object, OpenApi, OpenApiService};
-use reqwest::StatusCode;
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
+use std::sync::Arc;
+use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
-struct BrokerAPI;
+struct AppState {
+    database: LocalBrokerDb,
+}
 
-#[derive(Object, Args, Debug, Serialize, Deserialize)]
+#[derive(IntoParams, Args, Debug, Serialize, Deserialize)]
 pub struct BrokerSearchQuery {
     /// Start timestamp
     #[clap(short = 't', long)]
@@ -23,6 +25,10 @@ pub struct BrokerSearchQuery {
     /// End timestamp
     #[clap(short = 'T', long)]
     pub ts_end: Option<String>,
+
+    /// Duration string, e.g. 1 hour
+    #[clap(short = 'd', long)]
+    pub duration: Option<String>,
 
     /// filter by route collector projects, i.e. `route-views` or `riperis`
     #[clap(short, long)]
@@ -45,7 +51,7 @@ pub struct BrokerSearchQuery {
     pub page_size: Option<usize>,
 }
 
-#[derive(Object, Serialize, Deserialize, Clone, Debug)]
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerSearchResult {
     pub count: usize,
     pub page: usize,
@@ -55,214 +61,223 @@ pub struct BrokerSearchResult {
     pub meta: Option<Meta>,
 }
 
-#[derive(Object, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema)]
+enum BrokerApiError {
+    #[schema(example = "database not bootstrap")]
+    BrokerNotHealthy(String),
+    #[schema(example = "page must start from 1")]
+    SearchError(String),
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct Meta {
     pub latest_update_ts: NaiveDateTime,
     pub latest_update_duration: i32,
 }
 
-#[derive(ApiResponse)]
-enum BrokerSearchResponse {
-    #[oai(status = 200)]
-    SearchResponse(Json<BrokerSearchResult>),
+/// Search MRT files meta data from BGPKIT Broker database
+#[utoipa::path(
+    get,
+    path = "/search",
+    params(
+        BrokerSearchQuery
+    ),
+    tag = "api",
+    responses(
+        (status = 200, description = "List matching todos by query", body = BrokerSearchResult),
+        (status = 400, description = "Bad request", body = BrokerApiError, example = json!(BrokerApiError::SearchError("page must start from 1".to_string()))),
+    )
+)]
+async fn search(
+    query: Query<BrokerSearchQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let (page, page_size) = (
+        query.page.unwrap_or(1),
+        query.page_size.unwrap_or(DEFAULT_PAGE_SIZE),
+    );
+    if page == 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(BrokerApiError::SearchError(
+                "page number start from 1".to_string(),
+            )),
+        )
+            .into_response();
+    }
+    if page_size > 1000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(BrokerApiError::SearchError(
+                "maximum page size is 1000".to_string(),
+            )),
+        )
+            .into_response();
+    }
 
-    #[oai(status = 400)]
-    BadRequestResponse(Json<BrokerSearchResult>),
+    let mut ts_start = query
+        .ts_start
+        .as_ref()
+        .map(|s| parse_time_str(s.as_str()).unwrap());
+    let mut ts_end = query
+        .ts_end
+        .as_ref()
+        .map(|s| parse_time_str(s.as_str()).unwrap());
+
+    match (ts_start, ts_end) {
+        (Some(start), None) => {
+            if let Some(duration_str) = &query.duration {
+                match humantime::parse_duration(duration_str.as_str()) {
+                    Ok(d) => {
+                        ts_end = Some(start + Duration::from_std(d).unwrap());
+                    }
+                    Err(_) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(BrokerApiError::SearchError(format!(
+                                "cannot parse time duration string: {}",
+                                duration_str
+                            ))),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
+        (None, Some(end)) => {
+            if let Some(duration_str) = &query.duration {
+                match humantime::parse_duration(duration_str.as_str()) {
+                    Ok(d) => {
+                        ts_start = Some(end - Duration::from_std(d).unwrap());
+                    }
+                    Err(_) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(BrokerApiError::SearchError(format!(
+                                "cannot parse time duration string: {}",
+                                duration_str
+                            ))),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
+        _ => {}
+    };
+
+    let collectors = query
+        .collector_id
+        .as_ref()
+        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
+
+    let items = state
+        .database
+        .search(
+            collectors,
+            query.project.clone(),
+            query.data_type.clone(),
+            ts_start,
+            ts_end,
+            Some(page),
+            Some(page_size),
+        )
+        .await
+        .unwrap();
+
+    let meta = state
+        .database
+        .get_latest_updates_meta()
+        .await
+        .unwrap()
+        .map(|data| Meta {
+            latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0).unwrap(),
+            latest_update_duration: data.update_duration,
+        });
+
+    Json(BrokerSearchResult {
+        count: items.len(),
+        page,
+        page_size,
+        error: None,
+        data: items,
+        meta,
+    })
+    .into_response()
 }
 
-#[OpenApi]
-impl BrokerAPI {
-    /// Search MRT files meta data from BGPKIT Broker database
-    #[allow(clippy::too_many_arguments)]
-    #[oai(path = "/search", method = "get")]
-    async fn search(
-        &self,
-        /// Start timestamp
-        ts_start: Query<Option<String>>,
+/// Get the latest MRT files meta information
+#[utoipa::path(
+    get,
+    path = "/latest",
+    tag = "api",
+    params(),
+    responses(
+        (status = 200, description = "Latest MRT files available for all collectors", body = BrokerSearchResult),
+    )
+)]
+async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let items = state.database.get_latest_files().await;
+    let meta = state
+        .database
+        .get_latest_updates_meta()
+        .await
+        .unwrap()
+        .map(|data| Meta {
+            latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0).unwrap(),
+            latest_update_duration: data.update_duration,
+        });
 
-        /// End timestamp
-        ts_end: Query<Option<String>>,
+    Json(BrokerSearchResult {
+        count: items.len(),
+        page: 0,
+        page_size: items.len(),
+        error: None,
+        data: items,
+        meta,
+    })
+}
 
-        /// Human readable time duration string before `ts_end` or after `ts_start`, e.g. `1h`, `1d`, `1w`, `1m`, `1y`,
-        duration: Query<Option<String>>,
-
-        /// filter by route collector projects, i.e. `route-views` or `riperis`
-        project: Query<Option<String>>,
-
-        /// filter by collector IDs, e.g. `rrc00`, `route-views2`. use comma to separate multiple collectors
-        collector_id: Query<Option<String>>,
-
-        /// filter by data types, i.e. `update`, `rib`.
-        data_type: Query<Option<String>>,
-
-        /// page number, default to 1
-        page: Query<Option<usize>>,
-
-        /// page size
-        page_size: Query<Option<usize>>,
-
-        database: Data<&LocalBrokerDb>,
-    ) -> BrokerSearchResponse {
-        let (page, page_size) = (page.unwrap_or(1), page_size.unwrap_or(DEFAULT_PAGE_SIZE));
-        if page == 0 {
-            return BadRequestResponse(Json(BrokerSearchResult {
-                count: 0,
-                page,
-                page_size,
-                error: Some("page number start from 1".to_string()),
-                data: vec![],
-                meta: None,
-            }));
-        }
-        if page_size > 1000 {
-            return BadRequestResponse(Json(BrokerSearchResult {
-                count: 0,
-                page,
-                page_size,
-                error: Some("maximum page size is 1000".to_string()),
-                data: vec![],
-                meta: None,
-            }));
-        }
-
-        let mut ts_start = ts_start.0.map(|s| parse_time_str(s.as_str()).unwrap());
-        let mut ts_end = ts_end.0.map(|s| parse_time_str(s.as_str()).unwrap());
-
-        match (ts_start, ts_end) {
-            (Some(start), None) => {
-                if let Some(duration_str) = duration.0 {
-                    match humantime::parse_duration(duration_str.as_str()) {
-                        Ok(d) => {
-                            ts_end = Some(start + Duration::from_std(d).unwrap());
-                        }
-                        Err(_) => {
-                            return BadRequestResponse(Json(BrokerSearchResult {
-                                count: 0,
-                                page,
-                                page_size,
-                                error: Some(format!(
-                                    "cannot parse time duration string: {}",
-                                    duration_str
-                                )),
-                                data: vec![],
-                                meta: None,
-                            }))
-                        }
-                    }
-                }
-            }
-            (None, Some(end)) => {
-                if let Some(duration_str) = duration.0 {
-                    match humantime::parse_duration(duration_str.as_str()) {
-                        Ok(d) => {
-                            ts_start = Some(end - Duration::from_std(d).unwrap());
-                        }
-                        Err(_) => {
-                            return BadRequestResponse(Json(BrokerSearchResult {
-                                count: 0,
-                                page,
-                                page_size,
-                                error: Some(format!(
-                                    "cannot parse time duration string: {}",
-                                    duration_str
-                                )),
-                                data: vec![],
-                                meta: None,
-                            }))
-                        }
-                    }
-                }
-            }
-            _ => {}
-        };
-
-        let collectors = collector_id
-            .0
-            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
-
-        let items = database
-            .search(
-                collectors,
-                project.0,
-                data_type.0,
-                ts_start,
-                ts_end,
-                Some(page),
-                Some(page_size),
+/// Return Broker API and database health
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "metrics",
+    params(),
+    responses(
+        (status = 200, description = "API and database is healthy"),
+        (status = 503, description = "Database not available", body = BrokerApiError, example = json!(BrokerApiError::BrokerNotHealthy("database not bootstrap".to_string()))),
+    )
+)]
+async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.database.get_latest_timestamp().await {
+        Ok(data) => match data {
+            None => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(BrokerApiError::BrokerNotHealthy(
+                    "database not bootstrap".to_string(),
+                )),
             )
-            .await
-            .unwrap();
-
-        let meta = database
-            .get_latest_updates_meta()
-            .await
-            .unwrap()
-            .map(|data| Meta {
-                latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0)
-                    .unwrap(),
-                latest_update_duration: data.update_duration,
-            });
-
-        BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
-            count: items.len(),
-            page,
-            page_size,
-            error: None,
-            data: items,
-            meta,
-        }))
-    }
-
-    /// Get the latest MRT files meta information
-    #[oai(path = "/latest", method = "get")]
-    async fn latest(&self, database: Data<&LocalBrokerDb>) -> BrokerSearchResponse {
-        let items = database.get_latest_files().await;
-        let meta = database
-            .get_latest_updates_meta()
-            .await
-            .unwrap()
-            .map(|data| Meta {
-                latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0)
-                    .unwrap(),
-                latest_update_duration: data.update_duration,
-            });
-
-        BrokerSearchResponse::SearchResponse(Json(BrokerSearchResult {
-            count: items.len(),
-            page: 0,
-            page_size: items.len(),
-            error: None,
-            data: items,
-            meta,
-        }))
-    }
-
-    /// check API and database health
-    #[oai(path = "/health", method = "get", hidden = true)]
-    async fn health(&self, database: Data<&LocalBrokerDb>) -> Response<Json<Value>> {
-        match database.get_latest_timestamp().await {
-            Ok(data) => match data {
-                None => Response::new(Json(
-                    json!({"status": "error", "message": "database not bootstrapped", "meta": {}}),
-                ))
-                .status(StatusCode::SERVICE_UNAVAILABLE),
-                Some(ts) => {
-                    // data is there, service is ok.
-                    // this endpoint does not check for data freshness, as there are applications
-                    // that does not require fresh data (e.g. historical analysis).
-                    Response::new(Json(
-                        json!({"status": "OK", "message": "database is healthy", "meta": {
-                            "latest_file_ts": ts.timestamp(),
-                        }}),
-                    ))
-                    .status(StatusCode::OK)
-                }
-            },
-            Err(_) => Response::new(Json(
-                json!({"status": "error", "message": "database connection error", "meta": {}}),
-            ))
-            .status(StatusCode::INTERNAL_SERVER_ERROR),
-        }
+                .into_response(),
+            Some(ts) => {
+                // data is there, service is ok.
+                // this endpoint does not check for data freshness, as there are applications
+                // that does not require fresh data (e.g. historical analysis).
+                Json(
+                    json!({"status": "OK", "message": "database is healthy", "meta": {
+                        "latest_file_ts": ts.timestamp(),
+                    }}),
+                )
+                .into_response()
+            }
+        },
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(BrokerApiError::BrokerNotHealthy(
+                "database connection error".to_string(),
+            )),
+        )
+            .into_response(),
     }
 }
 
@@ -294,20 +309,40 @@ pub async fn start_api_service(
     port: u16,
     root: String,
 ) -> std::io::Result<()> {
-    let api_service = OpenApiService::new(BrokerAPI, "BGPKIT Broker", "3.0.0").server(root);
-    let ui = api_service.swagger_ui();
+    #[derive(OpenApi)]
+    #[openapi(
+        info(
+            title = "BGPKIT Broker API",
+            description = "BGPKIT Broker provides RESTful API for querying MRT files meta data across RouteViews and RIPE RIS collectors."
+        ),
+        paths(
+            search,
+            latest,
+            health,
+        ),
+        components(
+            schemas(BrokerSearchResult, BrokerItem, Meta, BrokerApiError)
+        ),
+        tags(
+            (name = "api", description = "API for BGPKIT Broker"),
+            (name = "metrics", description = "Metrics for BGPKIT Broker"),
+        )
+    )]
+    struct ApiDoc;
 
-    let route = Route::new()
-        .nest("/", api_service)
-        .nest("/docs", ui)
-        .with(Tracing)
-        .with(Cors::new())
-        .with(AddData::new(database))
-        .with(CatchPanic::new());
+    let database = Arc::new(AppState { database });
+    let app = Router::new()
+        .merge(SwaggerUi::new("/docs").url("/openapi.json", ApiDoc::openapi()))
+        .route("/search", get(search))
+        .route("/latest", get(latest))
+        .route("/health", get(health))
+        .with_state(database);
+    let root_app = Router::new().nest(root.as_str(), app);
 
-    let socket_addr_str = format!("{}:{}", host, port);
+    let socket_str = format!("{}:{}", host, port);
+    let listener = tokio::net::TcpListener::bind(socket_str).await?;
+    tracing::info!("listening on {}", listener.local_addr().unwrap());
+    axum::serve(listener, root_app).await.unwrap();
 
-    Server::new(TcpListener::bind(socket_addr_str))
-        .run(route)
-        .await
+    Ok(())
 }
