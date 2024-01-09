@@ -34,7 +34,7 @@ pub struct QueryParams {
     pub collector_id: Option<String>,
     /// archive project name: `riperis` or `routeviews`
     pub project: Option<String>,
-    /// archive data type: `rib` or `update`
+    /// archive data type: `rib` or `updates`
     pub data_type: Option<String>,
     /// page number to seek to, starting from 1, default to 1
     pub page: i64,
@@ -173,7 +173,7 @@ impl QueryParams {
 
     /// set the type of data to search for:
     /// - `rib`: table dump files
-    /// - `update`: BGP updates files
+    /// - `updates`: BGP updates files
     /// without specifying data type, it defaults to search for all types
     ///
     /// ```
@@ -226,7 +226,7 @@ impl QueryParams {
 /// - [ts_start][BrokerItem::ts_start]: the starting timestamp of the data file
 /// - [ts_end][BrokerItem::ts_end]: the ending timestamp of the data file
 /// - [collector_id][BrokerItem::collector_id]: the collector id of the item: e.g. `rrc00`
-/// - [data_type][BrokerItem::data_type]: type of the data item: `rib` or `update`
+/// - [data_type][BrokerItem::data_type]: type of the data item: `rib` or `updates`
 /// - [url][BrokerItem::url]: the URL to the data item file
 /// - [rough_size][BrokerItem::rough_size]: rough file size extracted from the collector webpage
 /// - [exact_size][BrokerItem::exact_size]: exact file size extracted by crawling the file
@@ -239,7 +239,7 @@ pub struct BrokerItem {
     pub ts_end: chrono::NaiveDateTime,
     /// the collector id of the item: e.g. `rrc00`
     pub collector_id: String,
-    /// type of the data item: `rib` or `update`
+    /// type of the data item: `rib` or `updates`
     pub data_type: String,
     /// the URL to the data item file
     pub url: String,
