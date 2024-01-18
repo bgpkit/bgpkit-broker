@@ -8,7 +8,7 @@ use crate::bootstrap::download_file;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use std::path::Path;
@@ -152,10 +152,30 @@ enum Commands {
         #[clap(flatten)]
         query: BrokerSearchQuery,
 
+        /// Specify broker endpoint
         #[clap(short, long)]
         url: Option<String>,
 
-        /// print out search results in JSON format instead of Markdown table
+        /// Print out search results in JSON format instead of Markdown table
+        #[clap(short, long)]
+        json: bool,
+    },
+
+    /// Display latest MRT files indexed
+    Latest {
+        /// filter by collector ID
+        #[clap(short, long)]
+        collector: Option<String>,
+
+        /// Specify broker endpoint
+        #[clap(short, long)]
+        url: Option<String>,
+
+        /// Showing only latest items that are outdated
+        #[clap(short, long)]
+        outdated: bool,
+
+        /// Print out search results in JSON format instead of Markdown table
         #[clap(short, long)]
         json: bool,
     },
@@ -482,6 +502,53 @@ fn main() {
             broker = broker.page_size(page_size as i64);
             let items = broker.query_single_page().unwrap();
 
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+            } else {
+                println!("{}", Table::new(items).with(Style::markdown()));
+            }
+        }
+        Commands::Latest {
+            collector,
+            url,
+            outdated,
+            json,
+        } => {
+            let mut broker = BgpkitBroker::new();
+            if let Some(url) = url {
+                broker = broker.broker_url(url);
+            }
+            // health check first
+            if broker.health_check().is_err() {
+                println!("broker instance at {} is not available", broker.broker_url);
+                return;
+            }
+            if let Some(collector_id) = collector {
+                broker = broker.collector_id(collector_id);
+            }
+
+            let mut items = broker.latest().unwrap();
+            if outdated {
+                const DEPRECATED_COLLECTORS: [&str; 6] = [
+                    "rrc02",
+                    "rrc08",
+                    "rrc09",
+                    "route-views.jinx",
+                    "route-views.siex",
+                    "route-views.saopaulo",
+                ];
+                items.retain(|item| {
+                    if DEPRECATED_COLLECTORS.contains(&item.collector_id.as_str()) {
+                        return false;
+                    }
+                    let now = Utc::now().naive_utc();
+                    (now - item.ts_start)
+                        > match item.data_type.as_str() == "rib" {
+                            true => Duration::hours(24),
+                            false => Duration::hours(1),
+                        }
+                });
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&items).unwrap());
             } else {
