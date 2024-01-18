@@ -90,6 +90,7 @@ mod crawler;
 #[cfg(feature = "backend")]
 pub mod db;
 mod error;
+mod item;
 mod query;
 
 use crate::query::{CollectorLatestResult, QueryResult};
@@ -100,7 +101,8 @@ pub use crawler::{crawl_collector, load_collectors, Collector};
 #[cfg(feature = "backend")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
-pub use query::{BrokerItem, QueryParams, SortOrder};
+pub use item::BrokerItem;
+pub use query::{QueryParams, SortOrder};
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -497,12 +499,14 @@ impl BgpkitBroker {
             if let Some(data_type) = &self.query_params.data_type {
                 match data_type.to_lowercase().as_str() {
                     "rib" | "ribs" | "r" => {
-                        if item.data_type.as_str() != "rib" {
+                        if !item.is_rib() {
+                            // if not RIB file, not match
                             matches = false
                         }
                     }
                     "update" | "updates" => {
-                        if item.data_type.as_str() != "updates" {
+                        if item.is_rib() {
+                            // if is RIB file, not match
                             matches = false
                         }
                     }
@@ -739,13 +743,11 @@ mod tests {
 
         let broker = BgpkitBroker::new().data_type("rib".to_string());
         let items = broker.latest().unwrap();
-        assert!(items.iter().all(|item| item.data_type.as_str() == "rib"));
+        assert!(items.iter().all(|item| item.is_rib()));
 
         let broker = BgpkitBroker::new().data_type("update".to_string());
         let items = broker.latest().unwrap();
-        assert!(items
-            .iter()
-            .all(|item| item.data_type.as_str() == "updates"));
+        assert!(items.iter().all(|item| !item.is_rib()));
 
         let broker = BgpkitBroker::new().collector_id("rrc00".to_string());
         let items = broker.latest().unwrap();

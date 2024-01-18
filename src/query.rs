@@ -1,4 +1,5 @@
 //! Query-related structs and implementation.
+use crate::BrokerItem;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -220,35 +221,6 @@ impl QueryParams {
     }
 }
 
-/// BGPKIT Broker data item.
-///
-/// The fields are:
-/// - [ts_start][BrokerItem::ts_start]: the starting timestamp of the data file
-/// - [ts_end][BrokerItem::ts_end]: the ending timestamp of the data file
-/// - [collector_id][BrokerItem::collector_id]: the collector id of the item: e.g. `rrc00`
-/// - [data_type][BrokerItem::data_type]: type of the data item: `rib` or `updates`
-/// - [url][BrokerItem::url]: the URL to the data item file
-/// - [rough_size][BrokerItem::rough_size]: rough file size extracted from the collector webpage
-/// - [exact_size][BrokerItem::exact_size]: exact file size extracted by crawling the file
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
-pub struct BrokerItem {
-    /// start timestamp
-    pub ts_start: chrono::NaiveDateTime,
-    /// end timestamps
-    pub ts_end: chrono::NaiveDateTime,
-    /// the collector id of the item: e.g. `rrc00`
-    pub collector_id: String,
-    /// type of the data item: `rib` or `updates`
-    pub data_type: String,
-    /// the URL to the data item file
-    pub url: String,
-    /// rough file size extracted from the hosting site page
-    pub rough_size: i64,
-    /// exact file size extracted by crawling the file
-    pub exact_size: i64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
 pub struct BrokerCollector {
@@ -288,12 +260,6 @@ pub(crate) struct QueryResult {
     pub error: Option<String>,
     /// the returning data [Item]s
     pub data: Vec<BrokerItem>,
-}
-
-impl Display for BrokerItem {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", serde_json::to_string(self).unwrap())
-    }
 }
 
 impl Display for QueryResult {
