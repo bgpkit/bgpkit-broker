@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## V0.7.0-beta.4 
+
+### CLI addtion
+
+- added `latest` subcommand to CLI to display latest MRT files for all collectors
+
+### Developer experience improvements
+
+- add `.is_rib()` to `BrokerItem` struct
+- add strict ordering definition for `BrokerItem` struct
+
+An array of `BrokerItem`s can be sorted with the following order:
+1. smaller timestamp before larger timestamp
+2. RIB before updates
+3. then alphabetical order on collector ID (route-views before rrc)
+
 ## V0.6.1
 
 ### What's Changed
