@@ -543,7 +543,7 @@ fn main() {
                     }
                     let now = Utc::now().naive_utc();
                     (now - item.ts_start)
-                        > match item.data_type.as_str() == "rib" {
+                        > match item.is_rib() {
                             true => Duration::hours(24),
                             false => Duration::hours(1),
                         }

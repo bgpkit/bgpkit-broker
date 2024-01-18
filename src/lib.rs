@@ -497,12 +497,14 @@ impl BgpkitBroker {
             if let Some(data_type) = &self.query_params.data_type {
                 match data_type.to_lowercase().as_str() {
                     "rib" | "ribs" | "r" => {
-                        if item.data_type.as_str() != "rib" {
+                        if !item.is_rib() {
+                            // if not RIB file, not match
                             matches = false
                         }
                     }
                     "update" | "updates" => {
-                        if item.data_type.as_str() != "updates" {
+                        if item.is_rib() {
+                            // if is RIB file, not match
                             matches = false
                         }
                     }
@@ -543,6 +545,16 @@ impl BgpkitBroker {
             }
             Err(e) => Err(BrokerError::from(e)),
         }
+    }
+}
+
+impl BrokerItem {
+    /// Checks if the data type is "rib" (i.e. RIB dump).
+    ///
+    /// # Return
+    /// Returns `true` if the data type is "rib", otherwise `false`.
+    pub fn is_rib(&self) -> bool {
+        self.data_type.as_str() == "rib"
     }
 }
 
@@ -739,13 +751,11 @@ mod tests {
 
         let broker = BgpkitBroker::new().data_type("rib".to_string());
         let items = broker.latest().unwrap();
-        assert!(items.iter().all(|item| item.data_type.as_str() == "rib"));
+        assert!(items.iter().all(|item| item.is_rib()));
 
         let broker = BgpkitBroker::new().data_type("update".to_string());
         let items = broker.latest().unwrap();
-        assert!(items
-            .iter()
-            .all(|item| item.data_type.as_str() == "updates"));
+        assert!(items.iter().all(|item| !item.is_rib()));
 
         let broker = BgpkitBroker::new().collector_id("rrc00".to_string());
         let items = broker.latest().unwrap();
