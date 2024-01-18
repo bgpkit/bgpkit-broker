@@ -70,7 +70,15 @@ pub fn main() {
 
 `bgpkit-broker` is a command-line application that packages many functionalities to allow users to self-host a BGPKIT Broker instance with ease.
 
-Install with `cargo install bgpkit-broker@0.7.0-beta.1 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
+### Install
+
+Install with `cargo install bgpkit-broker@0.7.0-beta.4 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
+
+If you are on a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
+```
+brew install bgpkit/tap/bgpkit-broker
+```
+### Usage
 
 `bgpkit-broker` has the following subcommands:
 
@@ -83,20 +91,21 @@ Usage: bgpkit-broker [OPTIONS] <COMMAND>
 Commands:
   serve      Serve the Broker content via RESTful API
   update     Update the Broker database
-  config     Print out current configuration
-  bootstrap  Bootstrap the Broker database
-  backup     Export broker database to parquet file
+  bootstrap  Bootstrap the broker database
+  backup     Backup Broker database
   search     Search MRT files in Broker db
+  latest     Display latest MRT files indexed
   help       Print this message or the help of the given subcommand(s)
 
 Options:
-      --no-log             disable logging
-      --bootstrap-parquet  bootstrap from parquet file instead of DuckDB file
-  -h, --help               Print help
-  -V, --version            Print version
+      --no-log     disable logging
+      --env <ENV>  
+  -h, --help       Print help
+  -V, --version    Print version
 ```
 
-### `serve`
+#### `serve`
+
 `bgpkit-broker serve` is the main command to start the BGPKIT Broker service. It will start a web server that serves the API endpoints. It will also periodically update the local database unless the `--no-update` flag is set.
 
 ```text
@@ -118,7 +127,8 @@ Options:
   -V, --version                            Print version
 ```
 
-### `update`
+#### `update`
+
 `bgpkit-broker update` triggers a local database update manually. This command **cannot** be run at the same time as `serve` because the active API will lock the database file.
 
 ```text
@@ -133,22 +143,7 @@ Options:
   -V, --version            Print version
 ```
 
-### `config`
-`bgpkit-broker config` displays current configuration, e.g. local database path, update interval, etc.
-
-```text
-Print out current configuration
-
-Usage: bgpkit-broker config [OPTIONS]
-
-Options:
-      --no-log             disable logging
-      --bootstrap-parquet  bootstrap from parquet file instead of DuckDB file
-  -h, --help               Print help
-  -V, --version            Print version
-```
-
-### `backup` 
+#### `backup` 
 `bgpkit-broker update` runs a database backup and export the database to a duckdb file and a parquet file. This *can* be run while `serve` is running.
 
 ```text
@@ -163,7 +158,7 @@ Options:
   -V, --version            Print version
 ```
 
-### `search` 
+#### `search` 
 `bgpkit-broker search` queries for MRT files using the default production API unless specified otherwise.
 
 ```text
@@ -185,6 +180,30 @@ Options:
   -j, --json                         print out search results in JSON format instead of Markdown table
   -h, --help                         Print help
   -V, --version                      Print version
+```
+
+#### `latest`
+
+`bgpkit-broker latest` queries for the latest MRT files of each route collector from RouteViews and RIPE RIS.
+
+- use `--collector COLLECTOR` to narrow down the display of the collector.
+- use `--outdated` flag to toggle showing only the files from collectors that have not been generating data timely
+- use `--json` flag to output to a JSON file instead of a Markdown table
+
+```text
+Display latest MRT files indexed
+
+Usage: bgpkit-broker latest [OPTIONS]
+
+Options:
+  -c, --collector <COLLECTOR>  filter by collector ID
+      --no-log                 disable logging
+      --env <ENV>              
+  -u, --url <URL>              Specify broker endpoint
+  -o, --outdated               Showing only latest items that are outdated
+  -j, --json                   Print out search results in JSON format instead of Markdown table
+  -h, --help                   Print help
+  -V, --version                Print version
 ```
 
 ## Data Provider
