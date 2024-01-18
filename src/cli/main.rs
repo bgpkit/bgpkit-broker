@@ -152,6 +152,22 @@ enum Commands {
         #[clap(flatten)]
         query: BrokerSearchQuery,
 
+        /// Specify broker endpoint
+        #[clap(short, long)]
+        url: Option<String>,
+
+        /// print out search results in JSON format instead of Markdown table
+        #[clap(short, long)]
+        json: bool,
+    },
+
+    /// Display latest MRT files indexed
+    Latest {
+        /// filter by collector ID
+        #[clap(short, long)]
+        collector: Option<String>,
+
+        /// Specify broker endpoint
         #[clap(short, long)]
         url: Option<String>,
 
@@ -482,6 +498,31 @@ fn main() {
             broker = broker.page_size(page_size as i64);
             let items = broker.query_single_page().unwrap();
 
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+            } else {
+                println!("{}", Table::new(items).with(Style::markdown()));
+            }
+        }
+        Commands::Latest {
+            collector,
+            url,
+            json,
+        } => {
+            let mut broker = BgpkitBroker::new();
+            if let Some(url) = url {
+                broker = broker.broker_url(url);
+            }
+            // health check first
+            if broker.health_check().is_err() {
+                println!("broker instance at {} is not available", broker.broker_url);
+                return;
+            }
+            if let Some(collector_id) = collector {
+                broker = broker.collector_id(collector_id);
+            }
+
+            let items = broker.latest().unwrap();
             if json {
                 println!("{}", serde_json::to_string_pretty(&items).unwrap());
             } else {
