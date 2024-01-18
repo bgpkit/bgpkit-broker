@@ -1,13 +1,11 @@
-## V0.7.0
+# Changelog
 
-### Major Changes
+All notable changes to this project will be documented in this file.
 
-- V0.7.0 introduces new CLI deployment solution, `bgpkit-broker serve`, which is a standalone HTTP server that serves the Broker content via RESTful API.
+## V0.6.1
 
-### API Changes
+### What's Changed
+* switch http lib to reqwest from ureq by @digizeph in https://github.com/bgpkit/bgpkit-broker/pull/20
 
-- New API now deployed at `https://api.broker.bgpkit.com/v3`
 
-### SDK Changes
-
-- set `BGPKIT_BROKER_URL` environment variable to change broker instance
+**Full Changelog**: https://github.com/bgpkit/bgpkit-broker/compare/v0.6.0...v0.6.1

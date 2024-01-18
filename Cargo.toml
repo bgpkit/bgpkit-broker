@@ -68,6 +68,8 @@ axum-prometheus = { version = "0.5.0", optional = true }
 # database dependencies
 sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite"], optional = true }
 
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+
 [features]
 default=[]
 cli = [
@@ -85,6 +87,9 @@ cli = [
 backend = [
     "tokio", "sqlx",
 ]
+# vendored openssl
+vendored-openssl = ["openssl"]
+
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"
