@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## V0.7.0-beta.4 
+## v0.7.0-beta.4 - 2024-01-18
 
 ### CLI addtion
 
