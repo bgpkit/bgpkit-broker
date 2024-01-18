@@ -8,7 +8,7 @@ use crate::bootstrap::download_file;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use std::path::Path;
@@ -156,7 +156,7 @@ enum Commands {
         #[clap(short, long)]
         url: Option<String>,
 
-        /// print out search results in JSON format instead of Markdown table
+        /// Print out search results in JSON format instead of Markdown table
         #[clap(short, long)]
         json: bool,
     },
@@ -171,7 +171,11 @@ enum Commands {
         #[clap(short, long)]
         url: Option<String>,
 
-        /// print out search results in JSON format instead of Markdown table
+        /// Showing only latest items that are outdated
+        #[clap(short, long)]
+        outdated: bool,
+
+        /// Print out search results in JSON format instead of Markdown table
         #[clap(short, long)]
         json: bool,
     },
@@ -507,6 +511,7 @@ fn main() {
         Commands::Latest {
             collector,
             url,
+            outdated,
             json,
         } => {
             let mut broker = BgpkitBroker::new();
@@ -522,7 +527,28 @@ fn main() {
                 broker = broker.collector_id(collector_id);
             }
 
-            let items = broker.latest().unwrap();
+            let mut items = broker.latest().unwrap();
+            if outdated {
+                const DEPRECATED_COLLECTORS: [&str; 6] = [
+                    "rrc02",
+                    "rrc08",
+                    "rrc09",
+                    "route-views.jinx",
+                    "route-views.siex",
+                    "route-views.saopaulo",
+                ];
+                items.retain(|item| {
+                    if DEPRECATED_COLLECTORS.contains(&item.collector_id.as_str()) {
+                        return false;
+                    }
+                    let now = Utc::now().naive_utc();
+                    (now - item.ts_start)
+                        > match item.data_type.as_str() == "rib" {
+                            true => Duration::hours(24),
+                            false => Duration::hours(1),
+                        }
+                });
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&items).unwrap());
             } else {
