@@ -5,7 +5,7 @@ use sqlx::Row;
 use tracing::debug;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(poem_openapi::Object))]
+#[cfg_attr(feature = "cli", derive(utoipa::ToSchema))]
 pub struct UpdatesMeta {
     /// database update timestamp
     pub update_ts: i64,

@@ -270,7 +270,7 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter of data type, i.e. `rib` or `update`.
+    /// Add filter of data type, i.e. `rib` or `updates`.
     ///
     /// # Examples
     ///
@@ -281,7 +281,7 @@ impl BgpkitBroker {
     ///
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
-    ///     .data_type("update");
+    ///     .data_type("updates");
     /// ```
     pub fn data_type<S: Display>(self, data_type: S) -> Self {
         let mut query_params = self.query_params;
@@ -502,7 +502,7 @@ impl BgpkitBroker {
                         }
                     }
                     "update" | "updates" => {
-                        if item.data_type.as_str() != "update" {
+                        if item.data_type.as_str() != "updates" {
                             matches = false
                         }
                     }
@@ -743,7 +743,9 @@ mod tests {
 
         let broker = BgpkitBroker::new().data_type("update".to_string());
         let items = broker.latest().unwrap();
-        assert!(items.iter().all(|item| item.data_type.as_str() == "update"));
+        assert!(items
+            .iter()
+            .all(|item| item.data_type.as_str() == "updates"));
 
         let broker = BgpkitBroker::new().collector_id("rrc00".to_string());
         let items = broker.latest().unwrap();
