@@ -90,6 +90,7 @@ mod crawler;
 #[cfg(feature = "backend")]
 pub mod db;
 mod error;
+mod item;
 mod query;
 
 use crate::query::{CollectorLatestResult, QueryResult};
@@ -100,7 +101,8 @@ pub use crawler::{crawl_collector, load_collectors, Collector};
 #[cfg(feature = "backend")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
-pub use query::{BrokerItem, QueryParams, SortOrder};
+pub use item::BrokerItem;
+pub use query::{QueryParams, SortOrder};
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -545,16 +547,6 @@ impl BgpkitBroker {
             }
             Err(e) => Err(BrokerError::from(e)),
         }
-    }
-}
-
-impl BrokerItem {
-    /// Checks if the data type is "rib" (i.e. RIB dump).
-    ///
-    /// # Return
-    /// Returns `true` if the data type is "rib", otherwise `false`.
-    pub fn is_rib(&self) -> bool {
-        self.data_type.as_str() == "rib"
     }
 }
 
