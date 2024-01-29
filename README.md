@@ -72,7 +72,7 @@ pub fn main() {
 
 ### Install
 
-Install with `cargo install bgpkit-broker@0.7.0-beta.4 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
+Install with `cargo install bgpkit-broker@0.7.0-beta.5 --features cli` or check out the main branch and run `cargo install --path . --features cli`.
 
 If you are on a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
 ```

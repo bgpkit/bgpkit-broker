@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.0-beta.5 - 2024-01-29
+
+### Breaking changes
+
+- switch to `rustls` as the default TLS backend
+
 ## v0.7.0-beta.4 - 2024-01-18
 
 ### CLI addtion
