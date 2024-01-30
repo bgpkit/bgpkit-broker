@@ -20,6 +20,18 @@ jobs:
           # (required) GitHub token for creating GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  cargo-publish:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to crates.io
+        run: >
+          cargo publish
+          --all-features
+          --verbose
+          --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   upload-assets:
     needs: create-release
     strategy:
@@ -39,7 +51,8 @@ jobs:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
           bin: bgpkit-broker
-          features: cli,vendored-openssl
+          features: cli
+          checksum: sha256
           # (optional) Target triple, default is host triple.
           target: ${{ matrix.target }}
           # (required) GitHub token for uploading assets to GitHub Releases.
