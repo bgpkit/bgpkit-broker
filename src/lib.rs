@@ -91,6 +91,8 @@ mod crawler;
 pub mod db;
 mod error;
 mod item;
+#[cfg(feature = "notify")]
+pub mod notify;
 mod query;
 
 use crate::query::{CollectorLatestResult, QueryResult};

@@ -307,9 +307,19 @@ impl LocalBrokerDb {
         Ok(items)
     }
 
+    /// Inserts a batch of items into the files table.
+    ///
+    /// # Arguments
+    ///
+    /// * `items` - A reference to a vector of `BrokerItem` structs to be inserted.
+    /// * `update_latest` - A boolean value indicating whether to update the latest files.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing a vector of inserted `BrokerItem` structs or a `BrokerError`.
     pub async fn insert_items(
         &self,
-        items: &Vec<BrokerItem>,
+        items: &[BrokerItem],
         update_latest: bool,
     ) -> Result<Vec<BrokerItem>, BrokerError> {
         // 1. fetch all collectors, get collector name-to-id mapping

@@ -58,7 +58,7 @@ impl LocalBrokerDb {
         ).execute(&self.conn_pool).await.unwrap();
     }
 
-    pub async fn update_latest_files(&self, files: &Vec<BrokerItem>, bootstrap: bool) {
+    pub async fn update_latest_files(&self, files: &[BrokerItem], bootstrap: bool) {
         let value_str = match bootstrap {
             true => r#"
                 SELECT

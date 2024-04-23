@@ -5,6 +5,7 @@ mod bootstrap;
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::backup_database;
 use crate::bootstrap::download_file;
+use bgpkit_broker::notify::Notifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
@@ -203,17 +204,22 @@ fn get_tokio_runtime() -> Runtime {
 }
 
 /// update the database with data crawled from the given collectors
-async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Option<u32>) {
+async fn update_database(
+    db: LocalBrokerDb,
+    collectors: Vec<Collector>,
+    days: Option<u32>,
+    #[cfg(feature = "notify")] notifier: Notifier,
+) {
     let now = Utc::now();
     let latest_date;
     if let Some(d) = days {
         // if days is specified, we crawl data from d days ago
-        latest_date = Some(Utc::now().date_naive() - chrono::Duration::days(d as i64));
+        latest_date = Some(Utc::now().date_naive() - Duration::days(d as i64));
     } else {
         // otherwise, we crawl data from the latest timestamp in the database
-        latest_date = match { db.get_latest_timestamp().await.unwrap().map(|t| t.date()) } {
+        latest_date = match db.get_latest_timestamp().await.unwrap().map(|t| t.date()) {
             Some(t) => {
-                let start_date = t - chrono::Duration::days(1);
+                let start_date = t - Duration::days(1);
                 info!(
                     "update broker db from the latest date - 1 in db: {}",
                     start_date
@@ -222,7 +228,7 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Op
             }
             None => {
                 // if bootstrap is false and we have an empty database we crawl data from 30 days ago
-                let date = Utc::now().date_naive() - chrono::Duration::days(30);
+                let date = Utc::now().date_naive() - Duration::days(30);
                 info!(
                     "empty database, bootstrapping data from {} days ago ({})",
                     30, date
@@ -252,10 +258,16 @@ async fn update_database(db: LocalBrokerDb, collectors: Vec<Collector>, days: Op
         match res {
             Ok(items) => {
                 let inserted = db.insert_items(&items, true).await.unwrap();
+                #[cfg(feature = "notify")]
+                {
+                    if !inserted.is_empty() {
+                        notifier.notify_items(&inserted).await.unwrap();
+                    }
+                }
                 total_inserted_count += inserted.len();
             }
             Err(e) => {
-                dbg!(e);
+                error!("{}", e);
                 continue;
             }
         }
@@ -350,7 +362,14 @@ fn main() {
                         loop {
                             interval.tick().await;
                             // updating from the latest data available
-                            update_database(db.clone(), collectors.clone(), None).await;
+                            update_database(
+                                db.clone(),
+                                collectors.clone(),
+                                None,
+                                #[cfg(feature = "notify")]
+                                Notifier::new().await,
+                            )
+                            .await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
@@ -464,7 +483,14 @@ fn main() {
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(&db_path).await.unwrap();
-                update_database(db, collectors, days).await;
+                update_database(
+                    db,
+                    collectors,
+                    days,
+                    #[cfg(feature = "notify")]
+                    Notifier::new().await,
+                )
+                .await;
             });
         }
         Commands::Search { query, json, url } => {

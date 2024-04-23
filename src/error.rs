@@ -32,4 +32,8 @@ pub enum BrokerError {
     #[cfg(feature = "backend")]
     #[error("DatabaseError: {0}")]
     DatabaseError(#[from] sqlx::Error),
+
+    #[cfg(feature = "notify")]
+    #[error("NotifierError: {0}")]
+    NotifyError(String),
 }
