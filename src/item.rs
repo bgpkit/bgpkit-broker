@@ -75,7 +75,7 @@ impl Ord for BrokerItem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, NaiveDateTime};
+    use chrono::DateTime;
 
     #[test]
     fn test_sorting() {
