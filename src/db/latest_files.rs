@@ -1,7 +1,7 @@
 use crate::db::utils::infer_url;
 use crate::query::BrokerCollector;
 use crate::{BrokerError, BrokerItem};
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ impl LocalBrokerDb {
         .await
         .unwrap();
 
-        let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0);
+        let datetime = DateTime::from_timestamp(timestamp, 0).map(|dt| dt.naive_utc());
         Ok(datetime)
     }
 
@@ -80,9 +80,10 @@ impl LocalBrokerDb {
                 let values = files
                     .iter()
                     .map(|item| {
+                        let ts = item.ts_start.and_utc().timestamp();
                         format!(
                             "({}, '{}', '{}', {}, {})",
-                            item.ts_start.timestamp(),
+                            ts,
                             item.collector_id.as_str(),
                             item.data_type.as_str(),
                             item.rough_size,
@@ -138,7 +139,7 @@ impl LocalBrokerDb {
 
                 let is_rib = type_name.as_str() == "rib";
 
-                let ts_start = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
                 let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
 
                 BrokerItem {

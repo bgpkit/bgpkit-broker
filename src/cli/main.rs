@@ -7,8 +7,7 @@ use crate::backup::backup_database;
 use crate::bootstrap::download_file;
 use bgpkit_broker::notifier::Notifier;
 use bgpkit_broker::{
-    crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
-    DEFAULT_PAGE_SIZE,
+    crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};

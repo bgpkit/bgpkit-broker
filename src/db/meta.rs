@@ -22,7 +22,7 @@ impl LocalBrokerDb {
         item_inserted: i32,
     ) -> Result<Vec<UpdatesMeta>, BrokerError> {
         debug!("Inserting meta information...");
-        let now_ts = chrono::Utc::now().naive_utc().timestamp();
+        let now_ts = chrono::Utc::now().timestamp();
         let inserted: Vec<UpdatesMeta> = sqlx::query(&format!(
             r#"
             INSERT INTO meta (update_ts, update_duration, insert_count) 

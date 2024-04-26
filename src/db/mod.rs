@@ -5,7 +5,7 @@ mod utils;
 use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem};
-use chrono::{Duration, NaiveDateTime};
+use chrono::{DateTime, Duration, NaiveDateTime};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use sqlx::SqlitePool;
@@ -220,10 +220,10 @@ impl LocalBrokerDb {
 
         match (ts_start, ts_end) {
             (Some(ts_start), None) => {
-                where_clauses.push(get_ts_start_clause(ts_start.timestamp()));
+                where_clauses.push(get_ts_start_clause(ts_start.and_utc().timestamp()));
             }
             (None, Some(ts_end)) => {
-                where_clauses.push(get_ts_end_clause(ts_end.timestamp()));
+                where_clauses.push(get_ts_end_clause(ts_end.and_utc().timestamp()));
             }
             (Some(ts_start), Some(ts_end)) => {
                 let start = ts_start;
@@ -234,8 +234,8 @@ impl LocalBrokerDb {
                     }
                     false => ts_end,
                 };
-                where_clauses.push(get_ts_start_clause(start.timestamp()));
-                where_clauses.push(get_ts_end_clause(end.timestamp()));
+                where_clauses.push(get_ts_start_clause(start.and_utc().timestamp()));
+                where_clauses.push(get_ts_end_clause(end.and_utc().timestamp()));
             }
             (None, None) => {}
         }
@@ -288,7 +288,7 @@ impl LocalBrokerDb {
 
                 let collector = collector_name_to_info.get(collector_name.as_str()).unwrap();
 
-                let ts_start = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
 
                 let (url, ts_end) = infer_url(collector, &ts_start, type_name.as_str() == "rib");
                 BrokerItem {
@@ -355,7 +355,7 @@ impl LocalBrokerDb {
                 .map(|item| {
                     format!(
                         "({}, {}, {}, {}, {})",
-                        item.ts_start.timestamp(),
+                        item.ts_start.and_utc().timestamp(),
                         collector_name_to_id
                             .get(item.collector_id.as_str())
                             .unwrap(),
@@ -384,7 +384,7 @@ impl LocalBrokerDb {
                 let type_name = type_id_to_name.get(&type_id).unwrap().to_owned();
                 let is_rib = type_name.as_str() == "rib";
 
-                let ts_start = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
                 let (url, ts_end) = infer_url(
                     collector,
                     &ts_start,
@@ -416,6 +416,7 @@ impl LocalBrokerDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::DateTime;
 
     #[tokio::test]
     async fn test() {
@@ -427,8 +428,8 @@ mod tests {
                 Some(vec!["rrc21".to_string(), "route-views2".to_string()]),
                 None,
                 Some("rib".to_string()),
-                Some(NaiveDateTime::from_timestamp_opt(1672531200, 0).unwrap()),
-                Some(NaiveDateTime::from_timestamp_opt(1672617600, 0).unwrap()),
+                Some(DateTime::from_timestamp(1672531200, 0).unwrap().naive_utc()),
+                Some(DateTime::from_timestamp(1672617600, 0).unwrap().naive_utc()),
                 None,
                 None,
             )
@@ -449,7 +450,7 @@ mod tests {
     async fn test_inserts() {
         let items = vec![
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "updates".to_string(),
@@ -458,7 +459,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc01".to_string(),
                 data_type: "rib".to_string(),
@@ -467,7 +468,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "route-views2".to_string(),
                 data_type: "updates".to_string(),
@@ -493,7 +494,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_latest() {
         let db = LocalBrokerDb::new("test.sqlite3").await.unwrap();
-        db.update_latest_files(&vec![], false).await;
+        db.update_latest_files(&[], false).await;
         let files = db.get_latest_files().await;
         dbg!(files);
     }
