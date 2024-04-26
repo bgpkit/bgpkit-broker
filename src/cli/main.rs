@@ -5,9 +5,10 @@ mod bootstrap;
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::backup_database;
 use crate::bootstrap::download_file;
-use bgpkit_broker::notify::Notifier;
+use bgpkit_broker::notifier::Notifier;
 use bgpkit_broker::{
-    crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
+    DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};
@@ -208,7 +209,7 @@ async fn update_database(
     db: LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
-    #[cfg(feature = "notify")] notifier: Notifier,
+    notifier: Notifier,
 ) {
     let now = Utc::now();
     let latest_date;
@@ -258,10 +259,9 @@ async fn update_database(
         match res {
             Ok(items) => {
                 let inserted = db.insert_items(&items, true).await.unwrap();
-                #[cfg(feature = "notify")]
-                {
-                    if !inserted.is_empty() {
-                        notifier.notify_items(&inserted).await.unwrap();
+                if !inserted.is_empty() {
+                    if let Err(e) = notifier.notify_items(&inserted).await {
+                        error!("{}", e);
                     }
                 }
                 total_inserted_count += inserted.len();
@@ -366,7 +366,6 @@ fn main() {
                                 db.clone(),
                                 collectors.clone(),
                                 None,
-                                #[cfg(feature = "notify")]
                                 Notifier::new().await,
                             )
                             .await;
@@ -483,14 +482,7 @@ fn main() {
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(&db_path).await.unwrap();
-                update_database(
-                    db,
-                    collectors,
-                    days,
-                    #[cfg(feature = "notify")]
-                    Notifier::new().await,
-                )
-                .await;
+                update_database(db, collectors, days, Notifier::new().await).await;
             });
         }
         Commands::Search { query, json, url } => {

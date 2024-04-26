@@ -76,7 +76,7 @@ cli = [
     # crawler
     "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
     # notification
-    "notify",
+    "nats",
     # database
     "backend",
     # bootstrap
@@ -89,7 +89,6 @@ backend = [
 ]
 
 # notification features
-notify = ["nats"]
 nats = ["async-nats"]
 
 [dev-dependencies]

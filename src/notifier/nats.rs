@@ -24,7 +24,7 @@ impl NatsNotifier {
         let url = match dotenvy::var("BGPKIT_BROKER_NATS_URL") {
             Ok(url) => url,
             Err(_) => {
-                return Err(BrokerError::BrokerError(
+                return Err(BrokerError::NotifierError(
                     "BGPKIT_BROKER_NATS_URL env variable not set".to_string(),
                 ))
             }
@@ -32,7 +32,7 @@ impl NatsNotifier {
         let user = match dotenvy::var("BGPKIT_BROKER_NATS_USER") {
             Ok(user) => user,
             Err(_) => {
-                return Err(BrokerError::BrokerError(
+                return Err(BrokerError::NotifierError(
                     "BGPKIT_BROKER_NATS_USER env variable not set".to_string(),
                 ))
             }
@@ -40,7 +40,7 @@ impl NatsNotifier {
         let pass = match dotenvy::var("BGPKIT_BROKER_NATS_PASS") {
             Ok(pass) => pass,
             Err(_) => {
-                return Err(BrokerError::BrokerError(
+                return Err(BrokerError::NotifierError(
                     "BGPKIT_BROKER_NATS_PASS env variable not set".to_string(),
                 ))
             }
@@ -76,14 +76,17 @@ impl NatsNotifier {
             let item_str = serde_json::to_string(item)?;
             let subject = item_to_subject(item);
             if let Err(e) = self.client.publish(subject, item_str.into()).await {
-                return Err(BrokerError::NotifyError(format!(
+                return Err(BrokerError::NotifierError(format!(
                     "NATS publish error: {}",
                     e
                 )));
             }
         }
         if let Err(e) = self.client.flush().await {
-            return Err(BrokerError::NotifyError(format!("NATS flush error: {}", e)));
+            return Err(BrokerError::NotifierError(format!(
+                "NATS flush error: {}",
+                e
+            )));
         };
         Ok(())
     }

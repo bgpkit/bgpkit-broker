@@ -1,18 +1,28 @@
+use crate::notifier::nats::NatsNotifier;
 use crate::{BrokerError, BrokerItem};
+use tracing::info;
 
 #[cfg(feature = "nats")]
 mod nats;
 
 pub struct Notifier {
     #[cfg(feature = "nats")]
-    nats: Option<nats::NatsNotifier>,
+    nats: Option<NatsNotifier>,
 }
 
 impl Notifier {
     pub async fn new() -> Self {
         Self {
             #[cfg(feature = "nats")]
-            nats: nats::NatsNotifier::new().await.ok(),
+            nats: {
+                match NatsNotifier::new().await {
+                    Ok(n) => Some(n),
+                    Err(e) => {
+                        info!("NATS notifier not available: {}", e);
+                        None
+                    }
+                }
+            },
         }
     }
 
