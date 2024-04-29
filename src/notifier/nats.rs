@@ -1,56 +1,56 @@
 use crate::{BrokerError, BrokerItem};
+use async_nats::Subscriber;
+use futures::StreamExt;
+use tracing::info;
 
 pub struct NatsNotifier {
     client: async_nats::Client,
+    root_subject: String,
+    subscriber: Option<Subscriber>,
 }
 
-fn item_to_subject(item: &BrokerItem) -> String {
+fn item_to_subject(root_subject: &str, item: &BrokerItem) -> String {
     let project = match item.collector_id.starts_with("rrc") {
         true => "riperis",
         false => "route-views",
     };
 
+    let subject = root_subject.strip_suffix('.').unwrap_or(root_subject);
+
     format!(
-        "public.broker.{}.{}.{}",
-        project, item.collector_id, item.data_type
+        "{}.{}.{}.{}",
+        subject, project, item.collector_id, item.data_type
     )
 }
 
 impl NatsNotifier {
     /// Creates a new NATS notifier.
-    pub async fn new() -> Result<Self, BrokerError> {
+    pub async fn new(url: Option<String>) -> Result<Self, BrokerError> {
         dotenvy::dotenv().ok();
 
-        let url = match dotenvy::var("BGPKIT_BROKER_NATS_URL") {
-            Ok(url) => url,
-            Err(_) => {
-                return Err(BrokerError::NotifierError(
-                    "BGPKIT_BROKER_NATS_URL env variable not set".to_string(),
-                ))
-            }
-        };
-        let user = match dotenvy::var("BGPKIT_BROKER_NATS_USER") {
-            Ok(user) => user,
-            Err(_) => {
-                return Err(BrokerError::NotifierError(
-                    "BGPKIT_BROKER_NATS_USER env variable not set".to_string(),
-                ))
-            }
-        };
-        let pass = match dotenvy::var("BGPKIT_BROKER_NATS_PASS") {
-            Ok(pass) => pass,
-            Err(_) => {
-                return Err(BrokerError::NotifierError(
-                    "BGPKIT_BROKER_NATS_PASS env variable not set".to_string(),
-                ))
-            }
+        let url = match url {
+            None => match dotenvy::var("BGPKIT_BROKER_NATS_URL") {
+                Ok(url) => url,
+                Err(_) => {
+                    return Err(BrokerError::NotifierError(
+                        "BGPKIT_BROKER_NATS_URL env variable not set".to_string(),
+                    ))
+                }
+            },
+            Some(u) => u,
         };
 
-        let client = match async_nats::ConnectOptions::with_user_and_password(user, pass)
-            .connect(url)
-            .await
-        {
-            Ok(c) => c,
+        let root_subject = dotenvy::var("BGPKIT_BROKER_NATS_ROOT_SUBJECT")
+            .unwrap_or_else(|_| "public.broker".to_string());
+
+        let client = match async_nats::connect(url).await {
+            Ok(c) => {
+                info!(
+                    "successfully connected to NATS server with root subject: {}",
+                    root_subject
+                );
+                c
+            }
             Err(e) => {
                 return Err(BrokerError::BrokerError(format!(
                     "NATS connection error: {}",
@@ -59,7 +59,11 @@ impl NatsNotifier {
             }
         };
 
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            root_subject,
+            subscriber: None,
+        })
     }
 
     /// Publishes broker items to NATS server.
@@ -71,10 +75,10 @@ impl NatsNotifier {
     /// # Errors
     ///
     /// Returns an `async_nats::Error` if there was an error during the publishing process.
-    pub async fn notify_items(&self, items: &Vec<BrokerItem>) -> Result<(), BrokerError> {
+    pub async fn send(&self, items: &[BrokerItem]) -> Result<(), BrokerError> {
         for item in items {
             let item_str = serde_json::to_string(item)?;
-            let subject = item_to_subject(item);
+            let subject = item_to_subject(self.root_subject.as_str(), item);
             if let Err(e) = self.client.publish(subject, item_str.into()).await {
                 return Err(BrokerError::NotifierError(format!(
                     "NATS publish error: {}",
@@ -90,17 +94,42 @@ impl NatsNotifier {
         };
         Ok(())
     }
+
+    pub async fn start_subscription(&mut self, subject: Option<String>) -> Result<(), BrokerError> {
+        let sub = match subject {
+            Some(s) => s,
+            None => format!("{}.>", self.root_subject),
+        };
+
+        match self.client.subscribe(sub.clone()).await {
+            Ok(subscriber) => {
+                info!("subscribed to NATS subject: {}", sub);
+                self.subscriber = Some(subscriber);
+                Ok(())
+            }
+            Err(e) => Err(BrokerError::BrokerError(format!(
+                "NATS subscription error: {}",
+                e
+            ))),
+        }
+    }
+
+    pub async fn next(&mut self) -> Option<BrokerItem> {
+        match self.subscriber.as_mut() {
+            None => None,
+            Some(s) => s.next().await.map(|msg| {
+                let msg_text = std::str::from_utf8(msg.payload.as_ref()).unwrap();
+                serde_json::from_str(msg_text).unwrap()
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_connection() {
-        let notifier = NatsNotifier::new().await.unwrap();
-        dbg!(notifier.client.connection_state());
-
+    async fn send_test_item(notifier: &NatsNotifier) {
         let item = BrokerItem {
             ts_start: Default::default(),
             ts_end: Default::default(),
@@ -110,6 +139,21 @@ mod tests {
             rough_size: 100,
             exact_size: 101,
         };
-        dbg!(notifier.notify_items(&vec![item]).await).ok();
+        notifier.send(&[item]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_connection() {
+        let notifier = NatsNotifier::new(None).await.unwrap();
+        dbg!(notifier.client.connection_state());
+        send_test_item(&notifier).await;
+    }
+
+    #[tokio::test]
+    async fn test_subscribe() {
+        let mut notifier = NatsNotifier::new(None).await.unwrap();
+        notifier.start_subscription(&None).await.unwrap();
+        let item: BrokerItem = notifier.next().await.unwrap();
+        dbg!(&item);
     }
 }

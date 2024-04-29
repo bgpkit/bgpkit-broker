@@ -5,7 +5,7 @@ mod bootstrap;
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::backup_database;
 use crate::bootstrap::download_file;
-use bgpkit_broker::notifier::Notifier;
+use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
@@ -180,6 +180,18 @@ enum Commands {
         #[clap(short, long)]
         json: bool,
     },
+
+    /// Streaming live from a broker NATS server
+    Live {
+        /// URL to NATS server, e.g. nats://localhost:4222.
+        /// If not specified, will try to read from BGPKIT_BROKER_NATS_URL env variable.
+        #[clap(short, long)]
+        url: Option<String>,
+
+        /// Subject to subscribe to, default to public.broker.>
+        #[clap(short, long)]
+        subject: Option<String>,
+    },
 }
 
 fn min_update_interval_check(s: &str) -> Result<u64, String> {
@@ -208,7 +220,7 @@ async fn update_database(
     db: LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
-    notifier: Notifier,
+    notifier: Option<NatsNotifier>,
 ) {
     let now = Utc::now();
     let latest_date;
@@ -259,8 +271,10 @@ async fn update_database(
             Ok(items) => {
                 let inserted = db.insert_items(&items, true).await.unwrap();
                 if !inserted.is_empty() {
-                    if let Err(e) = notifier.notify_items(&inserted).await {
-                        error!("{}", e);
+                    if let Some(n) = &notifier {
+                        if let Err(e) = n.send(&inserted).await {
+                            error!("{}", e);
+                        }
                     }
                 }
                 total_inserted_count += inserted.len();
@@ -360,14 +374,9 @@ fn main() {
 
                         loop {
                             interval.tick().await;
+                            let notifier = NatsNotifier::new(None).await.ok();
                             // updating from the latest data available
-                            update_database(
-                                db.clone(),
-                                collectors.clone(),
-                                None,
-                                Notifier::new().await,
-                            )
-                            .await;
+                            update_database(db.clone(), collectors.clone(), None, notifier).await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
@@ -481,7 +490,7 @@ fn main() {
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(&db_path).await.unwrap();
-                update_database(db, collectors, days, Notifier::new().await).await;
+                update_database(db, collectors, days, NatsNotifier::new(None).await.ok()).await;
             });
         }
         Commands::Search { query, json, url } => {
@@ -571,6 +580,27 @@ fn main() {
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
+        }
+        Commands::Live { url, subject } => {
+            dotenvy::dotenv().ok();
+            enable_logging();
+            let rt = get_tokio_runtime();
+            rt.block_on(async {
+                let mut notifier = match NatsNotifier::new(url).await {
+                    Ok(n) => n,
+                    Err(e) => {
+                        error!("{}", e);
+                        return;
+                    }
+                };
+                if let Err(e) = notifier.start_subscription(subject).await {
+                    error!("{}", e);
+                    return;
+                }
+                while let Some(item) = notifier.next().await {
+                    println!("{}", item);
+                }
+            });
         }
     }
 }
