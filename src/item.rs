@@ -75,13 +75,13 @@ impl Ord for BrokerItem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDateTime;
+    use chrono::DateTime;
 
     #[test]
     fn test_sorting() {
         let mut items = vec![
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(10, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(10, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "updates".to_string(),
@@ -90,7 +90,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(9, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(9, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "updates".to_string(),
@@ -99,7 +99,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(10, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(10, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "rib".to_string(),
@@ -108,7 +108,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(10, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(10, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "route-views2".to_string(),
                 data_type: "rib".to_string(),
@@ -119,7 +119,7 @@ mod tests {
         ];
         let correct_items = vec![
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(9, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(9, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "updates".to_string(),
@@ -128,7 +128,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(10, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(10, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "route-views2".to_string(),
                 data_type: "rib".to_string(),
@@ -137,7 +137,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(10, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(10, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "rib".to_string(),
@@ -146,7 +146,7 @@ mod tests {
                 exact_size: 0,
             },
             BrokerItem {
-                ts_start: NaiveDateTime::from_timestamp_opt(10, 0).unwrap(),
+                ts_start: DateTime::from_timestamp(10, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "updates".to_string(),

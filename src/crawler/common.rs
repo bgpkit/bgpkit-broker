@@ -107,6 +107,34 @@ pub(crate) fn remove_trailing_slash(s: impl ToString) -> String {
     s
 }
 
+pub(crate) async fn crawl_months_list(
+    collector_root_url: &str,
+    from_month: Option<NaiveDate>,
+) -> Result<Vec<NaiveDate>, BrokerError> {
+    let rounded_month =
+        from_month.map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap());
+
+    let month_link_pattern: Regex = Regex::new(r#"<a href="(....\...)/">.*"#).unwrap();
+    let body = reqwest::get(collector_root_url).await?.text().await?;
+    let mut res = vec![];
+    for cap in month_link_pattern.captures_iter(body.as_str()) {
+        let month = cap[1].to_owned();
+        let parsed_month =
+            NaiveDate::parse_from_str(format!("{}.01", month.as_str()).as_str(), "%Y.%m.%d")?;
+        if let Some(rounded) = rounded_month {
+            let new_month = NaiveDate::from_ymd_opt(rounded.year(), rounded.month(), 1).unwrap();
+            if parsed_month < new_month {
+                continue;
+            }
+        }
+        if parsed_month > Utc::now().naive_utc().date() {
+            continue;
+        }
+        res.push(parsed_month);
+    }
+    Ok(res)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,32 +200,4 @@ mod tests {
         let res = extract_link_size(ROUTEVIEWS);
         assert_eq!(res.len(), 4);
     }
-}
-
-pub(crate) async fn crawl_months_list(
-    collector_root_url: &str,
-    from_month: Option<NaiveDate>,
-) -> Result<Vec<NaiveDate>, BrokerError> {
-    let rounded_month =
-        from_month.map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap());
-
-    let month_link_pattern: Regex = Regex::new(r#"<a href="(....\...)/">.*"#).unwrap();
-    let body = reqwest::get(collector_root_url).await?.text().await?;
-    let mut res = vec![];
-    for cap in month_link_pattern.captures_iter(body.as_str()) {
-        let month = cap[1].to_owned();
-        let parsed_month =
-            NaiveDate::parse_from_str(format!("{}.01", month.as_str()).as_str(), "%Y.%m.%d")?;
-        if let Some(rounded) = rounded_month {
-            let new_month = NaiveDate::from_ymd_opt(rounded.year(), rounded.month(), 1).unwrap();
-            if parsed_month < new_month {
-                continue;
-            }
-        }
-        if parsed_month > Utc::now().naive_utc().date() {
-            continue;
-        }
-        res.push(parsed_month);
-    }
-    Ok(res)
 }

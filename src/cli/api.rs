@@ -193,7 +193,9 @@ async fn search(
         .await
         .unwrap()
         .map(|data| Meta {
-            latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0).unwrap(),
+            latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)
+                .unwrap()
+                .naive_utc(),
             latest_update_duration: data.update_duration,
         });
 
@@ -226,7 +228,9 @@ async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         .await
         .unwrap()
         .map(|data| Meta {
-            latest_update_ts: chrono::NaiveDateTime::from_timestamp_opt(data.update_ts, 0).unwrap(),
+            latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)
+                .unwrap()
+                .naive_utc(),
             latest_update_duration: data.update_duration,
         });
 
@@ -267,7 +271,7 @@ async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
                 // that does not require fresh data (e.g. historical analysis).
                 Json(
                     json!({"status": "OK", "message": "database is healthy", "meta": {
-                        "latest_file_ts": ts.timestamp(),
+                        "latest_file_ts": ts.and_utc().timestamp(),
                     }}),
                 )
                 .into_response()
@@ -289,7 +293,7 @@ async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
     let ts = if let Ok(ts_end) = ts_str.parse::<i64>() {
         // it's unix timestamp
-        NaiveDateTime::from_timestamp_opt(ts_end, 0).unwrap()
+        DateTime::from_timestamp(ts_end, 0).unwrap().naive_utc()
     } else {
         let ts_str = ts_str.trim_end_matches('Z').to_string() + "+00:00";
         match DateTime::parse_from_rfc3339(ts_str.as_str()) {
