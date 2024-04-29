@@ -191,6 +191,10 @@ enum Commands {
         /// Subject to subscribe to, default to public.broker.>
         #[clap(short, long)]
         subject: Option<String>,
+
+        /// Pretty print JSON output
+        #[clap(short, long)]
+        pretty: bool,
     },
 }
 
@@ -220,8 +224,13 @@ async fn update_database(
     db: LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
-    notifier: Option<NatsNotifier>,
+    notify: bool,
 ) {
+    let notifier = match notify {
+        true => NatsNotifier::new(None).await.ok(),
+        false => None,
+    };
+
     let now = Utc::now();
     let latest_date;
     if let Some(d) = days {
@@ -374,9 +383,8 @@ fn main() {
 
                         loop {
                             interval.tick().await;
-                            let notifier = NatsNotifier::new(None).await.ok();
                             // updating from the latest data available
-                            update_database(db.clone(), collectors.clone(), None, notifier).await;
+                            update_database(db.clone(), collectors.clone(), None, true).await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
@@ -490,7 +498,7 @@ fn main() {
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(&db_path).await.unwrap();
-                update_database(db, collectors, days, NatsNotifier::new(None).await.ok()).await;
+                update_database(db, collectors, days, true).await;
             });
         }
         Commands::Search { query, json, url } => {
@@ -581,9 +589,15 @@ fn main() {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
         }
-        Commands::Live { url, subject } => {
+        Commands::Live {
+            url,
+            subject,
+            pretty,
+        } => {
             dotenvy::dotenv().ok();
-            enable_logging();
+            if do_log {
+                enable_logging();
+            }
             let rt = get_tokio_runtime();
             rt.block_on(async {
                 let mut notifier = match NatsNotifier::new(url).await {
@@ -598,7 +612,11 @@ fn main() {
                     return;
                 }
                 while let Some(item) = notifier.next().await {
-                    println!("{}", item);
+                    if pretty {
+                        println!("{}", serde_json::to_string_pretty(&item).unwrap());
+                    } else {
+                        println!("{}", item);
+                    }
                 }
             });
         }
