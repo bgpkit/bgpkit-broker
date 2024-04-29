@@ -56,7 +56,7 @@ and [route leak detection](https://blog.cloudflare.com/route-leak-detection-with
 Add the following dependency line to your project's `Cargo.toml` file:
 
 ```yaml
-bgpkit-broker = "0.7.0-beta.5"
+bgpkit-broker = "0.7.0-beta.6"
 ```
 
 ### Example
