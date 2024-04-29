@@ -9,13 +9,16 @@ use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
-use chrono::{Duration, Utc};
+use bgpkit_commons::collectors::MrtCollector;
+use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
+use itertools::Itertools;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::exit;
 use tabled::settings::Style;
-use tabled::Table;
+use tabled::{Table, Tabled};
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
@@ -196,6 +199,9 @@ enum Commands {
         #[clap(short, long)]
         pretty: bool,
     },
+
+    /// Check broker instance health and missing collectors
+    Doctor {},
 }
 
 fn min_update_interval_check(s: &str) -> Result<u64, String> {
@@ -619,6 +625,79 @@ fn main() {
                     }
                 }
             });
+        }
+
+        Commands::Doctor {} => {
+            if do_log {
+                enable_logging();
+            }
+            println!("checking broker instance health...");
+            let broker = BgpkitBroker::new();
+            if broker.health_check().is_ok() {
+                println!("\tbroker instance at {} is healthy", broker.broker_url);
+            } else {
+                println!(
+                    "\tbroker instance at {} is not available",
+                    broker.broker_url
+                );
+                return;
+            }
+
+            println!();
+
+            #[derive(Tabled)]
+            struct CollectorInfo {
+                project: String,
+                name: String,
+                country: String,
+                activated_on: NaiveDateTime,
+                data_url: String,
+            }
+
+            println!("checking for missing collectors...");
+            let latest_items = broker.latest().unwrap();
+            let latest_collectors: HashSet<String> =
+                latest_items.into_iter().map(|i| i.collector_id).collect();
+            let all_collectors_map: HashMap<String, MrtCollector> =
+                bgpkit_commons::collectors::get_all_collectors()
+                    .unwrap()
+                    .into_iter()
+                    .map(|c| (c.name.clone(), c))
+                    .collect();
+
+            let all_collector_names: HashSet<String> = all_collectors_map
+                .values()
+                .map(|c| c.name.clone())
+                .collect();
+
+            // get the difference between the two sets
+            let missing_collectors: Vec<CollectorInfo> = all_collector_names
+                .difference(&latest_collectors)
+                .map(|c| {
+                    // convert to CollectorInfo
+                    let collector = all_collectors_map.get(c).unwrap();
+                    let country_map = bgpkit_commons::countries::Countries::new().unwrap();
+                    CollectorInfo {
+                        project: collector.project.to_string(),
+                        name: collector.name.clone(),
+                        country: country_map
+                            .lookup_by_code(&collector.country)
+                            .unwrap()
+                            .name
+                            .clone(),
+                        activated_on: collector.activated_on,
+                        data_url: collector.data_url.clone(),
+                    }
+                })
+                .sorted_by(|a, b| a.activated_on.cmp(&b.activated_on))
+                .collect();
+
+            if missing_collectors.is_empty() {
+                println!("all collectors are up to date");
+            } else {
+                println!("missing the following collectors:");
+                println!("{}", Table::new(missing_collectors).with(Style::markdown()));
+            }
         }
     }
 }
