@@ -1,7 +1,7 @@
 use crate::{BrokerError, BrokerItem};
 use async_nats::Subscriber;
 use futures::StreamExt;
-use tracing::info;
+use tracing::{error, info};
 
 pub struct NatsNotifier {
     client: async_nats::Client,
@@ -98,7 +98,12 @@ impl NatsNotifier {
     pub async fn start_subscription(&mut self, subject: Option<String>) -> Result<(), BrokerError> {
         let sub = match subject {
             Some(s) => s,
-            None => format!("{}.>", self.root_subject),
+            None => format!(
+                "{}.>",
+                self.root_subject
+                    .strip_suffix('.')
+                    .unwrap_or(self.root_subject.as_str())
+            ),
         };
 
         match self.client.subscribe(sub.clone()).await {
@@ -117,10 +122,19 @@ impl NatsNotifier {
     pub async fn next(&mut self) -> Option<BrokerItem> {
         match self.subscriber.as_mut() {
             None => None,
-            Some(s) => s.next().await.map(|msg| {
-                let msg_text = std::str::from_utf8(msg.payload.as_ref()).unwrap();
-                serde_json::from_str(msg_text).unwrap()
-            }),
+            Some(s) => match s.next().await {
+                None => None,
+                Some(msg) => {
+                    let msg_text = std::str::from_utf8(msg.payload.as_ref()).unwrap();
+                    match serde_json::from_str::<BrokerItem>(msg_text) {
+                        Ok(item) => Some(item),
+                        Err(_e) => {
+                            error!("NATS message deserialization error: {}", msg_text);
+                            None
+                        }
+                    }
+                }
+            },
         }
     }
 }
@@ -152,7 +166,7 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe() {
         let mut notifier = NatsNotifier::new(None).await.unwrap();
-        notifier.start_subscription(&None).await.unwrap();
+        notifier.start_subscription(None).await.unwrap();
         let item: BrokerItem = notifier.next().await.unwrap();
         dbg!(&item);
     }
