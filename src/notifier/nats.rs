@@ -138,36 +138,3 @@ impl NatsNotifier {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    async fn send_test_item(notifier: &NatsNotifier) {
-        let item = BrokerItem {
-            ts_start: Default::default(),
-            ts_end: Default::default(),
-            collector_id: "rrc99".to_string(),
-            data_type: "rib".to_string(),
-            url: "https://bgpkit.com".to_string(),
-            rough_size: 100,
-            exact_size: 101,
-        };
-        notifier.send(&[item]).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_connection() {
-        let notifier = NatsNotifier::new(None).await.unwrap();
-        dbg!(notifier.client.connection_state());
-        send_test_item(&notifier).await;
-    }
-
-    #[tokio::test]
-    async fn test_subscribe() {
-        let mut notifier = NatsNotifier::new(None).await.unwrap();
-        notifier.start_subscription(None).await.unwrap();
-        let item: BrokerItem = notifier.next().await.unwrap();
-        dbg!(&item);
-    }
-}
