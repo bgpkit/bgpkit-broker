@@ -233,7 +233,13 @@ async fn update_database(
     notify: bool,
 ) {
     let notifier = match notify {
-        true => NatsNotifier::new(None).await.ok(),
+        true => match NatsNotifier::new(None).await {
+            Ok(n) => Some(n),
+            Err(e) => {
+                error!("want to set up notifier but failed: {}", e);
+                None
+            }
+        },
         false => None,
     };
 
