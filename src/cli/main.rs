@@ -7,7 +7,8 @@ use crate::backup::backup_database;
 use crate::bootstrap::download_file;
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
-    crawl_collector, load_collectors, BgpkitBroker, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
+    DEFAULT_PAGE_SIZE,
 };
 use bgpkit_commons::collectors::MrtCollector;
 use chrono::{Duration, NaiveDateTime, Utc};
@@ -225,22 +226,35 @@ fn get_tokio_runtime() -> Runtime {
     rt
 }
 
+async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
+    let url = match url {
+        Some(u) => u,
+        None => match dotenvy::var("BGPKIT_BROKER_HEARTBEAT_URL") {
+            Ok(u) => u,
+            Err(_) => {
+                info!("no heartbeat url specified, skipping");
+                return Ok(());
+            }
+        },
+    };
+    reqwest::get(&url).await?.error_for_status()?;
+    info!("heartbeat sent");
+    Ok(())
+}
+
 /// update the database with data crawled from the given collectors
 async fn update_database(
     db: LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
-    notify: bool,
+    send_heartbeat: bool,
 ) {
-    let notifier = match notify {
-        true => match NatsNotifier::new(None).await {
-            Ok(n) => Some(n),
-            Err(e) => {
-                error!("want to set up notifier but failed: {}", e);
-                None
-            }
-        },
-        false => None,
+    let notifier = match NatsNotifier::new(None).await {
+        Ok(n) => Some(n),
+        Err(e) => {
+            error!("want to set up notifier but failed: {}", e);
+            None
+        }
     };
 
     let now = Utc::now();
@@ -311,6 +325,12 @@ async fn update_database(
     db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
         .await
         .unwrap();
+
+    if send_heartbeat {
+        if let Err(e) = try_send_heartbeat(None).await {
+            error!("{}", e);
+        }
+    }
 
     info!("finished updating broker database");
 }
@@ -510,7 +530,7 @@ fn main() {
 
             rt.block_on(async {
                 let db = LocalBrokerDb::new(&db_path).await.unwrap();
-                update_database(db, collectors, days, true).await;
+                update_database(db, collectors, days, false).await;
             });
         }
         Commands::Search { query, json, url } => {

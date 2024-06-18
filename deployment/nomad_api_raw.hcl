@@ -9,6 +9,7 @@ job "bgpkit-broker-api" {
         args    = [
           "serve",
           "--port", "40064",
+          "--env", "/usr/local/etc/bgpkit.d/broker.env",
           "/var/db/bgpkit/bgpkit_broker.sqlite3"
         ]
       }
