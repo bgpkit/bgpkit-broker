@@ -2,9 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.7.0-beta.6 - 2024-04-29
+## v0.7.0 - 2024-06-18
 
-### [New!] NATS notification
+### [NEW] NATS notification
 
 Added new-file notification by publishing newly indexed BGP MRT file meta information in JSON format to user-specified
 NATS server.
@@ -45,7 +45,7 @@ Options:
   -V, --version            Print version
 ```
 
-### [New!] `bgpkit-broker doctor` subcommand
+### [NEW] `bgpkit-broker doctor` subcommand
 
 Added `bgpkit-broker doctor` subcommand that checks the broker instance status and missing collectors.
 
@@ -79,17 +79,14 @@ missing the following collectors:
 | routeviews | iraq-ixp.bgw | Iraq            | 2024-04-13 00:01:00 | http://archive.routeviews.org/iraq-ixp.bgw/bgpdata |
 ```
 
-## v0.7.0-beta.5 - 2024-01-29
+### [NEW] Heartbeat URL support
 
-### Breaking changes
+If `BGPKIT_BROKER_HEARTBEAT_URL` environment is set, when running the `bgpkit-broker serve` subcommand, the instance
+will periodically send a GET request to the configured heartbeat URL.
 
-- switch to `rustls` as the default TLS backend
+### [NEW] `bgpkit-broker latest` subcommand
 
-## v0.7.0-beta.4 - 2024-01-18
-
-### CLI addition
-
-- added `latest` subcommand to CLI to display latest MRT files for all collectors
+Added `latest` subcommand to CLI to display latest MRT files for all collectors.
 
 ### Developer experience improvements
 
@@ -101,6 +98,10 @@ An array of `BrokerItem`s can be sorted with the following order:
 1. smaller timestamp before larger timestamp
 2. RIB before updates
 3. then alphabetical order on collector ID (route-views before rrc)
+
+### Breaking changes
+
+- switch to `rustls` as the default TLS backend
 
 ## V0.6.1
 

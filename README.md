@@ -35,7 +35,7 @@ from [RIPE RIS][ripe-ris] and [RouteViews][route-views].
 
 This Rust library provides SDK access to the BGPKIT Broker API as well as a command-line tool to start a self-hosted
 broker instance.
-Current BGPKIT Broker API is available at <https://api.bgpkit.com/docs>.
+The current BGPKIT Broker API is available at <https://api.bgpkit.com/docs>.
 
 BGPKIT Broker is used in production at [Cloudflare Radar][radar] powering its [routing page][routing] and projects
 like [BGP hijack detection]()
@@ -56,7 +56,7 @@ and [route leak detection](https://blog.cloudflare.com/route-leak-detection-with
 Add the following dependency line to your project's `Cargo.toml` file:
 
 ```yaml
-bgpkit-broker = "0.7.0-beta.6"
+bgpkit-broker = "0.7.0"
 ```
 
 ### Example
@@ -91,7 +91,7 @@ Broker instance with ease.
 
 ### Install
 
-Install with `cargo install bgpkit-broker@0.7.0-beta.5 --features cli` or check out the main branch and
+Install with `cargo install bgpkit-broker@0.7.0 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
 
 If you are on a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
@@ -305,7 +305,7 @@ missing the following collectors:
 
 ## Data Provider
 
-If you have publicly available data and want to be indexed BGPKIT Broker service, please send us an email at
+If you have publicly available data and want to be indexed BGPKIT Broker service, please email us at
 data@bgpkit.com. Our back-end service is designed to be flexible and should be able to adapt to most data archiving
 approaches.
 
