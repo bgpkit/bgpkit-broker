@@ -736,26 +736,31 @@ mod tests {
 
         let broker = BgpkitBroker::new().project("routeviews".to_string());
         let items = broker.latest().unwrap();
+        assert!(!items.is_empty());
         assert!(items
             .iter()
             .all(|item| !item.collector_id.starts_with("rrc")));
 
         let broker = BgpkitBroker::new().project("riperis".to_string());
         let items = broker.latest().unwrap();
+        assert!(!items.is_empty());
         assert!(items
             .iter()
             .all(|item| item.collector_id.starts_with("rrc")));
 
         let broker = BgpkitBroker::new().data_type("rib".to_string());
         let items = broker.latest().unwrap();
+        assert!(!items.is_empty());
         assert!(items.iter().all(|item| item.is_rib()));
 
         let broker = BgpkitBroker::new().data_type("update".to_string());
         let items = broker.latest().unwrap();
+        assert!(!items.is_empty());
         assert!(items.iter().all(|item| !item.is_rib()));
 
         let broker = BgpkitBroker::new().collector_id("rrc00".to_string());
         let items = broker.latest().unwrap();
+        assert!(!items.is_empty());
         assert!(items
             .iter()
             .all(|item| item.collector_id.as_str() == "rrc00"));
