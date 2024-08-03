@@ -490,9 +490,10 @@ impl BgpkitBroker {
                         }
                     }
                     "routeviews" | "route_views" | "rv" => {
-                        // TODO: some of the route-views collectors do not start with "route-views"
+                        // Some of the route-views collectors do not start with "route-views".
                         // Examples: decix.jhb, pacwave.lax
-                        if !item.collector_id.starts_with("route-views") {
+                        // We use the RIPE RIS rrc prefix as the filter criteria
+                        if item.collector_id.starts_with("rrc") {
                             matches = false
                         }
                     }
@@ -737,7 +738,7 @@ mod tests {
         let items = broker.latest().unwrap();
         assert!(items
             .iter()
-            .all(|item| item.collector_id.starts_with("route-views")));
+            .all(|item| !item.collector_id.starts_with("rrc")));
 
         let broker = BgpkitBroker::new().project("riperis".to_string());
         let items = broker.latest().unwrap();
