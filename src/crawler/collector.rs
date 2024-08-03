@@ -167,152 +167,184 @@ lazy_static! {
       "name": "routeviews",
       "collectors": [
         {
+          "id": "amsix.ams",
+          "url": "https://archive.routeviews.org/amsix.ams/bgpdata"
+        },
+        {
+          "id": "cix.atl",
+          "url": "https://archive.routeviews.org/cix.atl/bgpdata"
+        },
+        {
+          "id": "decix.jhb",
+          "url": "https://archive.routeviews.org/decix.jhb/bgpdata"
+        },
+        {
+          "id": "iraq-ixp.bgw",
+          "url": "https://archive.routeviews.org/iraq-ixp.bgw/bgpdata"
+        },
+        {
+          "id": "pacwave.lax",
+          "url": "https://archive.routeviews.org/pacwave.lax/bgpdata"
+        },
+        {
+          "id": "pit.scl",
+          "url": "https://archive.routeviews.org/pit.scl/bgpdata"
+        },
+        {
+          "id": "pitmx.qro",
+          "url": "https://archive.routeviews.org/pitmx.qro/bgpdata"
+        },
+        {
           "id": "route-views2",
-          "url": "http://archive.routeviews.org/bgpdata"
+          "url": "https://archive.routeviews.org/bgpdata"
         },
         {
           "id": "route-views3",
-          "url": "http://archive.routeviews.org/route-views3/bgpdata"
+          "url": "https://archive.routeviews.org/route-views3/bgpdata"
         },
         {
           "id": "route-views4",
-          "url": "http://archive.routeviews.org/route-views4/bgpdata"
+          "url": "https://archive.routeviews.org/route-views4/bgpdata"
         },
         {
           "id": "route-views5",
-          "url": "http://archive.routeviews.org/route-views5/bgpdata"
+          "url": "https://archive.routeviews.org/route-views5/bgpdata"
         },
         {
           "id": "route-views6",
-          "url": "http://archive.routeviews.org/route-views6/bgpdata"
+          "url": "https://archive.routeviews.org/route-views6/bgpdata"
+        },
+        {
+          "id": "route-views7",
+          "url": "https://archive.routeviews.org/route-views7/bgpdata"
         },
         {
           "id":"route-views.amsix",
-          "url": "http://archive.routeviews.org/route-views.amsix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.amsix/bgpdata"
         },
         {
           "id":"route-views.chicago",
-          "url": "http://archive.routeviews.org/route-views.chicago/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.chicago/bgpdata"
         },
         {
           "id":"route-views.chile",
-          "url": "http://archive.routeviews.org/route-views.chile/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.chile/bgpdata"
         },
         {
           "id":"route-views.eqix",
-          "url": "http://archive.routeviews.org/route-views.eqix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.eqix/bgpdata"
         },
         {
           "id":"route-views.flix",
-          "url": "http://archive.routeviews.org/route-views.flix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.flix/bgpdata"
         },
         {
           "id":"route-views.gorex",
-          "url": "http://archive.routeviews.org/route-views.gorex/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.gorex/bgpdata"
         },
         {
           "id":"route-views.isc",
-          "url": "http://archive.routeviews.org/route-views.isc/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.isc/bgpdata"
         },
         {
           "id":"route-views.kixp",
-          "url": "http://archive.routeviews.org/route-views.kixp/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.kixp/bgpdata"
         },
         {
           "id":"route-views.jinx",
-          "url": "http://archive.routeviews.org/route-views.jinx/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.jinx/bgpdata"
         },
         {
           "id":"route-views.linx",
-          "url": "http://archive.routeviews.org/route-views.linx/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.linx/bgpdata"
         },
         {
           "id":"route-views.napafrica",
-          "url": "http://archive.routeviews.org/route-views.napafrica/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.napafrica/bgpdata"
         },
         {
           "id":"route-views.nwax",
-          "url": "http://archive.routeviews.org/route-views.nwax/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.nwax/bgpdata"
         },
         {
           "id":"route-views.phoix",
-          "url": "http://archive.routeviews.org/route-views.phoix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.phoix/bgpdata"
         },
         {
           "id":"route-views.telxatl",
-          "url": "http://archive.routeviews.org/route-views.telxatl/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.telxatl/bgpdata"
         },
         {
           "id":"route-views.wide",
-          "url": "http://archive.routeviews.org/route-views.wide/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.wide/bgpdata"
         },
         {
           "id":"route-views.sydney",
-          "url": "http://archive.routeviews.org/route-views.sydney/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.sydney/bgpdata"
         },
         {
           "id":"route-views.saopaulo",
-          "url": "http://archive.routeviews.org/route-views.saopaulo/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.saopaulo/bgpdata"
         },
         {
           "id":"route-views2.saopaulo",
-          "url": "http://archive.routeviews.org/route-views2.saopaulo/bgpdata"
+          "url": "https://archive.routeviews.org/route-views2.saopaulo/bgpdata"
         },
         {
           "id":"route-views.sg",
-          "url": "http://archive.routeviews.org/route-views.sg/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.sg/bgpdata"
         },
         {
           "id":"route-views.perth",
-          "url": "http://archive.routeviews.org/route-views.perth/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.perth/bgpdata"
         },
         {
           "id":"route-views.peru",
-          "url": "http://archive.routeviews.org/route-views.peru/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.peru/bgpdata"
         },
         {
           "id":"route-views.sfmix",
-          "url": "http://archive.routeviews.org/route-views.sfmix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.sfmix/bgpdata"
         },
         {
           "id":"route-views.siex",
-          "url": "http://archive.routeviews.org/route-views.siex/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.siex/bgpdata"
         },
         {
           "id":"route-views.soxrs",
-          "url": "http://archive.routeviews.org/route-views.soxrs/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.soxrs/bgpdata"
         },
         {
           "id":"route-views.mwix",
-          "url": "http://archive.routeviews.org/route-views.mwix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.mwix/bgpdata"
         },
         {
           "id":"route-views.rio",
-          "url": "http://archive.routeviews.org/route-views.rio/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.rio/bgpdata"
         },
         {
           "id":"route-views.fortaleza",
-          "url": "http://archive.routeviews.org/route-views.fortaleza/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.fortaleza/bgpdata"
         },
         {
           "id":"route-views.gixa",
-          "url": "http://archive.routeviews.org/route-views.gixa/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.gixa/bgpdata"
         },
         {
           "id":"route-views.bdix",
-          "url": "http://archive.routeviews.org/route-views.bdix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.bdix/bgpdata"
         },
         {
           "id":"route-views.bknix",
-          "url": "http://archive.routeviews.org/route-views.bknix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.bknix/bgpdata"
         },
         {
           "id":"route-views.ny",
-          "url": "http://archive.routeviews.org/route-views.ny/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.ny/bgpdata"
         },
         {
           "id":"route-views.uaeix",
-          "url": "http://archive.routeviews.org/route-views.uaeix/bgpdata"
+          "url": "https://archive.routeviews.org/route-views.uaeix/bgpdata"
         }
       ]
     }

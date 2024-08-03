@@ -244,7 +244,7 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
 
 /// update the database with data crawled from the given collectors
 async fn update_database(
-    db: LocalBrokerDb,
+    mut db: LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
     send_heartbeat: bool,
@@ -258,31 +258,28 @@ async fn update_database(
     };
 
     let now = Utc::now();
-    let latest_date;
-    if let Some(d) = days {
-        // if days is specified, we crawl data from d days ago
-        latest_date = Some(Utc::now().date_naive() - Duration::days(d as i64));
-    } else {
-        // otherwise, we crawl data from the latest timestamp in the database
-        latest_date = match db.get_latest_timestamp().await.unwrap().map(|t| t.date()) {
-            Some(t) => {
-                let start_date = t - Duration::days(1);
-                info!(
-                    "update broker db from the latest date - 1 in db: {}",
-                    start_date
-                );
-                Some(start_date)
-            }
-            None => {
-                // if bootstrap is false and we have an empty database we crawl data from 30 days ago
-                let date = Utc::now().date_naive() - Duration::days(30);
-                info!(
-                    "empty database, bootstrapping data from {} days ago ({})",
-                    30, date
-                );
-                Some(date)
-            }
-        };
+
+    let latest_ts_map: HashMap<String, NaiveDateTime> = db
+        .get_latest_files()
+        .await
+        .into_iter()
+        .map(|f| (f.collector_id.clone(), f.ts_start))
+        .collect();
+
+    let mut collector_updated = false;
+    for c in &collectors {
+        if let None = latest_ts_map.get(&c.id) {
+            info!(
+                "collector {} not found in database, inserting collector meta information first...",
+                &c.id
+            );
+            db.insert_collector(c).await.unwrap();
+            collector_updated = true;
+        }
+    }
+    if collector_updated {
+        info!("collector list updated, reload collectors list into memory");
+        db.reload_collectors().await;
     }
 
     // crawl all collectors in parallel, 5 collectors in parallel by default, unordered.
@@ -292,7 +289,15 @@ async fn update_database(
     debug!("unordered buffer size is {}", BUFFER_SIZE);
 
     let mut stream = futures::stream::iter(&collectors)
-        .map(|c| crawl_collector(c, latest_date))
+        .map(|c| {
+            let latest_date;
+            if let Some(d) = days {
+                latest_date = Some(Utc::now().date_naive() - Duration::days(d as i64));
+            } else {
+                latest_date = latest_ts_map.get(&c.id).cloned().map(|ts| ts.date());
+            }
+            crawl_collector(c, latest_date)
+        })
         .buffer_unordered(BUFFER_SIZE);
 
     info!(
@@ -715,7 +720,7 @@ fn main() {
                         data_url: collector.data_url.clone(),
                     }
                 })
-                .sorted_by(|a, b| a.activated_on.cmp(&b.activated_on))
+                .sorted_by(|a, b| a.name.cmp(&b.name))
                 .collect();
 
             if missing_collectors.is_empty() {

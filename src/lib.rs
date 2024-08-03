@@ -490,6 +490,8 @@ impl BgpkitBroker {
                         }
                     }
                     "routeviews" | "route_views" | "rv" => {
+                        // TODO: some of the route-views collectors do not start with "route-views"
+                        // Examples: decix.jhb, pacwave.lax
                         if !item.collector_id.starts_with("route-views") {
                             matches = false
                         }
