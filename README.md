@@ -56,7 +56,7 @@ and [route leak detection](https://blog.cloudflare.com/route-leak-detection-with
 Add the following dependency line to your project's `Cargo.toml` file:
 
 ```yaml
-bgpkit-broker = "0.7.0"
+bgpkit-broker = "0.7"
 ```
 
 ### Example
@@ -91,10 +91,10 @@ Broker instance with ease.
 
 ### Install
 
-Install with `cargo install bgpkit-broker@0.7.0 --features cli` or check out the main branch and
+Install with `cargo install bgpkit-broker@0.7 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
 
-If you are on a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
+If you are in a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
 
 ```
 brew install bgpkit/tap/bgpkit-broker
@@ -285,7 +285,7 @@ Options:
   -V, --version    Print version
 ```
 
-Example output:
+Example output (the data for the shown collectors are now available):
 
 ```text
 checking broker instance health...

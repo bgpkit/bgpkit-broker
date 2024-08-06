@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.1 - 2024-06-18
+
+### Highlights
+
+* updated the `bgpkit-broker update` command to allow bootstrapping new collectors on demand
+* a number of new RouteViews collectors have been added
+    * `amsix.ams` `cix.atl` `decix.jhb` `iraq-ixp.bgw` `pacwave.lax` `pit.scl` `pitmx.qro` `route-views7`
+* added a new `allow_invalid_cert` function to the constructor and deprecated the `disable_ssl_check` function
+    * they work the same way, but the new function name is more accurate
+* constructor also checks for `ONEIO_ACCEPT_INVALID_CERTS=true` environment variable to allow invalid certs (not
+  recommended, use at your own risk)
+* improved project filter. it now matches the name of the collector to project names
+    * this works with the newly added RouteViews collectors whose names do not prefix with `route-views`
+
 ## v0.7.0 - 2024-06-18
 
 ### [NEW] NATS notification
