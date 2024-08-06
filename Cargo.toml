@@ -30,6 +30,7 @@ serde_json = "1"
 thiserror = "1.0"
 tracing = "0.1"
 lazy_static = "1"
+dotenvy = "0.15"
 
 #############################################
 # Optional dependencies
@@ -45,14 +46,13 @@ tracing-subscriber = { version = "0.3", optional = true }
 indicatif = { version = "0.17.7", optional = true }
 futures-util = { version = "0.3.28", optional = true }
 itertools = { version = "0.12.0", optional = true }
-dotenvy = { version = "0.15", optional = true }
 tempfile = { version = "3.8", optional = true }
 which = { version = "5.0", optional = true }
 bgpkit-commons = { version = "0.5", optional = true }
 
 # crawler dependencies
 futures = { version = "0.3", optional = true }
-oneio = { version = "0.16.0", features = ["s3"], optional = true }
+oneio = { version = "0.17.0", features = ["s3"], optional = true }
 regex = { version = "1", optional = true }
 scraper = { version = "0.17", optional = true }
 tokio = { version = "1", optional = true, features = ["full"] }
@@ -73,7 +73,7 @@ async-nats = { version = "0.34.0", optional = true }
 default = []
 cli = [
     # command-line interface
-    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools", "dotenvy", "tempfile", "which",
+    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools", "tempfile", "which",
     "bgpkit-commons",
     # crawler
     "futures", "oneio", "regex", "scraper", "tokio",

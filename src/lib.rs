@@ -123,17 +123,29 @@ pub struct BgpkitBroker {
 
 impl Default for BgpkitBroker {
     fn default() -> Self {
+        dotenvy::dotenv().ok();
         let url = match std::env::var("BGPKIT_BROKER_URL") {
             Ok(url) => url.trim_end_matches('/').to_string(),
             Err(_) => "https://api.broker.bgpkit.com/v3".to_string(),
         };
 
         let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
+        let client = match std::env::var("ONEIO_ACCEPT_INVALID_CERTS")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            "true" | "yes" | "y" => reqwest::blocking::ClientBuilder::new()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap(),
+            _ => reqwest::blocking::Client::new(),
+        };
 
         Self {
             broker_url: url,
             query_params: Default::default(),
-            client: reqwest::blocking::Client::new(),
+            client,
             collector_project_map,
         }
     }
