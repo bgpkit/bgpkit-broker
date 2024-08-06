@@ -1,7 +1,7 @@
 /*!
 # Overview
 
-[bgpkit-broker][crate] is a package that allow access the BGPKIT Broker API and search for BGP archive
+[bgpkit-broker][crate] is a package that allows accessing the BGPKIT Broker API and search for BGP archive
 files with different search parameters available.
 
 # Examples
@@ -38,7 +38,7 @@ assert_eq!(items.len(), 106);
 User can make individual queries to the BGPKIT broker backend by calling [BgpkitBroker::query_single_page]
 function.
 
-Below is an example of creating an new struct instance and make queries to the API:
+Below is an example of creating a new struct instance and make queries to the API:
 ```rust
 use bgpkit_broker::BgpkitBroker;
 
@@ -60,14 +60,14 @@ for data in res.unwrap() {
 }
 ```
 
-Making individual queries is useful when you care about specific pages, or want to implement
-customized iteration procedure. Use [BgpkitBroker::turn_page] to manually change to a different
+Making individual queries is useful when you care about a specific page or want to implement
+ a customized iteration procedure. Use [BgpkitBroker::turn_page] to manually change to a different
 page.
 
 ## Getting the Latest File for Each Collector
 
 We also provide way to fetch the latest file information for each collector available with the
-[BgpkitBroker::latest] call. The function returns JSON-deserialized result (see [CollectorLatestItem])
+[BgpkitBroker::latest] call. The function returns a JSON-deserialized result (see [CollectorLatestItem])
 to the RESTful API at <https://api.broker.bgpkit.com/v3/latest>.
 
 ```rust
@@ -152,9 +152,12 @@ impl Default for BgpkitBroker {
 }
 
 impl BgpkitBroker {
-    /// Construct new BgpkitBroker object.
+    /// Construct a new BgpkitBroker object.
     ///
     /// The URL and query parameters can be adjusted with other functions.
+    ///
+    /// Users can opt in to accept invalid SSL certificates by setting the environment variable
+    /// `ONEIO_ACCEPT_INVALID_CERTS` to `true`.
     ///
     /// # Examples
     /// ```
@@ -168,7 +171,7 @@ impl BgpkitBroker {
     /// Configure broker URL.
     ///
     /// You can change the default broker URL to point to your own broker instance.
-    /// You can also change the URL by setting environment variable `BGPKIT_BROKER_URL`.
+    /// You can also change the URL by setting the environment variable `BGPKIT_BROKER_URL`.
     ///
     /// # Examples
     /// ```
@@ -185,8 +188,8 @@ impl BgpkitBroker {
         }
     }
 
-    /// Disable SSL certificate check.
-    pub fn disable_ssl_check(self) -> Self {
+    /// DANGER: Accept invalid SSL certificates.
+    pub fn accept_invalid_certs(self) -> Self {
         Self {
             broker_url: self.broker_url,
             query_params: self.query_params,
@@ -196,6 +199,12 @@ impl BgpkitBroker {
                 .unwrap(),
             collector_project_map: self.collector_project_map,
         }
+    }
+
+    /// Disable SSL certificate check.
+    #[deprecated(since = "0.7.1", note = "Please use `accept_invalid_certs` instead.")]
+    pub fn disable_ssl_check(self) -> Self {
+        Self::accept_invalid_certs(self)
     }
 
     /// Add a filter of starting timestamp.
@@ -224,7 +233,7 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter of ending timestamp.
+    /// Add a filter of ending timestamp.
     ///
     /// # Examples
     ///
@@ -250,7 +259,7 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter of collector ID (e.g. `rrc00` or `route-views2`).
+    /// Add a filter of collector ID (e.g. `rrc00` or `route-views2`).
     ///
     /// See the full list of collectors [here](https://github.com/bgpkit/bgpkit-broker-backend/blob/main/deployment/full-config.json).
     ///
@@ -278,7 +287,7 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add filter of project name, i.e. `riperis` or `routeviews`.
+    /// Add a filter of project name, i.e. `riperis` or `routeviews`.
     ///
     /// # Examples
     ///
@@ -326,7 +335,7 @@ impl BgpkitBroker {
         }
     }
 
-    /// Change current page number, starting from 1.
+    /// Change the current page number, starting from 1.
     ///
     /// # Examples
     ///
@@ -430,9 +439,9 @@ impl BgpkitBroker {
         }
     }
 
-    /// Send query to get **all** data times returned.
+    /// Send a query to get **all** data times returned.
     ///
-    /// This is usually what one needs.
+    /// This usually is what one needs.
     ///
     /// # Examples
     ///
@@ -479,7 +488,7 @@ impl BgpkitBroker {
         Ok(items)
     }
 
-    /// Send query to get the **latest** data for each collector.
+    /// Send a query to get the **latest** data for each collector.
     ///
     /// The returning result is structured as a vector of [CollectorLatestItem] objects.
     ///
@@ -594,7 +603,7 @@ impl BgpkitBroker {
 /// Iterator for BGPKIT Broker that iterates through one [BrokerItem] at a time.
 ///
 /// The [IntoIterator] trait is implemented for both the struct and the reference, so that you can
-/// either iterating through items by taking the ownership of the broker, or use the reference to broker
+/// either iterate through items by taking the ownership of the broker, or use the reference to broker
 /// to iterate.
 ///
 /// ```
