@@ -1,6 +1,7 @@
 use crate::BrokerError;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,7 +13,7 @@ pub struct Collector {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
-    projects: Vec<ConfProject>,
+    pub projects: Vec<ConfProject>,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfProject {
@@ -23,6 +24,19 @@ pub struct ConfProject {
 pub struct ConfCollector {
     id: String,
     url: String,
+}
+
+impl Config {
+    pub fn to_project_map(&self) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        for p in &self.projects {
+            let project = p.name.clone();
+            for c in &p.collectors {
+                map.insert(c.id.clone(), project.clone());
+            }
+        }
+        map
+    }
 }
 
 pub fn load_collectors() -> Result<Vec<Collector>, BrokerError> {

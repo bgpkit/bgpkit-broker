@@ -85,6 +85,7 @@ for item in broker.latest().unwrap() {
     html_favicon_url = "https://raw.githubusercontent.com/bgpkit/assets/main/logos/favicon.ico"
 )]
 
+mod collector;
 #[cfg(feature = "cli")]
 mod crawler;
 #[cfg(feature = "backend")]
@@ -96,10 +97,13 @@ pub mod notifier;
 mod query;
 
 use crate::query::{CollectorLatestResult, QueryResult};
+use std::collections::HashMap;
 use std::fmt::Display;
 
+use crate::collector::DEFAULT_COLLECTORS_CONFIG;
+pub use collector::{load_collectors, Collector};
 #[cfg(feature = "cli")]
-pub use crawler::{crawl_collector, load_collectors, Collector};
+pub use crawler::crawl_collector;
 #[cfg(feature = "backend")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
@@ -114,6 +118,7 @@ pub struct BgpkitBroker {
     pub broker_url: String,
     pub query_params: QueryParams,
     client: reqwest::blocking::Client,
+    collector_project_map: HashMap<String, String>,
 }
 
 impl Default for BgpkitBroker {
@@ -122,10 +127,14 @@ impl Default for BgpkitBroker {
             Ok(url) => url.trim_end_matches('/').to_string(),
             Err(_) => "https://api.broker.bgpkit.com/v3".to_string(),
         };
+
+        let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
+
         Self {
             broker_url: url,
             query_params: Default::default(),
             client: reqwest::blocking::Client::new(),
+            collector_project_map,
         }
     }
 }
@@ -160,9 +169,11 @@ impl BgpkitBroker {
             broker_url,
             query_params: self.query_params,
             client: self.client,
+            collector_project_map: self.collector_project_map,
         }
     }
 
+    /// Disable SSL certificate check.
     pub fn disable_ssl_check(self) -> Self {
         Self {
             broker_url: self.broker_url,
@@ -171,10 +182,11 @@ impl BgpkitBroker {
                 .danger_accept_invalid_certs(true)
                 .build()
                 .unwrap(),
+            collector_project_map: self.collector_project_map,
         }
     }
 
-    /// Add filter of starting timestamp.
+    /// Add a filter of starting timestamp.
     ///
     /// # Examples
     ///
@@ -196,6 +208,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             query_params,
             client: self.client,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -221,6 +234,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             client: self.client,
             query_params,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -248,6 +262,7 @@ impl BgpkitBroker {
             client: self.client,
             broker_url: self.broker_url,
             query_params,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -271,6 +286,7 @@ impl BgpkitBroker {
             client: self.client,
             broker_url: self.broker_url,
             query_params,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -294,6 +310,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             client: self.client,
             query_params,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -313,6 +330,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             client: self.client,
             query_params,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -332,6 +350,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             client: self.client,
             query_params,
+            collector_project_map: self.collector_project_map,
         }
     }
 
@@ -485,17 +504,22 @@ impl BgpkitBroker {
             if let Some(project) = &self.query_params.project {
                 match project.to_lowercase().as_str() {
                     "rrc" | "riperis" | "ripe_ris" => {
-                        if !item.collector_id.starts_with("rrc") {
-                            matches = false
-                        }
+                        matches = self
+                            .collector_project_map
+                            .get(&item.collector_id)
+                            .cloned()
+                            .unwrap_or_default()
+                            .as_str()
+                            == "riperis";
                     }
                     "routeviews" | "route_views" | "rv" => {
-                        // Some of the route-views collectors do not start with "route-views".
-                        // Examples: decix.jhb, pacwave.lax
-                        // We use the RIPE RIS rrc prefix as the filter criteria
-                        if item.collector_id.starts_with("rrc") {
-                            matches = false
-                        }
+                        matches = self
+                            .collector_project_map
+                            .get(&item.collector_id)
+                            .cloned()
+                            .unwrap_or_default()
+                            .as_str()
+                            == "routeviews";
                     }
                     _ => {}
                 }

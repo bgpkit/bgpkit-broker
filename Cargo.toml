@@ -29,6 +29,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1.0"
 tracing = "0.1"
+lazy_static = "1"
 
 #############################################
 # Optional dependencies
@@ -55,7 +56,6 @@ oneio = { version = "0.16.0", features = ["s3"], optional = true }
 regex = { version = "1", optional = true }
 scraper = { version = "0.17", optional = true }
 tokio = { version = "1", optional = true, features = ["full"] }
-lazy_static = { version = "1", optional = true }
 
 # api dependencies
 axum = { version = "0.7", optional = true }
@@ -76,7 +76,7 @@ cli = [
     "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools", "dotenvy", "tempfile", "which",
     "bgpkit-commons",
     # crawler
-    "futures", "oneio", "regex", "scraper", "tokio", "lazy_static",
+    "futures", "oneio", "regex", "scraper", "tokio",
     # notification
     "nats",
     # database

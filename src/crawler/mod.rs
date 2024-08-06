@@ -1,4 +1,3 @@
-mod collector;
 mod common;
 mod riperis;
 mod routeviews;
@@ -12,7 +11,7 @@ use crate::{BrokerError, BrokerItem};
 use riperis::crawl_ripe_ris;
 use routeviews::crawl_routeviews;
 
-pub use collector::{load_collectors, Collector};
+use crate::Collector;
 
 pub async fn crawl_collector(
     collector: &Collector,

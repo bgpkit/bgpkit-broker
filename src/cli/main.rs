@@ -268,7 +268,7 @@ async fn update_database(
 
     let mut collector_updated = false;
     for c in &collectors {
-        if let None = latest_ts_map.get(&c.id) {
+        if !latest_ts_map.contains_key(&c.id) {
             info!(
                 "collector {} not found in database, inserting collector meta information first...",
                 &c.id
