@@ -4,7 +4,7 @@ mod utils;
 
 use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
-use crate::{BrokerError, BrokerItem};
+use crate::{BrokerError, BrokerItem, Collector};
 use chrono::{DateTime, Duration, NaiveDateTime};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -132,6 +132,20 @@ impl LocalBrokerDb {
         .await
         .unwrap();
 
+        self.reload_collectors().await;
+        self.types = sqlx::query("select id, name from types")
+            .map(|row: SqliteRow| BrokerItemType {
+                id: row.get::<i64, _>("id"),
+                name: row.get::<String, _>("name"),
+            })
+            .fetch_all(&self.conn_pool)
+            .await
+            .unwrap();
+
+        Ok(())
+    }
+
+    pub async fn reload_collectors(&mut self) {
         self.collectors =
             sqlx::query("select id, name, url, project, updates_interval from collectors")
                 .map(|row: SqliteRow| BrokerCollector {
@@ -144,16 +158,6 @@ impl LocalBrokerDb {
                 .fetch_all(&self.conn_pool)
                 .await
                 .unwrap();
-        self.types = sqlx::query("select id, name from types")
-            .map(|row: SqliteRow| BrokerItemType {
-                id: row.get::<i64, _>("id"),
-                name: row.get::<String, _>("name"),
-            })
-            .fetch_all(&self.conn_pool)
-            .await
-            .unwrap();
-
-        Ok(())
     }
 
     async fn force_checkpoint(&self) {
@@ -353,12 +357,19 @@ impl LocalBrokerDb {
             let values_str = batch
                 .iter()
                 .map(|item| {
+                    let collector_id = match collector_name_to_id.get(item.collector_id.as_str()) {
+                        Some(id) => *id,
+                        None => {
+                            panic!(
+                                "Collector name to id mapping {} not found",
+                                item.collector_id
+                            );
+                        }
+                    };
                     format!(
                         "({}, {}, {}, {}, {})",
                         item.ts_start.and_utc().timestamp(),
-                        collector_name_to_id
-                            .get(item.collector_id.as_str())
-                            .unwrap(),
+                        collector_id,
                         type_name_to_id.get(item.data_type.as_str()).unwrap(),
                         item.rough_size,
                         item.exact_size,
@@ -410,6 +421,44 @@ impl LocalBrokerDb {
 
         self.force_checkpoint().await;
         Ok(inserted)
+    }
+
+    pub async fn insert_collector(&self, collector: &Collector) -> Result<(), BrokerError> {
+        let count = sqlx::query(
+            r#"
+            SELECT count(*) FROM collectors where name = ?
+            "#,
+        )
+        .bind(collector.id.as_str())
+        .map(|row: SqliteRow| row.get::<i64, _>(0))
+        .fetch_one(&self.conn_pool)
+        .await
+        .unwrap();
+        if count > 0 {
+            // the collector already exists
+            return Ok(());
+        }
+
+        let (project, interval) = match collector.project.to_lowercase().as_str() {
+            "riperis" | "ripe-ris" => ("ripe-ris", 5 * 60),
+            "routeviews" | "route-views" => ("route-views", 15 * 60),
+            _ => panic!("Unknown project: {}", collector.project),
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO collectors (name, url, project, updates_interval)
+            VALUES (?, ?, ?, ?)
+            "#,
+        )
+        .bind(collector.id.as_str())
+        .bind(collector.url.as_str())
+        .bind(project)
+        .bind(interval)
+        .execute(&self.conn_pool)
+        .await
+        .unwrap();
+        Ok(())
     }
 }
 

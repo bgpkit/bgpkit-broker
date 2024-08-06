@@ -175,7 +175,8 @@ impl QueryParams {
     /// set the type of data to search for:
     /// - `rib`: table dump files
     /// - `updates`: BGP updates files
-    /// without specifying data type, it defaults to search for all types
+    ///
+    /// Without specifying a data type, it defaults to search for all types.
     ///
     /// ```
     /// use bgpkit_broker::QueryParams;
