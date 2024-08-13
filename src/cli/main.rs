@@ -401,7 +401,7 @@ fn main() {
             if !no_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
                 let path = db_path.clone();
-                std::thread::spawn(move || {
+                let handle = std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
                     let collectors = load_collectors().unwrap();
@@ -427,6 +427,14 @@ fn main() {
                         }
                     });
                 });
+
+                // the only way the code reaches here is that somehow the `update_database`, which
+                // fetches from the collectors and inserting into databases failed. in this case,
+                // we will panic and exit the program.
+                handle.join().unwrap();
+                // just in case the thread somehow escaped the loop with a success code, we will
+                // still exit the program by panicking here.
+                panic!("update_database thread exited unexpectedly");
             }
 
             if !no_api {
