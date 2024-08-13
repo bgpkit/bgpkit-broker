@@ -2,7 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.7.1 - 2024-06-18
+## v0.7.2 - 2024-08-13
+
+### Highlights
+
+* panic if the cli updater thread failed for some reason
+    * previously, the failed thread goes silently, and the main process continues running
+* reduce logging if not configuring NATS notifier
+    * previously, the missing notifier message appear at every fetch
+
+## v0.7.1 - 2024-08-05
 
 ### Highlights
 
