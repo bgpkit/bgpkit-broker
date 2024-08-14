@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.3 - 2024-08-14
+
+### Hotfix
+
+* fix an issue where the main thread waits for updater thread and never starts the API thread
+
 ## v0.7.2 - 2024-08-13
 
 ### Highlights

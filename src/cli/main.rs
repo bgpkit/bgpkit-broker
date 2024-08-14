@@ -398,10 +398,16 @@ fn main() {
                 }
             }
 
+            // set global panic hook so that child threads (updater or api) will crash the process should it encounter a panic
+            std::panic::set_hook(Box::new(|panic_info| {
+                eprintln!("Global panic hook: {:?}", panic_info);
+                exit(1)
+            }));
+
             if !no_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
                 let path = db_path.clone();
-                let handle = std::thread::spawn(move || {
+                std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
                     let collectors = load_collectors().unwrap();
@@ -427,14 +433,6 @@ fn main() {
                         }
                     });
                 });
-
-                // the only way the code reaches here is that somehow the `update_database`, which
-                // fetches from the collectors and inserting into databases failed. in this case,
-                // we will panic and exit the program.
-                handle.join().unwrap();
-                // just in case the thread somehow escaped the loop with a success code, we will
-                // still exit the program by panicking here.
-                panic!("update_database thread exited unexpectedly");
             }
 
             if !no_api {
