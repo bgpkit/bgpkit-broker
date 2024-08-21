@@ -1,15 +1,16 @@
 // https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3
 
+use futures_util::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::cmp::min;
 use std::fs::File;
 use std::io::Write;
-
-use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .user_agent("bgpkit-broker/3")
+        .timeout(Duration::from_secs(30))
         .build()
         .or(Err("Failed to create reqwest client".to_string()))?;
 

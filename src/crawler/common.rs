@@ -2,6 +2,7 @@ use crate::BrokerError;
 use chrono::{Datelike, NaiveDate, Utc};
 use regex::Regex;
 use scraper::{Html, Selector};
+use std::time::Duration;
 
 const SIZE_KB: u64 = u64::pow(1024, 1);
 const SIZE_MB: u64 = u64::pow(1024, 2);
@@ -87,6 +88,7 @@ pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
     let client = reqwest::Client::builder()
         .user_agent("bgpkit-broker/3")
         .pool_max_idle_per_host(0)
+        .timeout(Duration::from_secs(30))
         .build()?;
     let body = client.get(url).send().await?.text().await?;
     Ok(body)
