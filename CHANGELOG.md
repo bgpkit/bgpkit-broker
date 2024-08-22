@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.4 - 2024-08-22
+
+### Highlights
+
+* add a new 30s timeout for fetching web page content for the crawler
+    * the async `reqwest::get` function by default does not have a timeout and thus we could potentially stuck waiting
+      forever.
+* add new `max_delay_secs` parameter to the `/health` endpoint to allow user specify a maximum delay in seconds and
+  the API will return error code 503 if the delay for the latest file timestamp (any file) is greater than the specified
+  value.
+    * this allows better monitoring for the API's health without sending heartbeats.
+
 ## v0.7.3 - 2024-08-14
 
 ### Hotfix
