@@ -53,6 +53,12 @@ pub struct BrokerSearchQuery {
     pub page_size: Option<usize>,
 }
 
+#[derive(IntoParams, Debug, Serialize, Deserialize)]
+pub struct BrokerHealthQueryParams {
+    /// maximum allowed delay in seconds
+    pub max_delay_secs: Option<u32>,
+}
+
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerSearchResult {
     pub count: usize,
@@ -255,7 +261,10 @@ async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         (status = 503, description = "Database not available", body = BrokerApiError, example = json!(BrokerApiError::BrokerNotHealthy("database not bootstrap".to_string()))),
     )
 )]
-async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn health(
+    query: Query<BrokerHealthQueryParams>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
     match state.database.get_latest_timestamp().await {
         Ok(data) => match data {
             None => (
@@ -268,10 +277,29 @@ async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
             Some(ts) => {
                 // data is there, service is ok.
                 // this endpoint does not check for data freshness, as there are applications
-                // that does not require fresh data (e.g. historical analysis).
+                // that do not require fresh data (e.g., historical analysis).
+
+                let latest_file_ts = ts.and_utc().timestamp();
+                let now_ts = chrono::Utc::now().timestamp();
+
+                if let Some(max_delay) = query.max_delay_secs {
+                    if now_ts - latest_file_ts > max_delay as i64 {
+                        return (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            Json(BrokerApiError::BrokerNotHealthy(format!(
+                                "database is not fresh, latest file timestamp: {}, delay: {}s",
+                                latest_file_ts,
+                                now_ts - latest_file_ts
+                            ))),
+                        )
+                            .into_response();
+                    }
+                }
+
                 Json(
                     json!({"status": "OK", "message": "database is healthy", "meta": {
-                        "latest_file_ts": ts.and_utc().timestamp(),
+                        "latest_file_ts": latest_file_ts,
+                        "delay_secs": now_ts - latest_file_ts,
                     }}),
                 )
                 .into_response()
