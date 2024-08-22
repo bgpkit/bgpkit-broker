@@ -8,7 +8,7 @@ use std::io::Write;
 use std::time::Duration;
 
 pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), String> {
-    let client = reqwest::Client::builder()
+    let client = reqwest::ClientBuilder::new()
         .user_agent("bgpkit-broker/3")
         .timeout(Duration::from_secs(30))
         .build()

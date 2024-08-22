@@ -85,7 +85,7 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
 }
 
 pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
-    let client = reqwest::Client::builder()
+    let client = reqwest::ClientBuilder::new()
         .user_agent("bgpkit-broker/3")
         .pool_max_idle_per_host(0)
         .timeout(Duration::from_secs(30))
@@ -117,7 +117,7 @@ pub(crate) async fn crawl_months_list(
         from_month.map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap());
 
     let month_link_pattern: Regex = Regex::new(r#"<a href="(....\...)/">.*"#).unwrap();
-    let body = reqwest::get(collector_root_url).await?.text().await?;
+    let body = fetch_body(collector_root_url).await?;
     let mut res = vec![];
     for cap in month_link_pattern.captures_iter(body.as_str()) {
         let month = cap[1].to_owned();
