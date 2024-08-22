@@ -10,7 +10,7 @@ use std::time::Duration;
 pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), String> {
     let client = reqwest::ClientBuilder::new()
         .user_agent("bgpkit-broker/3")
-        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(30))
         .build()
         .or(Err("Failed to create reqwest client".to_string()))?;
 
