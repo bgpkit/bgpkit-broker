@@ -1,0 +1,32 @@
+# fly.toml app configuration file generated for bgpkit-broker on 2024-08-22T13:58:50-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'bgpkit-broker'
+primary_region = 'lax'
+
+[http_service]
+internal_port = 40064
+force_https = true
+auto_stop_machines = 'off'
+processes = ['app']
+
+[[http_service.checks]]
+grace_period = "120s"
+interval = "60s"
+method = "GET"
+timeout = "5s"
+path = "/health?max_delay_secs=3600"
+
+
+[[vm]]
+memory = '1gb'
+cpu_kind = 'shared'
+cpus = 1
+
+
+[deploy]
+strategy = "rolling"
+max_unavailable = 1
+wait_timeout = "20m"
