@@ -7,7 +7,11 @@ pub(crate) fn infer_url(
     is_rib: bool,
 ) -> (String, NaiveDateTime) {
     let project = collector.project.as_str();
-    let collector_url = collector.url.as_str();
+    let collector_url = collector
+        .url
+        .trim_end_matches('/')
+        .trim_end_matches("bgpdata")
+        .trim_end_matches('/');
     let updates_interval = collector.updates_interval;
 
     let (url, ts_end) = match project {
