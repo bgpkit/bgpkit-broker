@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.5 - 2024-08-23
+
+### [NEW] deploy at fly.io
+
+* add a deployment config file for fly.io
+
+### Bugfix
+
+* fix an issue where the API returns URL with additional `/bgpdata` for some new route-views collectors.
+
+### Documentation
+
+* improved documentation on deploying bgpkit-broker services.
+
 ## v0.7.4 - 2024-08-22
 
 ### Highlights

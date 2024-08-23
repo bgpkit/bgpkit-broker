@@ -303,6 +303,67 @@ missing the following collectors:
 | routeviews | iraq-ixp.bgw | Iraq            | 2024-04-13 00:01:00 | http://archive.routeviews.org/iraq-ixp.bgw/bgpdata |
 ```
 
+## Deployment
+
+### Docker
+
+You can deploy the BGPKIT Broker service using the provided Docker image. The image is available on Docker Hub
+at [bgpkit/broker](https://hub.docker.com/r/bgpkit/bgpkit-broker).
+
+To run in deattached mode (as a service):
+
+```bash
+docker run -d -p 40064:40064 bgpkit/bgpkit-broker:latest
+```
+
+You can also build the Docker image from the source code:
+
+```bash
+docker build -t bgpkit/bgpkit-broker:latest .
+```
+
+### On-premises CLI
+
+You can also start a BGPKIT Broker instance on your own server using the `bgpkit-broker` CLI tool with the following
+command:
+
+```bash
+bgpkit-broker serve YOUR_SQLITE_3_FILE_PATH.sqlite3 --bootstrap --silent
+```
+
+* `YOUR_SQLITE_3_FILE_PATH.sqlite3` is the path to the SQLite3 database file.
+* `--bootstrap` flag is used to bootstrap the database content from the provided daily backup database.
+* `--silent` flag is used to disable the bootstrap download progress bar.
+
+On a systemd managed OS like Debian or Ubuntu, you can also use the following service file to manage the BGPKIT Broker
+service:
+
+```ini
+[Unit]
+Description=BGPKIT Broker Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/bgpkit-broker serve /var/lib/bgpkit/broker.sqlite3
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Put this file at `/etc/systemd/system/bgpkit-broker.service` and run `systemctl daemon-reload` to reload the service
+list, and then you can start the service with `systemctl start bgpkit-broker`.
+To enable the service to start on boot, run `systemctl enable bgpkit-broker`.
+
+## Deploy on Fly.io
+
+You can deploy the BGPKIT Broker service on [Fly.io](https://fly.io) using the
+provided [`fly.toml` configuration file](fly.toml).
+
+Note that you may need to adjust to machine size and region based on your needs.
+Currently, `1gb` memory and `1` shared CPU is enough for the BGPKIT Broker service.
+
 ## Data Provider
 
 If you have publicly available data and want to be indexed BGPKIT Broker service, please email us at
