@@ -18,7 +18,9 @@ FROM debian:bookworm-slim
 # copy the build artifact from the build stage
 COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit-broker
 
+RUN apt update && apt install -y curl tini
 WORKDIR /bgpkit-broker
 
 EXPOSE 40064
-ENTRYPOINT bash -c '/usr/local/bin/bgpkit-broker serve bgpkit-broker.sqlite3 --bootstrap --silent'
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/bgpkit-broker"]
+CMD ["serve", "bgpkit-broker.sqlite3", "--bootstrap", "--silent"]

@@ -2,6 +2,7 @@
 use crate::BrokerItem;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use std::net::IpAddr;
 
 /// QueryParams represents the query parameters to the backend API.
 ///
@@ -41,6 +42,12 @@ pub struct QueryParams {
     pub page: i64,
     /// number of items each page contains, default to 10, max to 100000
     pub page_size: i64,
+    /// collector peer IP address (for listing peers info)
+    pub peers_ip: Option<IpAddr>,
+    /// collector peer ASN (for listing peers info)
+    pub peers_asn: Option<u32>,
+    /// collector peer full feed status (for listing peers info)
+    pub peers_only_full_feed: bool,
 }
 
 /// Sorting order enum
@@ -63,6 +70,9 @@ impl Default for QueryParams {
             data_type: None,
             page: 1,
             page_size: 100,
+            peers_ip: None,
+            peers_asn: None,
+            peers_only_full_feed: false,
         }
     }
 }
@@ -119,6 +129,7 @@ impl QueryParams {
             data_type: None,
             page: 1,
             page_size: 10,
+            ..Default::default()
         }
     }
 
@@ -250,7 +261,7 @@ pub(crate) struct CollectorLatestResult {
 
 /// Query result struct that contains data or error message
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct QueryResult {
+pub(crate) struct BrokerQueryResult {
     /// number of items returned in **current** call
     pub count: Option<i64>,
     /// the page number of the current call
@@ -263,7 +274,7 @@ pub(crate) struct QueryResult {
     pub data: Vec<BrokerItem>,
 }
 
-impl Display for QueryResult {
+impl Display for BrokerQueryResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", serde_json::to_string(self).unwrap())
     }
@@ -283,6 +294,7 @@ mod tests {
             data_type: None,
             page: 1,
             page_size: 20,
+            ..Default::default()
         };
 
         assert_eq!(
@@ -298,6 +310,7 @@ mod tests {
             data_type: None,
             page: 1,
             page_size: 20,
+            ..Default::default()
         };
 
         assert_eq!("?page=1&page_size=20".to_string(), param.to_string());

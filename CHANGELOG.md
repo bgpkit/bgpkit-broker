@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.6 - 2024-10-31
+
+### Highlights
+
+* migrate default broker API endpoint to `https://api.bgpkit.com/v3/broker`
+    * Full API docs is available at `https://api.bgpkit.com/docs`
+* add `get_peers` to `BgpkitBroker` struct
+    * fetches the list of peers for a given collector
+    * can specify filters the same way as querying MRT files
+    * available filter functions include:
+        * `.peers_asn(ASN)`
+        * `.peers_ip(IP)`
+        * `.collector_id(COLLECTOR_ID)`
+        * `.peers_only_full_feed(TRUE/FALSE)`
+    * returns `Vec<BrokerPeer>`
+
+```rust
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BrokerPeer {
+    /// The date of the latest available data.
+    pub date: NaiveDate,
+    /// The IP address of the collector peer.
+    pub ip: IpAddr,
+    /// The ASN (Autonomous System Number) of the collector peer.
+    pub asn: u32,
+    /// The name of the collector.
+    pub collector: String,
+    /// The number of IPv4 prefixes.
+    pub num_v4_pfxs: u32,
+    /// The number of IPv6 prefixes.
+    pub num_v6_pfxs: u32,
+    /// The number of connected ASNs.
+    pub num_connected_asns: u32,
+}
+```
+
 ## v0.7.5 - 2024-08-23
 
 ### [NEW] deploy at fly.io
