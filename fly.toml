@@ -8,13 +8,13 @@ primary_region = 'lax'
 
 [http_service]
 internal_port = 40064
-force_https = true
+force_https = false
 auto_stop_machines = 'off'
 processes = ['app']
 
 [[http_service.checks]]
-grace_period = "120s"
-interval = "60s"
+grace_period = "60s"
+interval = "30s"
 method = "GET"
 timeout = "5s"
 path = "/health?max_delay_secs=3600"
@@ -22,11 +22,9 @@ path = "/health?max_delay_secs=3600"
 
 [[vm]]
 memory = '1gb'
-cpu_kind = 'shared'
-cpus = 1
+size = 'shared-cpu-4x'
 
 
 [deploy]
-strategy = "rolling"
-max_unavailable = 1
+strategy = "bluegreen"
 wait_timeout = "20m"
