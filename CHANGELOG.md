@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
     * Full API docs is available at `https://api.bgpkit.com/docs`
 * add `get_peers` to `BgpkitBroker` struct
     * fetches the list of peers for a given collector
-    * can specify filters the same way as querying MRT files
+    * allow specifying filters the same way as querying MRT files
     * available filter functions include:
         * `.peers_asn(ASN)`
         * `.peers_ip(IP)`
