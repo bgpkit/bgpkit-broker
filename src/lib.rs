@@ -94,13 +94,12 @@ mod error;
 mod item;
 #[cfg(feature = "nats")]
 pub mod notifier;
+mod peer;
 mod query;
 
-use crate::query::{CollectorLatestResult, QueryResult};
-use std::collections::HashMap;
-use std::fmt::Display;
-
 use crate::collector::DEFAULT_COLLECTORS_CONFIG;
+use crate::peer::BrokerPeersResult;
+use crate::query::{BrokerQueryResult, CollectorLatestResult};
 pub use collector::{load_collectors, Collector};
 #[cfg(feature = "cli")]
 pub use crawler::crawl_collector;
@@ -108,7 +107,11 @@ pub use crawler::crawl_collector;
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
 pub use item::BrokerItem;
+pub use peer::BrokerPeer;
 pub use query::{QueryParams, SortOrder};
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::net::IpAddr;
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -126,7 +129,7 @@ impl Default for BgpkitBroker {
         dotenvy::dotenv().ok();
         let url = match std::env::var("BGPKIT_BROKER_URL") {
             Ok(url) => url.trim_end_matches('/').to_string(),
-            Err(_) => "https://api.broker.bgpkit.com/v3".to_string(),
+            Err(_) => "https://api.bgpkit.com/v3/broker".to_string(),
         };
 
         let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
@@ -375,6 +378,63 @@ impl BgpkitBroker {
         }
     }
 
+    /// Add a filter of peer IP address when listing peers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///    .peers_ip("192.168.1.1".parse().unwrap());
+    /// ```
+    pub fn peers_ip(self, peer_ip: IpAddr) -> Self {
+        let mut query_params = self.query_params;
+        query_params.peers_ip = Some(peer_ip);
+        Self {
+            broker_url: self.broker_url,
+            client: self.client,
+            query_params,
+            collector_project_map: self.collector_project_map,
+        }
+    }
+
+    /// Add a filter of peer ASN when listing peers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///    .peers_asn(64496);
+    /// ```
+    pub fn peers_asn(self, peer_asn: u32) -> Self {
+        let mut query_params = self.query_params;
+        query_params.peers_asn = Some(peer_asn);
+        Self {
+            broker_url: self.broker_url,
+            client: self.client,
+            query_params,
+            collector_project_map: self.collector_project_map,
+        }
+    }
+
+    /// Add a filter of peer full feed status when listing peers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///   .peers_only_full_feed(true);
+    /// ```
+    pub fn peers_only_full_feed(self, peer_full_feed: bool) -> Self {
+        let mut query_params = self.query_params;
+        query_params.peers_only_full_feed = peer_full_feed;
+        Self {
+            broker_url: self.broker_url,
+            client: self.client,
+            query_params,
+            collector_project_map: self.collector_project_map,
+        }
+    }
+
     /// Turn to specified page, page starting from 1.
     ///
     /// This works with [Self::query_single_page] function to manually paginate.
@@ -405,7 +465,7 @@ impl BgpkitBroker {
     pub fn query_single_page(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let url = format!("{}/search{}", &self.broker_url, &self.query_params);
         log::info!("sending broker query to {}", &url);
-        match self.run_query(url.as_str()) {
+        match self.run_files_query(url.as_str()) {
             Ok(res) => Ok(res),
             Err(e) => Err(e),
         }
@@ -464,7 +524,7 @@ impl BgpkitBroker {
         loop {
             let url = format!("{}/search{}", &self.broker_url, &p);
 
-            let res_items = match self.run_query(url.as_str()) {
+            let res_items = match self.run_files_query(url.as_str()) {
                 Ok(res) => res,
                 Err(e) => return Err(e),
             };
@@ -576,25 +636,133 @@ impl BgpkitBroker {
         Ok(items)
     }
 
-    fn run_query(&self, url: &str) -> Result<Vec<BrokerItem>, BrokerError> {
+    /// Get the most recent information for collector peers.
+    ///
+    /// The returning result is structured as a vector of [BrokerPeer] objects.
+    ///
+    /// # Examples
+    ///
+    /// ## Get all peers
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new();
+    /// let peers = broker.get_peers().unwrap();
+    /// for peer in &peers {
+    ///     println!("{}", peer);
+    /// }
+    /// ```
+    ///
+    /// ## Get peers from a specific collector
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///    .collector_id("route-views2");
+    /// let peers = broker.get_peers().unwrap();
+    /// for peer in &peers {
+    ///    println!("{}", peer);
+    /// }
+    /// ```
+    ///
+    /// ## Get peers from a specific ASN
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///   .peers_asn(64496);
+    /// let peers = broker.get_peers().unwrap();
+    /// for peer in &peers {
+    ///    println!("{}", peer);
+    /// }
+    /// ```
+    ///
+    /// ## Get peers from a specific IP address
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///   .peers_ip("192.168.1.1".parse().unwrap());
+    /// let peers = broker.get_peers().unwrap();
+    /// for peer in &peers {
+    ///   println!("{}", peer);
+    /// }
+    /// ```
+    ///
+    /// ## Get peers with full feed
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///  .peers_only_full_feed(true);
+    /// let peers = broker.get_peers().unwrap();
+    /// for peer in &peers {
+    ///     println!("{}", peer);
+    /// }
+    /// ```
+    ///
+    /// ## Get peers from a specific collector with full feed
+    ///
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///  .collector_id("route-views2")
+    /// .peers_only_full_feed(true);
+    /// let peers = broker.get_peers().unwrap();
+    /// for peer in &peers {
+    ///    println!("{}", peer);
+    /// }
+    /// ```
+    pub fn get_peers(&self) -> Result<Vec<BrokerPeer>, BrokerError> {
+        let mut url = format!("{}/peers", self.broker_url);
+        let mut param_strings = vec![];
+        if let Some(ip) = &self.query_params.peers_ip {
+            param_strings.push(format!("ip={}", ip));
+        }
+        if let Some(asn) = &self.query_params.peers_asn {
+            param_strings.push(format!("asn={}", asn));
+        }
+        if self.query_params.peers_only_full_feed {
+            param_strings.push("full_feed=true".to_string());
+        }
+        if let Some(collector_id) = &self.query_params.collector_id {
+            param_strings.push(format!("collector={}", collector_id));
+        }
+        if !param_strings.is_empty() {
+            let param_string = param_strings.join("&");
+            url = format!("{}?{}", url, param_string);
+        }
+
+        let peers = match self.client.get(url.as_str()).send() {
+            Ok(response) => match response.json::<BrokerPeersResult>() {
+                Ok(result) => result.data,
+                Err(_) => {
+                    return Err(BrokerError::BrokerError(
+                        "Error parsing response".to_string(),
+                    ))
+                }
+            },
+            Err(e) => {
+                return Err(BrokerError::BrokerError(format!(
+                    "Unable to connect to the URL ({}): {}",
+                    url, e
+                )))
+            }
+        };
+        Ok(peers)
+    }
+
+    fn run_files_query(&self, url: &str) -> Result<Vec<BrokerItem>, BrokerError> {
         log::info!("sending broker query to {}", &url);
         match self.client.get(url).send() {
-            Ok(res) => {
-                match res.json::<QueryResult>() {
-                    Ok(res) => {
-                        if let Some(e) = res.error {
-                            Err(BrokerError::BrokerError(e))
-                        } else {
-                            Ok(res.data)
-                        }
-                    }
-                    Err(e) => {
-                        // json decoding error. most likely the service returns an error message without
-                        // `data` field.
-                        Err(BrokerError::BrokerError(e.to_string()))
+            Ok(res) => match res.json::<BrokerQueryResult>() {
+                Ok(res) => {
+                    if let Some(e) = res.error {
+                        Err(BrokerError::BrokerError(e))
+                    } else {
+                        Ok(res.data)
                     }
                 }
-            }
+                Err(e) => {
+                    // json decoding error. most likely the service returns an error message without
+                    // `data` field.
+                    Err(BrokerError::BrokerError(e.to_string()))
+                }
+            },
             Err(e) => Err(BrokerError::from(e)),
         }
     }
@@ -814,7 +982,7 @@ mod tests {
 
     #[test]
     fn test_latest_no_ssl() {
-        let broker = BgpkitBroker::new().disable_ssl_check();
+        let broker = BgpkitBroker::new().accept_invalid_certs();
         let items = broker.latest().unwrap();
         assert!(items.len() >= 125);
     }
@@ -824,5 +992,42 @@ mod tests {
         let broker = BgpkitBroker::new();
         let res = broker.health_check();
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_peers() {
+        let broker = BgpkitBroker::new();
+        let all_peers = broker.get_peers().unwrap();
+        assert!(!all_peers.is_empty());
+        let first_peer = all_peers.first().unwrap();
+        let first_ip = first_peer.ip;
+        let first_asn = first_peer.asn;
+
+        let broker = BgpkitBroker::new().peers_ip(first_ip);
+        let peers = broker.get_peers().unwrap();
+        assert!(!peers.is_empty());
+
+        let broker = BgpkitBroker::new().peers_asn(first_asn);
+        let peers = broker.get_peers().unwrap();
+        assert!(!peers.is_empty());
+
+        let broker = BgpkitBroker::new().peers_only_full_feed(true);
+        let full_feed_peers = broker.get_peers().unwrap();
+        assert!(!full_feed_peers.is_empty());
+        assert!(full_feed_peers.len() < all_peers.len());
+
+        let broker = BgpkitBroker::new().collector_id("rrc00");
+        let rrc_peers = broker.get_peers().unwrap();
+        assert!(!rrc_peers.is_empty());
+        assert!(rrc_peers.iter().all(|peer| peer.collector == "rrc00"));
+
+        let broker = BgpkitBroker::new().collector_id("rrc00,route-views2");
+        let rrc_rv_peers = broker.get_peers().unwrap();
+        assert!(!rrc_rv_peers.is_empty());
+        assert!(rrc_rv_peers
+            .iter()
+            .any(|peer| peer.collector == "rrc00" || peer.collector == "route-views2"));
+
+        assert!(rrc_rv_peers.len() > rrc_peers.len());
     }
 }
