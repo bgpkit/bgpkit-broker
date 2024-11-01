@@ -648,7 +648,7 @@ impl BgpkitBroker {
     /// let broker = bgpkit_broker::BgpkitBroker::new();
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
-    ///     println!("{}", peer);
+    ///     println!("{:?}", peer);
     /// }
     /// ```
     ///
@@ -659,7 +659,7 @@ impl BgpkitBroker {
     ///    .collector_id("route-views2");
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
-    ///    println!("{}", peer);
+    ///    println!("{:?}", peer);
     /// }
     /// ```
     ///
@@ -670,7 +670,7 @@ impl BgpkitBroker {
     ///   .peers_asn(64496);
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
-    ///    println!("{}", peer);
+    ///    println!("{:?}", peer);
     /// }
     /// ```
     ///
@@ -681,7 +681,7 @@ impl BgpkitBroker {
     ///   .peers_ip("192.168.1.1".parse().unwrap());
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
-    ///   println!("{}", peer);
+    ///   println!("{:?}", peer);
     /// }
     /// ```
     ///
@@ -692,7 +692,7 @@ impl BgpkitBroker {
     ///  .peers_only_full_feed(true);
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
-    ///     println!("{}", peer);
+    ///     println!("{:?}", peer);
     /// }
     /// ```
     ///
@@ -704,7 +704,7 @@ impl BgpkitBroker {
     /// .peers_only_full_feed(true);
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
-    ///    println!("{}", peer);
+    ///    println!("{:?}", peer);
     /// }
     /// ```
     pub fn get_peers(&self) -> Result<Vec<BrokerPeer>, BrokerError> {
