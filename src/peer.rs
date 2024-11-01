@@ -6,6 +6,7 @@ use std::net::IpAddr;
 ///
 /// Represents the information of an MRT collector peer.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerPeer {
     /// The date of the latest available data.
     pub date: NaiveDate,

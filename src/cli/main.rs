@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::path::Path;
 use std::process::exit;
 use tabled::settings::Style;
@@ -179,6 +180,29 @@ enum Commands {
         /// Showing only latest items that are outdated
         #[clap(short, long)]
         outdated: bool,
+
+        /// Print out search results in JSON format instead of Markdown table
+        #[clap(short, long)]
+        json: bool,
+    },
+
+    /// List public BGP collector peers
+    Peers {
+        /// filter by collector ID
+        #[clap(short, long)]
+        collector: Option<String>,
+
+        /// filter by peer AS number
+        #[clap(short = 'a', long)]
+        peer_asn: Option<u32>,
+
+        /// filter by peer IP address
+        #[clap(short = 'i', long)]
+        peer_ip: Option<IpAddr>,
+
+        /// show only full-feed peers
+        #[clap(short, long)]
+        full_feed_only: bool,
 
         /// Print out search results in JSON format instead of Markdown table
         #[clap(short, long)]
@@ -640,6 +664,41 @@ fn main() {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
         }
+
+        Commands::Peers {
+            collector,
+            peer_asn,
+            peer_ip,
+            full_feed_only,
+            json,
+        } => {
+            let mut broker = BgpkitBroker::new();
+            // health check first
+            if broker.health_check().is_err() {
+                println!("broker instance at {} is not available", broker.broker_url);
+                return;
+            }
+            if let Some(collector_id) = collector {
+                broker = broker.collector_id(collector_id);
+            }
+            if let Some(asn) = peer_asn {
+                broker = broker.peers_asn(asn);
+            }
+            if let Some(ip) = peer_ip {
+                broker = broker.peers_ip(ip);
+            }
+            if full_feed_only {
+                broker = broker.peers_only_full_feed(true);
+            }
+            let items = broker.get_peers().unwrap();
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+            } else {
+                println!("{}", Table::new(items).with(Style::markdown()));
+            }
+        }
+
         Commands::Live {
             url,
             subject,
