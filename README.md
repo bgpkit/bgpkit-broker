@@ -117,6 +117,7 @@ Commands:
   backup     Backup Broker database
   search     Search MRT files in Broker db
   latest     Display latest MRT files indexed
+  peers      List public BGP collector peers
   live       Streaming live from a broker NATS server
   doctor     Check broker instance health and missing collectors
   help       Print this message or the help of the given subcommand(s)
@@ -267,6 +268,44 @@ Options:
   -p, --pretty             Pretty print JSON output
   -h, --help               Print help
   -V, --version            Print version
+```
+
+#### `peers`
+
+List public BGP collector peer information.
+
+```text
+List public BGP collector peers
+
+Usage: bgpkit-broker peers [OPTIONS]
+
+Options:
+  -c, --collector <COLLECTOR>  filter by collector ID
+      --no-log                 disable logging
+  -a, --peer-asn <PEER_ASN>    filter by peer AS number
+      --env <ENV>              
+  -i, --peer-ip <PEER_IP>      filter by peer IP address
+  -f, --full-feed-only         show only full-feed peers
+  -j, --json                   Print out search results in JSON format instead of Markdown table
+  -h, --help                   Print help
+  -V, --version                Print version
+```
+
+For example, the command `bgpkit-broker peers --collector rrc00 --full-feed-only` lists all full-feed peers from
+collector `rrc00`:
+
+```text
+bgpkit-broker peers --collector rrc00 --full-feed-only
+| date       | ip                                   | asn    | collector | num_v4_pfxs | num_v6_pfxs | num_connected_asns |
+|------------|--------------------------------------|--------|-----------|-------------|-------------|--------------------|
+| 2024-11-01 | 103.102.5.1                          | 131477 | rrc00     | 964311      | 0           | 3                  |
+| 2024-11-01 | 12.0.1.63                            | 7018   | rrc00     | 950205      | 0           | 2316               |
+| 2024-11-01 | 154.11.12.212                        | 852    | rrc00     | 952822      | 0           | 482                |
+| 2024-11-01 | 161.129.152.2                        | 13830  | rrc00     | 948244      | 0           | 120                |
+| 2024-11-01 | 165.16.221.66                        | 37721  | rrc00     | 833893      | 214125      | 4515               |
+| 2024-11-01 | 165.254.255.2                        | 15562  | rrc00     | 951002      | 0           | 2                  |
+| 2024-11-01 | 176.12.110.8                         | 50300  | rrc00     | 955141      | 0           | 1046               |
+...
 ```
 
 #### `doctor`
