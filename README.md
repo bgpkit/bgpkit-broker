@@ -355,6 +355,12 @@ To run in deattached mode (as a service):
 docker run -d -p 40064:40064 bgpkit/bgpkit-broker:latest
 ```
 
+To run as a service using `docker-compose`:
+
+``` bash
+docker-compose up -d
+```
+
 You can also build the Docker image from the source code:
 
 ```bash
