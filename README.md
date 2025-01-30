@@ -91,7 +91,7 @@ Broker instance with ease.
 
 ### Install
 
-Install with `cargo install bgpkit-broker@0.7 --features cli` or check out the main branch and
+Install with `cargo install bgpkit-broker@^0.7 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
 
 If you are in a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
