@@ -359,6 +359,18 @@ lazy_static! {
         {
           "id":"route-views.uaeix",
           "url": "https://archive.routeviews.org/route-views.uaeix/bgpdata"
+        },
+        {
+          "id":"interlan.otp",
+          "url": "https://archive.routeviews.org/interlan.otp/bgpdata"
+        },
+        {
+          "id":"kinx.icn",
+          "url": "https://archive.routeviews.org/kinx.icn/bgpdata"
+        },
+        {
+          "id":"namex.fco",
+          "url": "https://archive.routeviews.org/namex.fco/bgpdata"
         }
       ]
     }
