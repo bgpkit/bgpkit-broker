@@ -401,14 +401,6 @@ Put this file at `/etc/systemd/system/bgpkit-broker.service` and run `systemctl 
 list, and then you can start the service with `systemctl start bgpkit-broker`.
 To enable the service to start on boot, run `systemctl enable bgpkit-broker`.
 
-## Deploy on Fly.io
-
-You can deploy the BGPKIT Broker service on [Fly.io](https://fly.io) using the
-provided [`fly.toml` configuration file](fly.toml).
-
-Note that you may need to adjust to machine size and region based on your needs.
-Currently, `1gb` memory and `1` shared CPU is enough for the BGPKIT Broker service.
-
 ## Data Provider
 
 If you have publicly available data and want to be indexed BGPKIT Broker service, please email us at

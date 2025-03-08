@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.7 - 2025-03-07
+
+### Highlights
+
+* Fix installation instruction for cargo
+    * Change `@0.7` to `@^0.7` to correctly use the latest `v0.7.x` version.
+* Add recently added RouteViews collectors
+    * new collectors are `interlan.otp` (Romania),`kinx.icn` (South Korea), and `namex.fco` (Italy)
+    * users update the version to `v0.7.7` can run the same `bgpkit-broker update` command to automatically bootstrap
+      data for these collectors
+
 ## v0.7.6 - 2024-10-31
 
 ### Highlights
