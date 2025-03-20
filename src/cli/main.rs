@@ -144,7 +144,11 @@ enum Commands {
         /// remote database location
         to: String,
 
-        /// force writing backup file to existing file if specified
+        /// bootstrap the database and update if a source database does not exist
+        #[clap(short, long)]
+        bootstrap: bool,
+
+        /// force writing a backup file to an existing file if specified
         #[clap(short, long)]
         force: bool,
 
@@ -261,8 +265,8 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
             }
         },
     };
+    info!("sending heartbeat to {}", &url);
     reqwest::get(&url).await?.error_for_status()?;
-    info!("heartbeat sent");
     Ok(())
 }
 
@@ -497,6 +501,7 @@ fn main() {
         Commands::Backup {
             from,
             to,
+            bootstrap,
             force,
             sqlite_cmd_path,
         } => {
@@ -504,14 +509,31 @@ fn main() {
                 enable_logging();
             }
 
-            // check if file exists
+            // check if the source database file exists
             if std::fs::metadata(&from).is_err() {
-                error!("The specified database path does not exist.");
-                exit(1);
+                if !bootstrap {
+                    error!("The specified database path does not exist.");
+                    exit(1);
+                }
+
+                // download the database file
+                let collectors = load_collectors().unwrap();
+                get_tokio_runtime().block_on(async {
+                    info!(
+                        "downloading bootstrap database file {} to {}",
+                        BOOTSTRAP_URL, &from
+                    );
+                    download_file(BOOTSTRAP_URL, &from, true).await.unwrap();
+                    let db = LocalBrokerDb::new(&from).await.unwrap();
+                    update_database(db, collectors, None, &None, false).await;
+                    if let Ok(url) = dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
+                        try_send_heartbeat(Some(url)).await.unwrap();
+                    }
+                });
             }
 
             if is_local_path(&to) {
-                // back up to local directory
+                // back up to the local directory
                 backup_database(&from, &to, force, sqlite_cmd_path).unwrap();
                 return;
             }
