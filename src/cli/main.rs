@@ -145,8 +145,15 @@ enum Commands {
         to: String,
 
         /// bootstrap the database and update if a source database does not exist
-        #[clap(short, long)]
+        #[clap(long)]
         bootstrap: bool,
+
+        /// bootstrap location (remote or local)
+        #[clap(
+            long,
+            default_value = BOOTSTRAP_URL
+        )]
+        bootstrap_url: String,
 
         /// force writing a backup file to an existing file if specified
         #[clap(short, long)]
@@ -502,11 +509,18 @@ fn main() {
             from,
             to,
             bootstrap,
+            bootstrap_url,
             force,
             sqlite_cmd_path,
         } => {
             if do_log {
                 enable_logging();
+            }
+
+            if oneio::s3_url_parse(&to).is_ok() && oneio::s3_env_check().is_err() {
+                // backup to a s3 location and s3 environment variable check fails
+                error!("Missing one or multiple required S3 environment variables: AWS_REGION AWS_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY");
+                exit(1);
             }
 
             // check if the source database file exists
@@ -521,9 +535,9 @@ fn main() {
                 get_tokio_runtime().block_on(async {
                     info!(
                         "downloading bootstrap database file {} to {}",
-                        BOOTSTRAP_URL, &from
+                        &bootstrap_url, &from
                     );
-                    download_file(BOOTSTRAP_URL, &from, true).await.unwrap();
+                    download_file(&bootstrap_url, &from, true).await.unwrap();
                     let db = LocalBrokerDb::new(&from).await.unwrap();
                     update_database(db, collectors, None, &None, false).await;
                     if let Ok(url) = dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
