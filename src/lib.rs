@@ -524,10 +524,7 @@ impl BgpkitBroker {
         loop {
             let url = format!("{}/search{}", &self.broker_url, &p);
 
-            let res_items = match self.run_files_query(url.as_str()) {
-                Ok(res) => res,
-                Err(e) => return Err(e),
-            };
+            let res_items = self.run_files_query(url.as_str())?;
 
             let items_count = res_items.len() as i64;
 
