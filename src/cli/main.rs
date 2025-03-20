@@ -540,9 +540,6 @@ fn main() {
                     download_file(&bootstrap_url, &from, true).await.unwrap();
                     let db = LocalBrokerDb::new(&from).await.unwrap();
                     update_database(db, collectors, None, &None, false).await;
-                    if let Ok(url) = dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
-                        try_send_heartbeat(Some(url)).await.unwrap();
-                    }
                 });
             }
 
@@ -583,6 +580,12 @@ fn main() {
                         exit(1);
                     }
                 }
+            }
+
+            if let Ok(url) = dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
+                get_tokio_runtime().block_on(async {
+                    try_send_heartbeat(Some(url)).await.unwrap();
+                });
             }
         }
         Commands::Update { db_path, days } => {
