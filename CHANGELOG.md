@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.8 - 2025-03-07
+
+### Highlights
+
+* `bgpkit-broker backup` command now supports a bootstrapping source database
+    * this is useful to set up independent backup executions separate from the running API services
+
 ## v0.7.7 - 2025-03-07
 
 ### Highlights
