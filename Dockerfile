@@ -1,5 +1,5 @@
 # select build image
-FROM rust:1.83.0 AS build
+FROM rust:1.85.1 AS build
 
 # create a new empty shell project
 RUN USER=root cargo new --bin my_project

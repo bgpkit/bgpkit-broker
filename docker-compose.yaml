@@ -4,4 +4,6 @@ services:
     image: bgpkit/bgpkit-broker:latest
     ports:
       - "40064:40064"
+    volumes:
+      - ./data:/bgpkit-broker
     restart: unless-stopped
