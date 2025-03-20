@@ -1,5 +1,5 @@
 # select build image
-FROM rust:1.83.0 AS build
+FROM rust:1.85.1 AS build
 
 # create a new empty shell project
 RUN USER=root cargo new --bin my_project
@@ -18,7 +18,7 @@ FROM debian:bookworm-slim
 # copy the build artifact from the build stage
 COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit-broker
 
-RUN apt update && apt install -y curl tini
+RUN apt update && apt install -y curl tini sqlite3
 WORKDIR /bgpkit-broker
 
 EXPOSE 40064

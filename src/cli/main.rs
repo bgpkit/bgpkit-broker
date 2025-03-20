@@ -144,7 +144,18 @@ enum Commands {
         /// remote database location
         to: String,
 
-        /// force writing backup file to existing file if specified
+        /// bootstrap the database and update if a source database does not exist
+        #[clap(long)]
+        bootstrap: bool,
+
+        /// bootstrap location (remote or local)
+        #[clap(
+            long,
+            default_value = BOOTSTRAP_URL
+        )]
+        bootstrap_url: String,
+
+        /// force writing a backup file to an existing file if specified
         #[clap(short, long)]
         force: bool,
 
@@ -261,8 +272,8 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
             }
         },
     };
+    info!("sending heartbeat to {}", &url);
     reqwest::get(&url).await?.error_for_status()?;
-    info!("heartbeat sent");
     Ok(())
 }
 
@@ -497,6 +508,8 @@ fn main() {
         Commands::Backup {
             from,
             to,
+            bootstrap,
+            bootstrap_url,
             force,
             sqlite_cmd_path,
         } => {
@@ -504,14 +517,34 @@ fn main() {
                 enable_logging();
             }
 
-            // check if file exists
-            if std::fs::metadata(&from).is_err() {
-                error!("The specified database path does not exist.");
+            if oneio::s3_url_parse(&to).is_ok() && oneio::s3_env_check().is_err() {
+                // backup to a s3 location and s3 environment variable check fails
+                error!("Missing one or multiple required S3 environment variables: AWS_REGION AWS_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY");
                 exit(1);
             }
 
+            // check if the source database file exists
+            if std::fs::metadata(&from).is_err() {
+                if !bootstrap {
+                    error!("The specified database path does not exist.");
+                    exit(1);
+                }
+
+                // download the database file
+                let collectors = load_collectors().unwrap();
+                get_tokio_runtime().block_on(async {
+                    info!(
+                        "downloading bootstrap database file {} to {}",
+                        &bootstrap_url, &from
+                    );
+                    download_file(&bootstrap_url, &from, true).await.unwrap();
+                    let db = LocalBrokerDb::new(&from).await.unwrap();
+                    update_database(db, collectors, None, &None, false).await;
+                });
+            }
+
             if is_local_path(&to) {
-                // back up to local directory
+                // back up to the local directory
                 backup_database(&from, &to, force, sqlite_cmd_path).unwrap();
                 return;
             }
@@ -547,6 +580,12 @@ fn main() {
                         exit(1);
                     }
                 }
+            }
+
+            if let Ok(url) = dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
+                get_tokio_runtime().block_on(async {
+                    try_send_heartbeat(Some(url)).await.unwrap();
+                });
             }
         }
         Commands::Update { db_path, days } => {

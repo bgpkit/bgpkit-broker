@@ -1,6 +1,6 @@
 use crate::BrokerError;
 use chrono::{Datelike, NaiveDate, Utc};
-use regex::Regex;
+use regex::{Captures, Regex};
 use scraper::{Html, Selector};
 use std::time::Duration;
 
@@ -9,10 +9,7 @@ const SIZE_MB: u64 = u64::pow(1024, 2);
 const SIZE_GB: u64 = u64::pow(1024, 3);
 
 fn size_str_to_bytes(size_str: &str, size_pattern: &Regex) -> Option<i64> {
-    let cap = match size_pattern.captures(size_str) {
-        Some(x) => x,
-        None => return None,
-    };
+    let cap: Captures = size_pattern.captures(size_str)?;
     let mut size = match cap[1].to_string().parse::<f64>() {
         Ok(x) => x,
         Err(_) => return None,
@@ -65,8 +62,8 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
             res.push((href.unwrap().to_string(), size));
         }
     } else {
+        let size_pattern: Regex = Regex::new(r" +([\d.]+)([MKGmkg]*)$").unwrap();
         for line in body.lines() {
-            let size_pattern: Regex = Regex::new(r" +([\d.]+)([MKGmkg]*)$").unwrap();
             let size = size_str_to_bytes(line, &size_pattern);
             if size.is_none() {
                 continue;

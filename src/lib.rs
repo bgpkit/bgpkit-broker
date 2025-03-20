@@ -84,6 +84,7 @@ for item in broker.latest().unwrap() {
     html_logo_url = "https://raw.githubusercontent.com/bgpkit/assets/main/logos/icon-transparent.png",
     html_favicon_url = "https://raw.githubusercontent.com/bgpkit/assets/main/logos/favicon.ico"
 )]
+#![allow(unknown_lints)]
 
 mod collector;
 #[cfg(feature = "cli")]
@@ -524,10 +525,7 @@ impl BgpkitBroker {
         loop {
             let url = format!("{}/search{}", &self.broker_url, &p);
 
-            let res_items = match self.run_files_query(url.as_str()) {
-                Ok(res) => res,
-                Err(e) => return Err(e),
-            };
+            let res_items = self.run_files_query(url.as_str())?;
 
             let items_count = res_items.len() as i64;
 

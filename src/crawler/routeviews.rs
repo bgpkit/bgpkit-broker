@@ -61,6 +61,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                 .iter()
                 .map(|(link, size)| {
                     let url = format!("{}/{}", &url, link);
+                    #[allow(clippy::regex_creation_in_loops)]
                     let link_time_pattern: Regex =
                         Regex::new(r".*(........\.....)\.bz2.*").unwrap();
                     let time_str = link_time_pattern
