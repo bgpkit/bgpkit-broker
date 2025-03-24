@@ -321,7 +321,9 @@ impl LocalBrokerDb {
     /// * `Ok(())` - If the analyze operation executed successfully.
     /// * `Err(BrokerError)` - If an error occurred during the execution of the analyze command.
     pub async fn analyze(&self) -> Result<(), BrokerError> {
+        info!("doing sqlite3 analyze...");
         sqlx::query("ANALYZE").execute(&self.conn_pool).await?;
+        info!("doing sqlite3 analyze...done");
         Ok(())
     }
 
