@@ -311,6 +311,20 @@ impl LocalBrokerDb {
         Ok(items)
     }
 
+    /// Runs the SQLite `ANALYZE` command on the database connection pool.
+    ///
+    /// This method updates SQLite's internal statistics used for query planning,
+    /// helping to optimize database query performance.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the analyze operation executed successfully.
+    /// * `Err(BrokerError)` - If an error occurred during the execution of the analyze command.
+    pub async fn analyze(&self) -> Result<(), BrokerError> {
+        sqlx::query("ANALYZE").execute(&self.conn_pool).await?;
+        Ok(())
+    }
+
     /// Inserts a batch of items into the files table.
     ///
     /// # Arguments
