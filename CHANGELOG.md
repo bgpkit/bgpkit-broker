@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.7.8 - 2025-03-07
+## v0.7.9 - 2025-03-24
+
+### Highlights
+
+* `bgpkit-broker serve` and `bgpkit-broker backup` commands now runs SQLite `ANALYZE` command to once to ensure the
+  performance is up to date to all the recently inserted data.
+
+## v0.7.8 - 2025-03-20
 
 ### Highlights
 
