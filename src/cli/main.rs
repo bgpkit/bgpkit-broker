@@ -279,7 +279,7 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
 
 /// update the database with data crawled from the given collectors
 async fn update_database(
-    mut db: LocalBrokerDb,
+    db: &mut LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
     notifier: &Option<NatsNotifier>,
@@ -455,14 +455,16 @@ fn main() {
                             }
                         };
 
-                        let db = LocalBrokerDb::new(path.as_str()).await.unwrap();
+                        let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
+                        // before starting first updating the database, make sure it's analyzed
+                        db.analyze().await.unwrap();
                         let mut interval =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
 
                         loop {
                             interval.tick().await;
                             // updating from the latest data available
-                            update_database(db.clone(), collectors.clone(), None, &notifier, true)
+                            update_database(&mut db, collectors.clone(), None, &notifier, true)
                                 .await;
                             info!("wait for {} seconds before next update", update_interval);
                         }
@@ -538,8 +540,9 @@ fn main() {
                         &bootstrap_url, &from
                     );
                     download_file(&bootstrap_url, &from, true).await.unwrap();
-                    let db = LocalBrokerDb::new(&from).await.unwrap();
-                    update_database(db, collectors, None, &None, false).await;
+                    let mut db = LocalBrokerDb::new(&from).await.unwrap();
+                    update_database(&mut db, collectors, None, &None, false).await;
+                    db.analyze().await.unwrap();
                 });
             }
 
@@ -604,7 +607,7 @@ fn main() {
             let collectors = load_collectors().unwrap();
 
             rt.block_on(async {
-                let db = LocalBrokerDb::new(&db_path).await.unwrap();
+                let mut db = LocalBrokerDb::new(&db_path).await.unwrap();
                 let notifier = match NatsNotifier::new(None).await {
                     Ok(n) => Some(n),
                     Err(_e) => {
@@ -612,7 +615,7 @@ fn main() {
                         None
                     }
                 };
-                update_database(db, collectors, days, &notifier, false).await;
+                update_database(&mut db, collectors, days, &notifier, false).await;
             });
         }
         Commands::Search { query, json, url } => {
