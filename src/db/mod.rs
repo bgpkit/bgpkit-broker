@@ -6,12 +6,12 @@ use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem, Collector};
 use chrono::{DateTime, Duration, NaiveDateTime};
-use sqlx::sqlite::SqliteRow;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow, SqliteSynchronous};
 use sqlx::Row;
 use sqlx::SqlitePool;
-use sqlx::{migrate::MigrateDatabase, Sqlite};
 use std::collections::HashMap;
-use tracing::{debug, info};
+use std::str::FromStr;
+use tracing::{debug, error, info};
 
 pub use meta::UpdatesMeta;
 
@@ -50,20 +50,29 @@ impl LocalBrokerDb {
     pub async fn new(path: &str) -> Result<Self, BrokerError> {
         info!("open local broker db at {}", path);
 
-        if !Sqlite::database_exists(path).await.unwrap() {
-            match Sqlite::create_database(path).await {
-                Ok(_) => info!("Created db at {}", path),
-                Err(error) => panic!("error: {}", error),
-            }
-        }
-        let conn_pool = SqlitePool::connect(path).await.unwrap();
+        let options = SqliteConnectOptions::from_str(path)?
+            .create_if_missing(true)
+            // Memory reduction settings
+            .pragma("mmap_size", "0")
+            .pragma("journal_mode", "DELETE")
+            .pragma("cache_size", "-2000") // Reduce to 2MB cache
+            .pragma("temp_store", "FILE")
+            .synchronous(SqliteSynchronous::Normal);
+
+        let conn_pool = SqlitePoolOptions::new()
+            .max_connections(10) // Limit connections
+            .connect_with(options)
+            .await?;
 
         let mut db = LocalBrokerDb {
             conn_pool,
             collectors: vec![],
             types: vec![],
         };
-        db.initialize().await.unwrap();
+        if let Err(e) = db.initialize().await {
+            error!("{}", &e);
+            return Err(e);
+        }
 
         Ok(db)
     }
@@ -76,11 +85,11 @@ impl LocalBrokerDb {
                 update_duration INTEGER,
                 insert_count INTEGER
             );
-            
+
             CREATE TABLE IF NOT EXISTS collectors (
                 id INTEGER PRIMARY KEY,
-                name TEXT, 
-                url TEXT, 
+                name TEXT,
+                url TEXT,
                 project TEXT,
                 update_interval INTEGER
                 );
@@ -99,7 +108,7 @@ impl LocalBrokerDb {
                 constraint files_unique_pk
                     unique (timestamp, collector_id, type_id)
             );
-            
+
             CREATE TABLE IF NOT EXISTS latest(
                 timestamp INTEGER,
                 collector_name TEXT,
@@ -109,8 +118,8 @@ impl LocalBrokerDb {
                 constraint latest_unique_pk
                     unique (collector_name, type)
             );
-            
-            CREATE INDEX IF NOT EXISTS idx_files_timestamp 
+
+            CREATE INDEX IF NOT EXISTS idx_files_timestamp
                 ON files(timestamp);
 
             CREATE VIEW IF NOT EXISTS files_view AS
@@ -124,13 +133,14 @@ impl LocalBrokerDb {
             FROM collectors c
             JOIN files i ON c.id = i.collector_id
             JOIN types t ON t.id = i.type_id;
-            
-            PRAGMA journal_mode=WAL;
+
+            PRAGMA mmap_size=0;
+            PRAGMA journal_mode=DELETE;
+            PRAGMA wal_autocheckpoint=0;
         "#,
         )
         .execute(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
 
         self.reload_collectors().await;
         self.types = sqlx::query("select id, name from types")
@@ -139,8 +149,7 @@ impl LocalBrokerDb {
                 name: row.get::<String, _>("name"),
             })
             .fetch_all(&self.conn_pool)
-            .await
-            .unwrap();
+            .await?;
 
         Ok(())
     }
@@ -158,13 +167,6 @@ impl LocalBrokerDb {
                 .fetch_all(&self.conn_pool)
                 .await
                 .unwrap();
-    }
-
-    async fn force_checkpoint(&self) {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
-            .execute(&self.conn_pool)
-            .await
-            .unwrap();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -435,7 +437,6 @@ impl LocalBrokerDb {
             self.update_latest_files(&inserted, false).await;
         }
 
-        self.force_checkpoint().await;
         Ok(inserted)
     }
 
