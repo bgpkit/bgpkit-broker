@@ -50,20 +50,20 @@ impl LocalBrokerDb {
     pub async fn new(path: &str) -> Result<Self, BrokerError> {
         info!("open local broker db at {}", path);
 
-        if !Sqlite::database_exists(path).await.unwrap() {
+        if !Sqlite::database_exists(path).await? {
             match Sqlite::create_database(path).await {
                 Ok(_) => info!("Created db at {}", path),
                 Err(error) => panic!("error: {}", error),
             }
         }
-        let conn_pool = SqlitePool::connect(path).await.unwrap();
+        let conn_pool = SqlitePool::connect(path).await?;
 
         let mut db = LocalBrokerDb {
             conn_pool,
             collectors: vec![],
             types: vec![],
         };
-        db.initialize().await.unwrap();
+        db.initialize().await?;
 
         Ok(db)
     }
@@ -129,8 +129,7 @@ impl LocalBrokerDb {
         "#,
         )
         .execute(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
 
         self.reload_collectors().await;
         self.types = sqlx::query("select id, name from types")
@@ -139,8 +138,7 @@ impl LocalBrokerDb {
                 name: row.get::<String, _>("name"),
             })
             .fetch_all(&self.conn_pool)
-            .await
-            .unwrap();
+            .await?;
 
         Ok(())
     }
@@ -306,8 +304,7 @@ impl LocalBrokerDb {
                 }
             })
             .fetch_all(&self.conn_pool)
-            .await
-            .unwrap();
+            .await?;
         Ok(items)
     }
 
@@ -318,8 +315,8 @@ impl LocalBrokerDb {
     ///
     /// # Returns
     ///
-    /// * `Ok(())` - If the analyze operation executed successfully.
-    /// * `Err(BrokerError)` - If an error occurred during the execution of the analyze command.
+    /// * `Ok(())` - If the analysis operation executed successfully.
+    /// * `Err(BrokerError)` - If an error occurred during the execution of the analysis command.
     pub async fn analyze(&self) -> Result<(), BrokerError> {
         info!("doing sqlite3 analyze...");
         sqlx::query("ANALYZE").execute(&self.conn_pool).await?;
@@ -327,7 +324,7 @@ impl LocalBrokerDb {
         Ok(())
     }
 
-    /// Inserts a batch of items into the files table.
+    /// Inserts a batch of items into the "files" table.
     ///
     /// # Arguments
     ///
@@ -366,7 +363,7 @@ impl LocalBrokerDb {
             .map(|t| (t.id, t.name.clone()))
             .collect::<HashMap<i64, String>>();
 
-        // 3. batch insert into files table
+        // 3. batch insert into "files" table
         debug!("Inserting {} items...", items.len());
         let mut inserted: Vec<BrokerItem> = vec![];
         for batch in items.chunks(1000) {
@@ -427,7 +424,7 @@ impl LocalBrokerDb {
                     rough_size,
                     exact_size,
                 }
-            }).fetch_all(&self.conn_pool).await.unwrap();
+            }).fetch_all(&self.conn_pool).await?;
             inserted.extend(inserted_rows);
         }
         debug!("Inserted {} items", inserted.len());
@@ -448,8 +445,7 @@ impl LocalBrokerDb {
         .bind(collector.id.as_str())
         .map(|row: SqliteRow| row.get::<i64, _>(0))
         .fetch_one(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
         if count > 0 {
             // the collector already exists
             return Ok(());
@@ -472,8 +468,7 @@ impl LocalBrokerDb {
         .bind(project)
         .bind(interval)
         .execute(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
         Ok(())
     }
 }

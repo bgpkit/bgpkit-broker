@@ -14,16 +14,13 @@ pub(crate) fn backup_database(
         exit(1);
     }
 
-    let sqlite_path = match sqlite_cmd_path {
-        Some(p) => p,
-        None => match which::which("sqlite3") {
-            Ok(p) => p.to_string_lossy().to_string(),
-            Err(_) => {
-                error!("sqlite3 not found in PATH, please install sqlite3 first.");
-                exit(1);
-            }
-        },
-    };
+    let sqlite_path = sqlite_cmd_path.unwrap_or_else(|| match which::which("sqlite3") {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(_) => {
+            error!("sqlite3 not found in PATH, please install sqlite3 first.");
+            exit(1);
+        }
+    });
 
     let mut command = Command::new(sqlite_path.as_str());
     command.arg(from).arg(format!(".backup {}", to).as_str());

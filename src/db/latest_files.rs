@@ -19,8 +19,7 @@ impl LocalBrokerDb {
         )
         .map(|row: SqliteRow| row.get::<i64, _>(0))
         .fetch_one(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
 
         let datetime = DateTime::from_timestamp(timestamp, 0).map(|dt| dt.naive_utc());
         Ok(datetime)

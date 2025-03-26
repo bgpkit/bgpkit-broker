@@ -42,8 +42,7 @@ impl LocalBrokerDb {
             }
         })
         .fetch_all(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
         Ok(inserted)
     }
 
@@ -69,7 +68,12 @@ impl LocalBrokerDb {
         }
     }
 
-    /// Check if data bootstrap is needed
+    /// Retrieves the total number of entries in the `files` table.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(i64)` - If the query is successful, this contains the count of entries in the `files` table.
+    /// * `Err(BrokerError)` - If there is an issue executing the query or fetching the result.
     pub async fn get_entry_count(&self) -> Result<i64, BrokerError> {
         let count = sqlx::query(
             r#"
@@ -78,8 +82,7 @@ impl LocalBrokerDb {
         )
         .map(|row: SqliteRow| row.get::<i64, _>(0))
         .fetch_one(&self.conn_pool)
-        .await
-        .unwrap();
+        .await?;
         Ok(count)
     }
 }

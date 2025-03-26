@@ -2,7 +2,7 @@ use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
 pub fn main() {
     let broker = BgpkitBroker::new()
-        .broker_url("http://dev.api.bgpkit.com/v3/broker")
+        .broker_url("https://api.bgpkit.com/v3/broker")
         .ts_start("1634693400")
         .ts_end("1634693400")
         .collector_id("rrc00,route-views2");
