@@ -362,7 +362,7 @@ fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
         return Ok(DateTime::from_timestamp(ts_end, 0).unwrap().naive_utc());
     }
 
-    if let Ok(d) = NaiveDate::parse_from_str(&ts_str, "%Y-%m-%d") {
+    if let Ok(d) = NaiveDate::parse_from_str(ts_str, "%Y-%m-%d") {
         // it's a date
         return Ok(d.and_hms_opt(0, 0, 0).unwrap());
     }
