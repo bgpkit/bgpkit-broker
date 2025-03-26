@@ -13,14 +13,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use utoipa::{IntoParams, OpenApi, ToSchema};
-use utoipa_swagger_ui::SwaggerUi;
 
 struct AppState {
     database: LocalBrokerDb,
 }
 
-#[derive(IntoParams, Args, Debug, Serialize, Deserialize)]
+#[derive(Args, Debug, Serialize, Deserialize)]
 pub struct BrokerSearchQuery {
     /// Start timestamp
     #[clap(short = 't', long)]
@@ -55,13 +53,13 @@ pub struct BrokerSearchQuery {
     pub page_size: Option<usize>,
 }
 
-#[derive(IntoParams, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BrokerHealthQueryParams {
     /// maximum allowed delay in seconds
     pub max_delay_secs: Option<u32>,
 }
 
-#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerSearchResult {
     pub count: usize,
     pub page: usize,
@@ -71,33 +69,19 @@ pub struct BrokerSearchResult {
     pub meta: Option<Meta>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize)]
 enum BrokerApiError {
-    #[schema(example = "database not bootstrap")]
     BrokerNotHealthy(String),
-    #[schema(example = "page must start from 1")]
     SearchError(String),
 }
 
-#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Meta {
     pub latest_update_ts: NaiveDateTime,
     pub latest_update_duration: i32,
 }
 
 /// Search MRT files meta data from BGPKIT Broker database
-#[utoipa::path(
-    get,
-    path = "/search",
-    params(
-        BrokerSearchQuery
-    ),
-    tag = "api",
-    responses(
-        (status = 200, description = "List matching todos by query", body = BrokerSearchResult),
-        (status = 400, description = "Bad request", body = BrokerApiError, example = json!(BrokerApiError::SearchError("page must start from 1".to_string()))),
-    )
-)]
 async fn search(
     query: Query<BrokerSearchQuery>,
     State(state): State<Arc<AppState>>,
@@ -256,15 +240,6 @@ async fn search(
 }
 
 /// Get the latest MRT files meta information
-#[utoipa::path(
-    get,
-    path = "/latest",
-    tag = "api",
-    params(),
-    responses(
-        (status = 200, description = "Latest MRT files available for all collectors", body = BrokerSearchResult),
-    )
-)]
 async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let items = state.database.get_latest_files().await;
     let meta = state
@@ -290,16 +265,6 @@ async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 }
 
 /// Return Broker API and database health
-#[utoipa::path(
-    get,
-    path = "/health",
-    tag = "metrics",
-    params(),
-    responses(
-        (status = 200, description = "API and database is healthy"),
-        (status = 503, description = "Database not available", body = BrokerApiError, example = json!(BrokerApiError::BrokerNotHealthy("database not bootstrap".to_string()))),
-    )
-)]
 async fn health(
     query: Query<BrokerHealthQueryParams>,
     State(state): State<Arc<AppState>>,
@@ -416,27 +381,6 @@ pub async fn start_api_service(
     port: u16,
     root: String,
 ) -> std::io::Result<()> {
-    #[derive(OpenApi)]
-    #[openapi(
-        info(
-            title = "BGPKIT Broker API",
-            description = "BGPKIT Broker provides RESTful API for querying MRT files meta data across RouteViews and RIPE RIS collectors."
-        ),
-        paths(
-            search,
-            latest,
-            health,
-        ),
-        components(
-            schemas(BrokerSearchResult, BrokerItem, Meta, BrokerApiError)
-        ),
-        tags(
-            (name = "api", description = "API for BGPKIT Broker"),
-            (name = "metrics", description = "Metrics for BGPKIT Broker"),
-        )
-    )]
-    struct ApiDoc;
-
     let (metric_layer, metric_handle) = PrometheusMetricLayerBuilder::new()
         .with_ignore_patterns(&["/metrics"])
         .with_prefix("bgpkit_broker")
@@ -450,7 +394,6 @@ pub async fn start_api_service(
 
     let database = Arc::new(AppState { database });
     let app = Router::new()
-        .merge(SwaggerUi::new("/docs").url("/openapi.json", ApiDoc::openapi()))
         .route("/search", get(search))
         .route("/latest", get(latest))
         .route("/health", get(health))

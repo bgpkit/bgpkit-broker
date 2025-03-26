@@ -234,7 +234,7 @@ impl QueryParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerCollector {
     pub id: i64,
     pub name: String,
@@ -244,7 +244,7 @@ pub struct BrokerCollector {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerItemType {
     pub id: i64,
     pub name: String,
