@@ -4,9 +4,10 @@ use axum::routing::get;
 use axum::{Json, Router};
 use axum_prometheus::PrometheusMetricLayerBuilder;
 use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
-use chrono::{DateTime, Duration, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use clap::Args;
 use http::{Method, StatusCode};
+use log::error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -123,21 +124,46 @@ async fn search(
             .into_response();
     }
 
-    let mut ts_start = query
-        .ts_start
-        .as_ref()
-        .map(|s| parse_time_str(s.as_str()).unwrap());
-    let mut ts_end = query
-        .ts_end
-        .as_ref()
-        .map(|s| parse_time_str(s.as_str()).unwrap());
+    let mut ts_start = match &query.ts_start {
+        Some(s) => match parse_time_str(s.as_str()) {
+            Ok(ts) => Some(ts),
+            Err(e) => {
+                let err_msg = format!("cannot parse ts_start {}: {}", s, e);
+                error!("{}", &err_msg);
+                error!("{:?}", &query);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(BrokerApiError::SearchError(err_msg)),
+                )
+                    .into_response();
+            }
+        },
+        None => None,
+    };
+
+    let mut ts_end = match &query.ts_end {
+        Some(s) => match parse_time_str(s.as_str()) {
+            Ok(ts) => Some(ts),
+            Err(e) => {
+                let err_msg = format!("cannot parse ts_end {}: {}", s, e);
+                error!("{}", &err_msg);
+                error!("{:?}", &query);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(BrokerApiError::SearchError(err_msg)),
+                )
+                    .into_response();
+            }
+        },
+        None => None,
+    };
 
     match (ts_start, ts_end) {
         (Some(start), None) => {
             if let Some(duration_str) = &query.duration {
                 match humantime::parse_duration(duration_str.as_str()) {
                     Ok(d) => {
-                        ts_end = Some(start + Duration::from_std(d).unwrap());
+                        ts_end = Some(start + chrono::Duration::from_std(d).unwrap());
                     }
                     Err(_) => {
                         return (
@@ -156,7 +182,7 @@ async fn search(
             if let Some(duration_str) = &query.duration {
                 match humantime::parse_duration(duration_str.as_str()) {
                     Ok(d) => {
-                        ts_start = Some(end - Duration::from_std(d).unwrap());
+                        ts_start = Some(end - chrono::Duration::from_std(d).unwrap());
                     }
                     Err(_) => {
                         return (
@@ -179,7 +205,7 @@ async fn search(
         .as_ref()
         .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
 
-    let items = state
+    let items = match state
         .database
         .search(
             collectors,
@@ -191,13 +217,25 @@ async fn search(
             Some(page_size),
         )
         .await
-        .unwrap();
+    {
+        Ok(items) => items,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BrokerApiError::SearchError(format!(
+                    "database search failed: {}",
+                    e
+                ))),
+            )
+                .into_response();
+        }
+    };
 
     let meta = state
         .database
         .get_latest_updates_meta()
         .await
-        .unwrap()
+        .unwrap_or_default()
         .map(|data| Meta {
             latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)
                 .unwrap()
@@ -232,7 +270,7 @@ async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         .database
         .get_latest_updates_meta()
         .await
-        .unwrap()
+        .unwrap_or_default()
         .map(|data| Meta {
             latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)
                 .unwrap()
@@ -315,26 +353,41 @@ async fn health(
     }
 }
 
-/// Parse timestamp string into NaiveDateTime
+/// Parse a timestamp string into NaiveDateTime
 ///
 /// The timestamp string can be either unix timestamp or RFC3339 format string (e.g. 2020-01-01T00:00:00Z).
 fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
-    let ts = if let Ok(ts_end) = ts_str.parse::<i64>() {
+    if let Ok(ts_end) = ts_str.parse::<i64>() {
         // it's unix timestamp
-        DateTime::from_timestamp(ts_end, 0).unwrap().naive_utc()
-    } else {
-        let ts_str = ts_str.trim_end_matches('Z').to_string() + "+00:00";
-        match DateTime::parse_from_rfc3339(ts_str.as_str()) {
-            Ok(t) => t.naive_utc(),
-            Err(_) => {
-                return Err(format!(
-                    "Invalid timestamp format: {}, should be either unix timestamp or RFC3339",
-                    ts_str
-                ))
-            }
-        }
-    };
-    Ok(ts)
+        return Ok(DateTime::from_timestamp(ts_end, 0).unwrap().naive_utc());
+    }
+
+    if let Ok(d) = NaiveDate::parse_from_str(&ts_str, "%Y-%m-%d") {
+        // it's a date
+        return Ok(d.and_hms_opt(0, 0, 0).unwrap());
+    }
+
+    if let Ok(t) = DateTime::parse_from_rfc3339(ts_str) {
+        // it's a correct RFC3339 time
+        return Ok(t.naive_utc());
+    }
+
+    if let Ok(t) = DateTime::parse_from_rfc2822(ts_str) {
+        // it's a correct RFC2822 time
+        return Ok(t.naive_utc());
+    }
+
+    // at this point, the input not any valid time string format.
+    // we guess it could be a timezone-less time string,
+    // so let's remove potential "Z" and add timezone and try again
+    let ts_str = ts_str.trim_end_matches('Z').to_string() + "+00:00";
+    match DateTime::parse_from_rfc3339(ts_str.as_str()) {
+        Ok(t) => Ok(t.naive_utc()),
+        Err(_) => Err(format!(
+            "Invalid timestamp format: {}, should be either unix timestamp or RFC3339",
+            ts_str
+        )),
+    }
 }
 
 pub async fn start_api_service(
@@ -389,8 +442,8 @@ pub async fn start_api_service(
 
     let socket_str = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(socket_str).await?;
-    tracing::info!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, root_app).await.unwrap();
+    tracing::info!("listening on {}", listener.local_addr()?);
+    axum::serve(listener, root_app).await?;
 
     Ok(())
 }
