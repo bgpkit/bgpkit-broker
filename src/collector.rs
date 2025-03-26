@@ -236,6 +236,10 @@ lazy_static! {
           "url": "https://archive.routeviews.org/route-views7/bgpdata"
         },
         {
+          "id": "route-views8",
+          "url": "https://archive.routeviews.org/route-views8/bgpdata"
+        },
+        {
           "id":"route-views.amsix",
           "url": "https://archive.routeviews.org/route-views.amsix/bgpdata"
         },
@@ -434,15 +438,4 @@ pub fn get_missing_collectors(latest_items: &Vec<BrokerItem>) -> Vec<CollectorIn
         .collect();
 
     missing_collectors
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_collectors() {
-        let collectors = load_collectors().unwrap();
-        dbg!(collectors);
-    }
 }
