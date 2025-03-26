@@ -1,9 +1,10 @@
+use crate::utils::get_missing_collectors;
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use axum_prometheus::PrometheusMetricLayerBuilder;
-use bgpkit_broker::{get_missing_collectors, BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
+use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use clap::Args;
 use http::{Method, StatusCode};
@@ -361,15 +362,15 @@ async fn missing_collectors(State(state): State<Arc<AppState>>) -> impl IntoResp
         true => Json(
             json!({"status": "OK", "message": "no missing collectors", "missing_collectors": []}),
         )
-        .into_response(),
+            .into_response(),
         false => {
-            return (
+            (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({"status": "Need action", "message": "have missing collectors", "missing_collectors": missing_collectors})).into_response()
             )
-                .into_response();
+                .into_response()
         }
-    }
+    };
 }
 
 /// Parse a timestamp string into NaiveDateTime

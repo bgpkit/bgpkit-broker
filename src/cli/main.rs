@@ -1,14 +1,16 @@
 mod api;
 mod backup;
 mod bootstrap;
+mod utils;
 
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::backup_database;
 use crate::bootstrap::download_file;
+use crate::utils::get_missing_collectors;
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
-    crawl_collector, get_missing_collectors, load_collectors, BgpkitBroker, BrokerError, Collector,
-    LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
+    DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};

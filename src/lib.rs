@@ -101,7 +101,7 @@ mod query;
 use crate::collector::DEFAULT_COLLECTORS_CONFIG;
 use crate::peer::BrokerPeersResult;
 use crate::query::{BrokerQueryResult, CollectorLatestResult};
-pub use collector::{get_missing_collectors, load_collectors, Collector};
+pub use collector::{load_collectors, Collector};
 #[cfg(feature = "cli")]
 pub use crawler::crawl_collector;
 #[cfg(feature = "backend")]
