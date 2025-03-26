@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.10 - 2025-03-26
+
+### Highlights
+
+* add `route-views8` collector
+* add `/missing_collectors` endpoint to check for collectors that have not been added yet
+* remove `/docs` and `utopia` dependency to remove clutter
+* freshen up dependencies
+
+### Bug fixes
+
+* fixed an issue where incorrectly formatted timestring may cause the API to panic
+
 ## v0.7.9 - 2025-03-24
 
 ### Highlights
