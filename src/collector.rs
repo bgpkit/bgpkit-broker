@@ -233,6 +233,10 @@ lazy_static! {
           "url": "https://archive.routeviews.org/route-views7/bgpdata"
         },
         {
+          "id": "route-views8",
+          "url": "https://archive.routeviews.org/route-views8/bgpdata"
+        },
+        {
           "id":"route-views.amsix",
           "url": "https://archive.routeviews.org/route-views.amsix/bgpdata"
         },
@@ -379,15 +383,4 @@ lazy_static! {
     "#
     )
     .unwrap();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_collectors() {
-        let collectors = load_collectors().unwrap();
-        dbg!(collectors);
-    }
 }

@@ -19,7 +19,7 @@ use std::fmt::{Display, Formatter};
 /// 2. RIB before updates
 /// 3. then alphabetical order on collector ID (route-views before rrc)
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "cli", derive(tabled::Tabled, utoipa::ToSchema))]
+#[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerItem {
     /// start timestamp
     pub ts_start: chrono::NaiveDateTime,

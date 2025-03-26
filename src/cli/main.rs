@@ -1,26 +1,26 @@
 mod api;
 mod backup;
 mod bootstrap;
+mod utils;
 
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::backup_database;
 use crate::bootstrap::download_file;
+use crate::utils::get_missing_collectors;
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
     DEFAULT_PAGE_SIZE,
 };
-use bgpkit_commons::collectors::MrtCollector;
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
-use itertools::Itertools;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::Path;
 use std::process::exit;
 use tabled::settings::Style;
-use tabled::{Table, Tabled};
+use tabled::Table;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
@@ -435,9 +435,16 @@ fn main() {
 
             // set global panic hook so that child threads (updater or api) will crash the process should it encounter a panic
             std::panic::set_hook(Box::new(|panic_info| {
-                eprintln!("Global panic hook: {:?}", panic_info);
+                eprintln!("Global panic hook: {}", panic_info);
+                if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+                    eprintln!("Panic payload: {}", s);
+                } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+                    eprintln!("Panic payload: {}", s);
+                }
                 exit(1)
             }));
+
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
             if !no_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
@@ -456,11 +463,15 @@ fn main() {
                         };
 
                         let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
-                        // before starting first updating the database, make sure it's analyzed
-                        db.analyze().await.unwrap();
                         let mut interval =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
+                        // the first tick happens wihtout waiting
+                        interval.tick().await;
 
+                        // first execution
+                        update_database(&mut db, collectors.clone(), None, &notifier, true).await;
+                        db.analyze().await.unwrap();
+                        ready_tx.send(()).unwrap();
                         loop {
                             interval.tick().await;
                             // updating from the latest data available
@@ -475,6 +486,11 @@ fn main() {
             if !no_api {
                 let rt = get_tokio_runtime();
                 rt.block_on(async {
+                    if !no_update {
+                        // if update is enabled,
+                        // we wait for the first update to complete before proceeding
+                        ready_rx.await.unwrap();
+                    }
                     let database = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
                     start_api_service(database.clone(), host, port, root)
                         .await
@@ -792,52 +808,10 @@ fn main() {
 
             println!();
 
-            #[derive(Tabled)]
-            struct CollectorInfo {
-                project: String,
-                name: String,
-                country: String,
-                activated_on: NaiveDateTime,
-                data_url: String,
-            }
-
             println!("checking for missing collectors...");
             let latest_items = broker.latest().unwrap();
-            let latest_collectors: HashSet<String> =
-                latest_items.into_iter().map(|i| i.collector_id).collect();
-            let all_collectors_map: HashMap<String, MrtCollector> =
-                bgpkit_commons::collectors::get_all_collectors()
-                    .unwrap()
-                    .into_iter()
-                    .map(|c| (c.name.clone(), c))
-                    .collect();
 
-            let all_collector_names: HashSet<String> = all_collectors_map
-                .values()
-                .map(|c| c.name.clone())
-                .collect();
-
-            // get the difference between the two sets
-            let missing_collectors: Vec<CollectorInfo> = all_collector_names
-                .difference(&latest_collectors)
-                .map(|c| {
-                    // convert to CollectorInfo
-                    let collector = all_collectors_map.get(c).unwrap();
-                    let country_map = bgpkit_commons::countries::Countries::new().unwrap();
-                    CollectorInfo {
-                        project: collector.project.to_string(),
-                        name: collector.name.clone(),
-                        country: country_map
-                            .lookup_by_code(&collector.country)
-                            .unwrap()
-                            .name
-                            .clone(),
-                        activated_on: collector.activated_on,
-                        data_url: collector.data_url.clone(),
-                    }
-                })
-                .sorted_by(|a, b| a.name.cmp(&b.name))
-                .collect();
+            let missing_collectors = get_missing_collectors(&latest_items);
 
             if missing_collectors.is_empty() {
                 println!("all collectors are up to date");
