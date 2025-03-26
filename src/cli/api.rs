@@ -3,7 +3,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use axum_prometheus::PrometheusMetricLayerBuilder;
-use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
+use bgpkit_broker::{get_missing_collectors, BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use clap::Args;
 use http::{Method, StatusCode};
@@ -353,6 +353,25 @@ async fn health(
     }
 }
 
+async fn missing_collectors(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let latest_items = state.database.get_latest_files().await;
+    let missing_collectors = get_missing_collectors(&latest_items);
+
+    match missing_collectors.is_empty() {
+        true => Json(
+            json!({"status": "OK", "message": "no missing collectors", "missing_collectors": []}),
+        )
+        .into_response(),
+        false => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"status": "Need action", "message": "have missing collectors", "missing_collectors": missing_collectors})).into_response()
+            )
+                .into_response();
+        }
+    }
+}
+
 /// Parse a timestamp string into NaiveDateTime
 ///
 /// The timestamp string can be either unix timestamp or RFC3339 format string (e.g. 2020-01-01T00:00:00Z).
@@ -434,6 +453,7 @@ pub async fn start_api_service(
         .route("/search", get(search))
         .route("/latest", get(latest))
         .route("/health", get(health))
+        .route("/missing_collectors", get(missing_collectors))
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .with_state(database)
         .layer(metric_layer)
