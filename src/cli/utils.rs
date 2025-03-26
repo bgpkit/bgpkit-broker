@@ -1,5 +1,5 @@
 use bgpkit_broker::BrokerItem;
-use bgpkit_commons::collectors::MrtCollector;
+use bgpkit_commons::mrt_collectors::MrtCollector;
 use chrono::NaiveDateTime;
 use itertools::Itertools;
 use serde::Serialize;
@@ -20,7 +20,7 @@ pub fn get_missing_collectors(latest_items: &[BrokerItem]) -> Vec<CollectorInfo>
         .map(|i| i.collector_id.clone())
         .collect();
     let all_collectors_map: HashMap<String, MrtCollector> =
-        bgpkit_commons::collectors::get_all_collectors()
+        bgpkit_commons::mrt_collectors::get_all_collectors()
             .unwrap()
             .into_iter()
             .map(|c| (c.name.clone(), c))

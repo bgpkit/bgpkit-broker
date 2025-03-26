@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::info;
 
 struct AppState {
     database: LocalBrokerDb,
@@ -324,18 +325,29 @@ async fn missing_collectors(State(state): State<Arc<AppState>>) -> impl IntoResp
     let missing_collectors = get_missing_collectors(&latest_items);
 
     match missing_collectors.is_empty() {
-        true => Json(
-            json!({"status": "OK", "message": "no missing collectors", "missing_collectors": []}),
+        true => (
+            StatusCode::OK,
+            Json(json!(
+                {
+                    "status": "OK",
+                    "message": "no missing collectors",
+                    "missing_collectors": []
+                }
+            )),
         )
             .into_response(),
-        false => {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"status": "Need action", "message": "have missing collectors", "missing_collectors": missing_collectors})).into_response()
-            )
-                .into_response()
-        }
-    };
+        false => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!(
+                {
+                    "status": "Need action",
+                    "message": "have missing collectors",
+                    "missing_collectors": missing_collectors
+                }
+            )),
+        )
+            .into_response(),
+    }
 }
 
 /// Parse a timestamp string into NaiveDateTime
@@ -402,11 +414,19 @@ pub async fn start_api_service(
         .with_state(database)
         .layer(metric_layer)
         .layer(cors_layer);
-    let root_app = Router::new().nest(root.as_str(), app);
+    info!("Starting API service on {}:{}", host, port);
+
+    let root_app = if root == "/" {
+        // If root is "/", just use the app router directly
+        app
+    } else {
+        // Otherwise, nest under the specified path
+        Router::new().nest(root.as_str(), app)
+    };
 
     let socket_str = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(socket_str).await?;
-    tracing::info!("listening on {}", listener.local_addr()?);
+    info!("listening on {}", listener.local_addr()?);
     axum::serve(listener, root_app).await?;
 
     Ok(())

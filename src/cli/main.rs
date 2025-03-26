@@ -435,7 +435,12 @@ fn main() {
 
             // set global panic hook so that child threads (updater or api) will crash the process should it encounter a panic
             std::panic::set_hook(Box::new(|panic_info| {
-                eprintln!("Global panic hook: {:?}", panic_info);
+                eprintln!("Global panic hook: {}", panic_info);
+                if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+                    eprintln!("Panic payload: {}", s);
+                } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+                    eprintln!("Panic payload: {}", s);
+                }
                 exit(1)
             }));
 
