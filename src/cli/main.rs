@@ -437,6 +437,8 @@ fn main() {
                 exit(1)
             }));
 
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+
             if !no_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
                 let path = db_path.clone();
@@ -454,11 +456,15 @@ fn main() {
                         };
 
                         let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
-                        // before starting first updating the database, make sure it's analyzed
-                        db.analyze().await.unwrap();
                         let mut interval =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
+                        // the first tick happens wihtout waiting
+                        interval.tick().await;
 
+                        // first execution
+                        update_database(&mut db, collectors.clone(), None, &notifier, true).await;
+                        db.analyze().await.unwrap();
+                        ready_tx.send(()).unwrap();
                         loop {
                             interval.tick().await;
                             // updating from the latest data available
@@ -473,6 +479,11 @@ fn main() {
             if !no_api {
                 let rt = get_tokio_runtime();
                 rt.block_on(async {
+                    if !no_update {
+                        // if update is enabled,
+                        // we wait for the first update to complete before proceeding
+                        ready_rx.await.unwrap();
+                    }
                     let database = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
                     start_api_service(database.clone(), host, port, root)
                         .await
