@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.11 - 2025-04-08
+
+### Highlights
+
+* NATS notifier is now configured via the following env variables
+    * `BGPKIT_BROKER_NATS_URL`: the URL for the NATS server, such as `nats.broker.bgpkit.com`
+    * `BGPKIT_BROKER_NATS_USER`: NATS server user name
+    * `BGPKIT_BROKER_NATS_PASSWORD`: NATS server password
+    * `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS server root subject, such as `public.broker`
+
 ## v0.7.10 - 2025-03-26
 
 ### Highlights
