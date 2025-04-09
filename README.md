@@ -157,6 +157,13 @@ Options:
   -V, --version                            Print version
 ```
 
+For sending NATS notifications, there are three environment variables that need to be set:
+
+* `BGPKIT_BROKER_NATS_URL`: the URL for the NATS server, such as `nats.broker.bgpkit.com`
+* `BGPKIT_BROKER_NATS_USER`: NATS server user name
+* `BGPKIT_BROKER_NATS_PASSWORD`: NATS server password
+* `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS server root subject, such as `public.broker`
+
 #### `update`
 
 `bgpkit-broker update` triggers a local database update manually. This command **cannot** be run at the same time

@@ -39,11 +39,17 @@ impl NatsNotifier {
             },
             Some(u) => u,
         };
+        let user = dotenvy::var("BGPKIT_BROKER_NATS_USER").unwrap_or("public".to_string());
+        let password = dotenvy::var("BGPKIT_BROKER_NATS_PASSWORD").unwrap_or("public".to_string());
 
         let root_subject = dotenvy::var("BGPKIT_BROKER_NATS_ROOT_SUBJECT")
             .unwrap_or_else(|_| "public.broker".to_string());
 
-        let client = match async_nats::connect(url).await {
+        let client = match async_nats::ConnectOptions::new()
+            .user_and_password(user, password)
+            .connect(url.clone())
+            .await
+        {
             Ok(c) => {
                 info!(
                     "successfully connected to NATS server with root subject: {}",
