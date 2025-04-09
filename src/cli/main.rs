@@ -424,6 +424,13 @@ fn main() {
                             &from, &db_path
                         );
                         download_file(&from, &db_path, silent).await.unwrap();
+
+                        if !no_update {
+                            info!("first update after bootstrap...");
+                            let mut db = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
+                            let collectors = load_collectors().unwrap();
+                            update_database(&mut db, collectors.clone(), None, &None, true).await;
+                        }
                     });
                 } else {
                     error!(
