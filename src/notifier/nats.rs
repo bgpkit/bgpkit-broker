@@ -52,8 +52,8 @@ impl NatsNotifier {
         {
             Ok(c) => {
                 info!(
-                    "successfully connected to NATS server with root subject: {}",
-                    root_subject
+                    "successfully connected to NATS server at {} with root subject '{}'",
+                    &url, root_subject
                 );
                 c
             }

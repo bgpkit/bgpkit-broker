@@ -2,7 +2,7 @@ use crate::BrokerError;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collector {
@@ -41,7 +41,7 @@ impl Config {
 
 pub fn load_collectors() -> Result<Vec<Collector>, BrokerError> {
     // load config
-    info!("loading default collectors config");
+    debug!("loading default collectors config...");
     let config: Config = DEFAULT_COLLECTORS_CONFIG.clone();
 
     Ok(config
