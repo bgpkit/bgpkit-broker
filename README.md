@@ -68,8 +68,8 @@ use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
 pub fn main() {
     let broker = BgpkitBroker::new()
-        .ts_start("1634693400")
-        .ts_end("1634693400");
+        .ts_start("1634693400").unwrap()
+        .ts_end("1634693400").unwrap();
 
     // method 1: create iterator from reference (so that you can reuse the broker object)
     // same as `&broker.into_iter()`
@@ -83,6 +83,33 @@ pub fn main() {
     assert_eq!(items.len(), 106);
 }
 ```
+
+### Breaking Change in v0.7.11+
+
+Starting from version 0.7.11, all configuration methods now return `Result<Self, BrokerError>` for consistent error handling. This enables early validation and better error propagation:
+
+```rust
+use bgpkit_broker::{BgpkitBroker, BrokerError};
+
+fn configure_broker() -> Result<BgpkitBroker, BrokerError> {
+    BgpkitBroker::new()
+        .ts_start("2022-01-01T00:00:00Z")?
+        .collector_id("route-views2")?
+        .project("routeviews")?
+        .data_type("rib")
+}
+
+// Configuration errors are caught early
+match configure_broker() {
+    Ok(broker) => println!("Configuration successful!"),
+    Err(e) => println!("Configuration error: {}", e),
+}
+```
+
+**Migration Guide:**
+- Add `.unwrap()` or proper error handling to all configuration method calls
+- Use `?` operator for clean error propagation in functions returning `Result`
+- Configuration errors are now caught during setup, not during API queries
 
 ## `bgpkit-broker` CLI Tool
 

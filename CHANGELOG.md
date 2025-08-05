@@ -12,6 +12,14 @@ All notable changes to this project will be documented in this file.
     * `BGPKIT_BROKER_NATS_PASSWORD`: NATS server password
     * `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS server root subject, such as `public.broker`
 
+### Breaking Changes
+
+* **SDK Configuration API**: All configuration methods now return `Result<Self, BrokerError>` for consistent error handling
+    * Methods affected: `ts_start()`, `ts_end()`, `collector_id()`, `project()`, `data_type()`, `page()`, `page_size()`
+    * **Migration required**: Add `.unwrap()` or proper error handling to all configuration method calls
+    * **Benefits**: Early validation with helpful error messages, consistent API design, better error propagation
+    * **Example**: `BgpkitBroker::new().ts_start("2022-01-01").unwrap()` or use `?` operator for error propagation
+
 ## v0.7.10 - 2025-03-26
 
 ### Highlights
