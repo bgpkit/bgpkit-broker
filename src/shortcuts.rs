@@ -191,7 +191,7 @@ impl BgpkitBroker {
         // Get all full-feed peers, optionally filtered by project
         let mut full_feed_broker = self.clone().peers_only_full_feed(true);
         if let Some(proj) = project {
-            full_feed_broker = full_feed_broker.project(proj)?;
+            full_feed_broker = full_feed_broker.project(proj);
         }
         let peers = full_feed_broker.get_peers()?;
 

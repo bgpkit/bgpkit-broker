@@ -326,7 +326,12 @@ impl BgpkitBroker {
     fn parse_timestamp(timestamp: &str) -> Result<DateTime<Utc>, BrokerError> {
         let ts_str = timestamp.trim();
 
-        // Try parsing as RFC3339/ISO8601 with Z first
+        // Try parsing as RFC3339 with timezone (including +00:00, -05:00, Z, etc.)
+        if let Ok(dt_with_tz) = DateTime::parse_from_rfc3339(ts_str) {
+            return Ok(dt_with_tz.with_timezone(&Utc));
+        }
+
+        // Try parsing as RFC3339/ISO8601 with Z 
         if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H:%M:%SZ") {
             return Ok(Utc.from_utc_datetime(&naive_dt));
         }
@@ -373,7 +378,8 @@ impl BgpkitBroker {
         Err(BrokerError::ConfigurationError(format!(
             "Invalid timestamp format '{ts_str}'. Supported formats:\n\
                 - Unix timestamp: '1640995200'\n\
-                - RFC3339: '2022-01-01T00:00:00Z', '2022-01-01T00:00:00'\n\
+                - RFC3339 with timezone: '2022-01-01T00:00:00+00:00', '2022-01-01T00:00:00Z', '2022-01-01T05:00:00-05:00'\n\
+                - RFC3339 without timezone: '2022-01-01T00:00:00' (assumes UTC)\n\
                 - Date with time: '2022-01-01 00:00:00'\n\
                 - Pure date: '2022-01-01', '2022/01/01', '2022.01.01', '20220101'"
         )))
@@ -1495,6 +1501,17 @@ mod tests {
             BgpkitBroker::parse_timestamp("20220101").unwrap(),
             expected_date
         );
+
+        // Test timezone formats - these should now work
+        let result_plus_tz = BgpkitBroker::parse_timestamp("2022-01-01T00:00:00+00:00").unwrap();
+        assert_eq!(result_plus_tz, expected_date);
+        println!("✓ +00:00 timezone format works");
+        
+        // Test timezone conversion: 2022-01-01T05:00:00-05:00 = 2022-01-01T10:00:00Z
+        let result_minus_tz = BgpkitBroker::parse_timestamp("2022-01-01T05:00:00-05:00").unwrap();
+        let expected_10am = Utc.with_ymd_and_hms(2022, 1, 1, 10, 0, 0).unwrap();
+        assert_eq!(result_minus_tz, expected_10am);
+        println!("✓ -05:00 timezone format works (05:00-05:00 = 10:00Z)");
 
         // Error cases
         assert!(BgpkitBroker::parse_timestamp("invalid").is_err());

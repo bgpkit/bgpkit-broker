@@ -27,9 +27,10 @@ None - This release maintains API compatibility with previous versions.
     * Provides detailed error messages with valid options for invalid parameters
     * Maintains method chaining simplicity while ensuring data correctness at query time
 
-* **Timestamp parsing**: Updated internal timestamp parsing implementation for better validation
+* **Timestamp parsing**: Enhanced timestamp parsing with timezone support and better validation
+    * Added support for RFC3339 timestamps with timezone offsets (e.g., `2022-01-01T00:00:00+00:00`, `2022-01-01T05:00:00-05:00`)
     * Support for pure dates (e.g., `2022-01-01`), Unix timestamps, RFC3339 formats, and various date separators
-    * Internal `parse_timestamp` function now returns `DateTime<Utc>` for type safety
+    * Internal `parse_timestamp` function now returns `DateTime<Utc>` with proper timezone conversion
     * Validation occurs at query time with helpful error messages for invalid timestamp formats
     * Pure dates automatically converted to start-of-day UTC timestamps
 
