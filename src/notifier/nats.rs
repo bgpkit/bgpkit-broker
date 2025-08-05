@@ -34,7 +34,7 @@ impl NatsNotifier {
                 Err(_) => {
                     return Err(BrokerError::NotifierError(
                         "BGPKIT_BROKER_NATS_URL env variable not set".to_string(),
-                    ))
+                    ));
                 }
             },
             Some(u) => u,
@@ -61,7 +61,7 @@ impl NatsNotifier {
                 return Err(BrokerError::BrokerError(format!(
                     "NATS connection error: {}",
                     e
-                )))
+                )));
             }
         };
 

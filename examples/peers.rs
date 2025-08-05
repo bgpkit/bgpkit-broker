@@ -17,7 +17,8 @@
 
 fn main() {
     let broker = bgpkit_broker::BgpkitBroker::new()
-        .collector_id("route-views.amsix").unwrap()
+        .collector_id("route-views.amsix")
+        .unwrap()
         .peers_only_full_feed(true);
     let mut peers = broker.get_peers().unwrap();
     peers.sort_by(|a, b| b.num_connected_asns.cmp(&a.num_connected_asns));
