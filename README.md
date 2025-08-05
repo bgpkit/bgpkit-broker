@@ -129,6 +129,56 @@ broker.turn_page(4);
 let next_items = broker.query_single_page()?;
 ```
 
+### Shortcuts for Common BGP Analysis
+
+The SDK provides convenient shortcuts for frequent BGP data analysis patterns:
+
+#### Daily RIB Analysis
+Get RIB files captured at midnight for daily snapshots:
+
+```rust
+// Get daily RIBs from diverse collectors for comprehensive analysis
+let broker = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-31").unwrap();
+
+let diverse_collectors = broker.most_diverse_collectors(5, None).unwrap();
+let daily_ribs = broker
+    .clone()
+    .collector_id(&diverse_collectors.join(",")).unwrap()
+    .daily_ribs().unwrap();
+
+println!("Found {} daily snapshots from {} collectors", 
+         daily_ribs.len(), diverse_collectors.len());
+```
+
+#### Recent BGP Updates Monitoring
+Monitor recent BGP changes:
+
+```rust
+// Get updates from last 6 hours from specific collectors
+let recent_updates = BgpkitBroker::new()
+    .collector_id("route-views2,rrc00").unwrap()
+    .recent_updates(6).unwrap();
+
+println!("Found {} recent update files", recent_updates.len());
+```
+
+#### Intelligent Collector Selection
+Find collectors with maximum ASN diversity:
+
+```rust
+// Get most diverse RouteViews collectors
+let broker = BgpkitBroker::new();
+let rv_collectors = broker.most_diverse_collectors(3, Some("routeviews")).unwrap();
+
+// Use for comprehensive update analysis
+let comprehensive_updates = broker
+    .clone()
+    .collector_id(&rv_collectors.join(",")).unwrap()
+    .recent_updates(12).unwrap();
+```
+
 ### Advanced Features
 
 #### Query Latest Files

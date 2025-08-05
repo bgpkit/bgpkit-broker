@@ -31,7 +31,7 @@ fn main() {
             .ts_start(invalid_value)
             .page(1)
             .page_size(10);
-        
+
         match broker.query() {
             Ok(_) => println!("  {} -> Unexpected success", description),
             Err(e) => println!("  {} -> ✓ Expected error: {}", description, e),

@@ -6,7 +6,7 @@ files with different search parameters available.
 
 # Examples
 
-## Using Iterator
+## Basic Usage with Iterator
 
 The recommended usage to collect [BrokerItem]s is to use the built-in iterator. The
 [BrokerItemIterator] handles making API queries so that it can continuously stream new items until
@@ -17,65 +17,161 @@ to worry about pagination.
 use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
 let broker = BgpkitBroker::new()
-        .ts_start("1634693400").unwrap()
-        .ts_end("1634693400").unwrap();
+    .ts_start("2022-01-01").unwrap()
+    .ts_end("2022-01-02").unwrap()
+    .collector_id("route-views2").unwrap();
 
-
-// method 1: create iterator from reference (so that you can reuse the broker object)
-// same as `&broker.into_iter()`
+// Iterate by reference (reusable broker)
 for item in &broker {
-    println!("{}", item);
+    println!("BGP file: {} from {} ({})",
+             item.url, item.collector_id, item.data_type);
 }
 
-// method 2: create iterator from the broker object (taking ownership)
-let items = broker.into_iter().collect::<Vec<BrokerItem>>();
-
-assert_eq!(items.len(), 106);
+// Or collect into vector
+let items: Vec<BrokerItem> = broker.into_iter().collect();
+println!("Found {} BGP archive files", items.len());
 ```
 
-## Making Individual Queries
+## Practical BGP Data Analysis with Shortcuts
 
-User can make individual queries to the BGPKIT broker backend by calling [BgpkitBroker::query_single_page]
-function.
+The SDK provides convenient shortcuts for common BGP data analysis patterns:
 
-Below is an example of creating a new struct instance and make queries to the API:
+### Daily RIB Analysis Across Diverse Collectors
+
+```no_run
+use bgpkit_broker::BgpkitBroker;
+
+// Find the most diverse collectors for comprehensive analysis
+let broker = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-31").unwrap();
+
+let diverse_collectors = broker.most_diverse_collectors(5, None).unwrap();
+println!("Selected {} diverse collectors: {:?}",
+         diverse_collectors.len(), diverse_collectors);
+
+// Get daily RIB snapshots from these collectors
+let daily_ribs = broker
+    .clone()
+    .collector_id(&diverse_collectors.join(",")).unwrap()
+    .daily_ribs().unwrap();
+
+println!("Found {} daily RIB snapshots for analysis", daily_ribs.len());
+for rib in daily_ribs.iter().take(3) {
+    println!("Daily snapshot: {} from {} at {}",
+             rib.collector_id,
+             rib.ts_start.format("%Y-%m-%d"),
+             rib.url);
+}
+```
+
+### Recent BGP Updates Monitoring
+
+```no_run
+use bgpkit_broker::BgpkitBroker;
+
+// Monitor recent BGP updates from multiple collectors
+let recent_updates = BgpkitBroker::new()
+    .collector_id("route-views2,rrc00,route-views6").unwrap()
+    .recent_updates(6).unwrap(); // last 6 hours
+
+println!("Found {} recent BGP update files", recent_updates.len());
+for update in recent_updates.iter().take(5) {
+    println!("Update: {} from {} at {}",
+             update.collector_id,
+             update.ts_start.format("%Y-%m-%d %H:%M:%S"),
+             update.url);
+}
+```
+
+### Project-specific Analysis
+
+```no_run
+use bgpkit_broker::BgpkitBroker;
+
+// Compare RouteViews vs RIPE RIS daily snapshots
+let routeviews_ribs = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-07").unwrap()
+    .project("routeviews").unwrap()
+    .daily_ribs().unwrap();
+
+let ripe_ribs = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-07").unwrap()
+    .project("riperis").unwrap()
+    .daily_ribs().unwrap();
+
+println!("RouteViews daily RIBs: {}", routeviews_ribs.len());
+println!("RIPE RIS daily RIBs: {}", ripe_ribs.len());
+```
+
+### Advanced Collector Selection
+
+```no_run
+use bgpkit_broker::BgpkitBroker;
+
+let broker = BgpkitBroker::new();
+
+// Get diverse RouteViews collectors for focused analysis
+let rv_collectors = broker.most_diverse_collectors(3, Some("routeviews")).unwrap();
+println!("Diverse RouteViews collectors: {:?}", rv_collectors);
+
+// Use them to get comprehensive recent updates
+let comprehensive_updates = broker
+    .clone()
+    .collector_id(&rv_collectors.join(",")).unwrap()
+    .recent_updates(12).unwrap(); // last 12 hours
+
+println!("Got {} updates from {} collectors",
+         comprehensive_updates.len(), rv_collectors.len());
+```
+
+## Manual Page Queries
+
+For fine-grained control over pagination or custom iteration patterns:
+
 ```rust,no_run
 use bgpkit_broker::BgpkitBroker;
 
 let mut broker = BgpkitBroker::new()
-    .ts_start("1634693400")
-    .ts_end("1634693400")
-    .page(3)
-    .page_size(10);
+    .ts_start("2022-01-01").unwrap()
+    .ts_end("2022-01-02").unwrap()
+    .page(1).unwrap()
+    .page_size(50).unwrap();
 
-let res = broker.query_single_page();
-for data in res.unwrap() {
-    println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
-}
+// Query specific page
+let page1_items = broker.query_single_page().unwrap();
+println!("Page 1: {} items", page1_items.len());
 
-broker.turn_page(4);
-let res = broker.query_single_page();
-for data in res.unwrap() {
-    println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
-}
+// Move to next page
+broker.turn_page(2);
+let page2_items = broker.query_single_page().unwrap();
+println!("Page 2: {} items", page2_items.len());
 ```
 
-Making individual queries is useful when you care about a specific page or want to implement
- a customized iteration procedure. Use [BgpkitBroker::turn_page] to manually change to a different
-page.
+## Getting Latest Files and Peer Information
 
-## Getting the Latest File for Each Collector
+Access the most recent data and peer information:
 
-We also provide way to fetch the latest file information for each collector available with the
-[BgpkitBroker::latest] call. The function returns a JSON-deserialized result (see [CollectorLatestItem])
-to the RESTful API at <https://api.broker.bgpkit.com/v3/latest>.
-
-```rust
+```rust,no_run
 use bgpkit_broker::BgpkitBroker;
 
+// Get latest files from all collectors
 let broker = BgpkitBroker::new();
-for item in broker.latest().unwrap() {
-    println!("{}", item);
+let latest_files = broker.latest().unwrap();
+println!("Latest files from {} collectors", latest_files.len());
+
+// Get full-feed peers from specific collector
+let peers = BgpkitBroker::new()
+    .collector_id("route-views2").unwrap()
+    .peers_only_full_feed(true)
+    .get_peers().unwrap();
+
+println!("Found {} full-feed peers", peers.len());
+for peer in peers.iter().take(3) {
+    println!("Peer: AS{} ({}) - v4: {}, v6: {}",
+             peer.asn, peer.ip, peer.num_v4_pfxs, peer.num_v6_pfxs);
 }
 ```
 */
@@ -97,6 +193,7 @@ mod item;
 pub mod notifier;
 mod peer;
 mod query;
+mod shortcuts;
 
 use crate::collector::DEFAULT_COLLECTORS_CONFIG;
 use crate::peer::BrokerPeersResult;

@@ -8,7 +8,24 @@ All notable changes to this project will be documented in this file.
 
 None - This release maintains API compatibility with previous versions.
 
+### Features
+
+* **Shortcuts module**: Added convenience methods for common BGP data queries
+    * `daily_ribs()` - Filter RIB files captured at midnight (00:00:00) for daily snapshots
+    * `recent_updates(hours)` - Get BGP update files from the last N hours 
+    * `most_diverse_collectors(n, project)` - Find collectors with maximum ASN diversity using greedy algorithm
+    * All shortcuts integrate seamlessly with existing filtering methods and support method chaining
+    * Enhanced diversity algorithm selects collectors based on unique ASN coverage from full-feed peers
+    * Project filtering supported for targeted RouteViews or RIPE RIS analysis
+
 ### Code improvements
+
+* **Configuration validation**: Restructured parameter validation for better error handling
+    * Moved validation from configuration time to query execution time
+    * Added `validate_configuration()` method with comprehensive parameter checking
+    * Validation includes timestamps, collectors, projects, data types, page numbers, and page sizes
+    * Provides detailed error messages with valid options for invalid parameters
+    * Maintains method chaining simplicity while ensuring data correctness at query time
 
 * **Timestamp parsing**: Updated internal timestamp parsing implementation for better validation
     * Support for pure dates (e.g., `2022-01-01`), Unix timestamps, RFC3339 formats, and various date separators
