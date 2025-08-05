@@ -76,11 +76,11 @@ impl LocalBrokerDb {
                 update_duration INTEGER,
                 insert_count INTEGER
             );
-            
+
             CREATE TABLE IF NOT EXISTS collectors (
                 id INTEGER PRIMARY KEY,
-                name TEXT, 
-                url TEXT, 
+                name TEXT,
+                url TEXT,
                 project TEXT,
                 update_interval INTEGER
                 );
@@ -99,7 +99,7 @@ impl LocalBrokerDb {
                 constraint files_unique_pk
                     unique (timestamp, collector_id, type_id)
             );
-            
+
             CREATE TABLE IF NOT EXISTS latest(
                 timestamp INTEGER,
                 collector_name TEXT,
@@ -109,8 +109,8 @@ impl LocalBrokerDb {
                 constraint latest_unique_pk
                     unique (collector_name, type)
             );
-            
-            CREATE INDEX IF NOT EXISTS idx_files_timestamp 
+
+            CREATE INDEX IF NOT EXISTS idx_files_timestamp
                 ON files(timestamp);
 
             CREATE VIEW IF NOT EXISTS files_view AS
@@ -124,7 +124,7 @@ impl LocalBrokerDb {
             FROM collectors c
             JOIN files i ON c.id = i.collector_id
             JOIN types t ON t.id = i.type_id;
-            
+
             PRAGMA journal_mode=WAL;
         "#,
         )
@@ -477,12 +477,54 @@ impl LocalBrokerDb {
 mod tests {
     use super::*;
     use chrono::DateTime;
+    use std::path::PathBuf;
+
+    /// Helper function to create a temporary database file path
+    fn create_temp_db_path(test_name: &str) -> PathBuf {
+        let mut temp_dir = std::env::temp_dir();
+        temp_dir.push(format!(
+            "bgpkit_broker_test_{}_{}.sqlite3",
+            test_name,
+            chrono::Utc::now().timestamp_millis()
+        ));
+        temp_dir
+    }
+
+    /// Helper function to ensure cleanup of database files
+    fn cleanup_db_file(path: &PathBuf) {
+        // Remove the main database file
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+
+        // Remove WAL and SHM files that SQLite creates
+        let wal_path = path.with_extension("sqlite3-wal");
+        if wal_path.exists() {
+            let _ = std::fs::remove_file(wal_path);
+        }
+
+        let shm_path = path.with_extension("sqlite3-shm");
+        if shm_path.exists() {
+            let _ = std::fs::remove_file(shm_path);
+        }
+    }
 
     #[tokio::test]
     async fn test() {
-        let db = LocalBrokerDb::new("test.sqlite3").await.unwrap();
-        println!("{:?}", db.get_entry_count().await.unwrap());
-        println!("{:?}", db.get_latest_timestamp().await.unwrap());
+        let db_path = create_temp_db_path("test");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+
+        // Test basic database operations
+        let entry_count = db.get_entry_count().await.unwrap();
+        assert_eq!(entry_count, 0); // New database should be empty
+
+        let _latest_timestamp = db.get_latest_timestamp().await.unwrap();
+        // New database might return None or some default timestamp depending on SQLite behavior
+        // The important thing is that the call succeeds
+
+        // Test search with filters
         let items = db
             .search(
                 Some(vec!["rrc21".to_string(), "route-views2".to_string()]),
@@ -496,66 +538,154 @@ mod tests {
             .await
             .unwrap();
 
-        dbg!(items);
+        assert!(items.is_empty()); // No data in fresh database
+
+        // Cleanup
+        drop(db);
+        cleanup_db_file(&db_path);
     }
 
     #[tokio::test]
     async fn test_get_mappings() {
-        let db = LocalBrokerDb::new("test.sqlite3").await.unwrap();
-        dbg!(db.collectors);
-        dbg!(db.types);
+        let db_path = create_temp_db_path("get_mappings");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+
+        // Verify collectors and types are loaded (should be empty in fresh database)
+        assert!(db.collectors.is_empty());
+        assert!(db.types.is_empty());
+
+        // Cleanup
+        drop(db);
+        cleanup_db_file(&db_path);
     }
 
     #[tokio::test]
     async fn test_inserts() {
+        let db_path = create_temp_db_path("inserts");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+
+        // First we need to populate collectors and types for the test data
+        use crate::Collector;
+
+        // Insert test collectors
+        let test_collectors = vec![
+            Collector {
+                id: "rrc00".to_string(),
+                project: "riperis".to_string(),
+                url: "https://data.ris.ripe.net/rrc00/".to_string(),
+            },
+            Collector {
+                id: "rrc01".to_string(),
+                project: "riperis".to_string(),
+                url: "https://data.ris.ripe.net/rrc01/".to_string(),
+            },
+            Collector {
+                id: "route-views2".to_string(),
+                project: "routeviews".to_string(),
+                url: "http://archive.routeviews.org/route-views2/".to_string(),
+            },
+        ];
+
+        for collector in &test_collectors {
+            db.insert_collector(collector).await.unwrap();
+        }
+
+        // Insert test data types
+        sqlx::query("INSERT INTO types (name) VALUES ('updates'), ('rib')")
+            .execute(&db.conn_pool)
+            .await
+            .unwrap();
+
+        // Reload mappings after insertions
+        let mut db = db; // Take ownership to call mutable method
+        db.reload_collectors().await;
+        db.types = sqlx::query("select id, name from types")
+            .map(|row: SqliteRow| BrokerItemType {
+                id: row.get::<i64, _>("id"),
+                name: row.get::<String, _>("name"),
+            })
+            .fetch_all(&db.conn_pool)
+            .await
+            .unwrap();
+
+        // Now test item insertion
         let items = vec![
             BrokerItem {
-                ts_start: DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
+                ts_start: DateTime::from_timestamp(1640995200, 0).unwrap().naive_utc(), // 2022-01-01
                 ts_end: Default::default(),
                 collector_id: "rrc00".to_string(),
                 data_type: "updates".to_string(),
                 url: "test.com".to_string(),
-                rough_size: 0,
-                exact_size: 0,
+                rough_size: 1000,
+                exact_size: 1024,
             },
             BrokerItem {
-                ts_start: DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
+                ts_start: DateTime::from_timestamp(1640995200, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "rrc01".to_string(),
                 data_type: "rib".to_string(),
                 url: "test.com".to_string(),
-                rough_size: 0,
-                exact_size: 0,
+                rough_size: 2000,
+                exact_size: 2048,
             },
             BrokerItem {
-                ts_start: DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
+                ts_start: DateTime::from_timestamp(1640995200, 0).unwrap().naive_utc(),
                 ts_end: Default::default(),
                 collector_id: "route-views2".to_string(),
                 data_type: "updates".to_string(),
                 url: "test.com".to_string(),
-                rough_size: 0,
-                exact_size: 0,
+                rough_size: 3000,
+                exact_size: 3072,
             },
         ];
 
-        let db = LocalBrokerDb::new("test.sqlite3").await.unwrap();
-
         let inserted = db.insert_items(&items, true).await.unwrap();
-        dbg!(inserted);
+        assert_eq!(inserted.len(), 3);
+
+        // Verify insertion worked
+        let entry_count = db.get_entry_count().await.unwrap();
+        assert_eq!(entry_count, 3);
+
+        // Cleanup
+        drop(db);
+        cleanup_db_file(&db_path);
     }
 
     #[tokio::test]
     async fn test_get_latest() {
-        let db = LocalBrokerDb::new("test.sqlite3").await.unwrap();
+        let db_path = create_temp_db_path("get_latest");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+
+        // Test get_latest_files on empty database
         let files = db.get_latest_files().await;
-        dbg!(files);
+        assert!(files.is_empty());
+
+        // Cleanup
+        drop(db);
+        cleanup_db_file(&db_path);
     }
 
     #[tokio::test]
     async fn test_update_latest() {
-        let db = LocalBrokerDb::new("test.sqlite3").await.unwrap();
+        let db_path = create_temp_db_path("update_latest");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+
+        // Test update_latest_files with empty items (should not crash)
         db.update_latest_files(&[], false).await;
+
         let files = db.get_latest_files().await;
-        dbg!(files);
+        assert!(files.is_empty());
+
+        // Cleanup
+        drop(db);
+        cleanup_db_file(&db_path);
     }
 }
