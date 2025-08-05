@@ -10,6 +10,9 @@ pub enum BrokerError {
     #[error("BrokerError: {0}")]
     BrokerError(String),
 
+    #[error("ConfigurationError: {0}")]
+    ConfigurationError(String),
+
     #[cfg(feature = "cli")]
     #[error("CrawlerError: {0}")]
     CrawlerError(String),

@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased changes
+
+### Breaking Changes
+
+None - This release maintains API compatibility with previous versions.
+
+### Features
+
+* **Shortcuts module**: Added convenience methods for common BGP data queries
+    * `daily_ribs()` - Filter RIB files captured at midnight (00:00:00) for daily snapshots
+    * `recent_updates(hours)` - Get BGP update files from the last N hours 
+    * `most_diverse_collectors(n, project)` - Find collectors with maximum ASN diversity using greedy algorithm
+    * All shortcuts integrate seamlessly with existing filtering methods and support method chaining
+    * Enhanced diversity algorithm selects collectors based on unique ASN coverage from full-feed peers
+    * Project filtering supported for targeted RouteViews or RIPE RIS analysis
+
+### Code improvements
+
+* **Configuration validation**: Restructured parameter validation for better error handling
+    * Moved validation from configuration time to query execution time
+    * Added `validate_configuration()` method with comprehensive parameter checking
+    * Validation includes timestamps, collectors, projects, data types, page numbers, and page sizes
+    * Provides detailed error messages with valid options for invalid parameters
+    * Maintains method chaining simplicity while ensuring data correctness at query time
+
+* **Timestamp parsing**: Enhanced timestamp parsing with timezone support and better validation
+    * Added support for RFC3339 timestamps with timezone offsets (e.g., `2022-01-01T00:00:00+00:00`, `2022-01-01T05:00:00-05:00`)
+    * Support for pure dates (e.g., `2022-01-01`), Unix timestamps, RFC3339 formats, and various date separators
+    * Internal `parse_timestamp` function now returns `DateTime<Utc>` with proper timezone conversion
+    * Validation occurs at query time with helpful error messages for invalid timestamp formats
+    * Pure dates automatically converted to start-of-day UTC timestamps
+
+* **Database tests**: Updated database tests to use temporary files with proper cleanup
+    * Replace hardcoded test database paths with unique temporary file paths using system temp directory
+    * Add automatic cleanup of SQLite database files including WAL and SHM files
+    * Improve test isolation and prevent interference between test runs
+    * Tests now suitable for CI/CD environments without leaving leftover files
+
 ## v0.7.11 - 2025-04-08
 
 ### Highlights

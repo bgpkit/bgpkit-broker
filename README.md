@@ -38,8 +38,8 @@ broker instance.
 The current BGPKIT Broker API is available at <https://api.bgpkit.com/docs>.
 
 BGPKIT Broker is used in production at [Cloudflare Radar][radar] powering its [routing page][routing] and projects
-like [BGP hijack detection]()
-and [route leak detection](https://blog.cloudflare.com/route-leak-detection-with-cloudflare-radar/).
+like [BGP hijack detection][hijack]
+and [route leak detection][route-leak].
 
 [radar]: https://radar.cloudflare.com/
 
@@ -51,37 +51,221 @@ and [route leak detection](https://blog.cloudflare.com/route-leak-detection-with
 
 ## Broker Rust SDK
 
-### Usage
+### Installation
 
-Add the following dependency line to your project's `Cargo.toml` file:
+Add the following dependency to your `Cargo.toml`:
 
-```yaml
+```toml
 bgpkit-broker = "0.7"
 ```
 
-### Example
+### Overview
 
-You can run the follow example with `cargo run --example query` ([source code](./examples/query.rs)).
+The BGPKIT Broker Rust SDK provides access to BGP archive files from RouteViews and RIPE RIS collectors. It features:
+- 🔍 Search BGP archive files by time, collector, project, and data type
+- 🔄 Built-in pagination with automatic streaming through iterator
+- 📊 Access to collector peers information
+- ⏰ Query latest available files for each collector
+- ✅ Configuration validation with early error detection
+
+### Configuration API
+
+All configuration methods return `Result<Self, BrokerError>` for proper error handling:
 
 ```rust
-use bgpkit_broker::{BgpkitBroker, BrokerItem};
+use bgpkit_broker::{BgpkitBroker, BrokerError};
 
-pub fn main() {
-    let broker = BgpkitBroker::new()
-        .ts_start("1634693400")
-        .ts_end("1634693400");
+// Configure broker with error handling
+let broker = BgpkitBroker::new()
+    .ts_start("2022-01-01")?        // timestamps: RFC3339, Unix epoch, or pure dates
+    .ts_end("2022-01-02T00:00:00Z")?
+    .collector_id("rrc00,route-views2")?  // comma-separated collectors
+    .project("riperis")?             // "riperis" or "routeviews"
+    .data_type("rib")?               // "rib" or "updates"
+    .page_size(100)?                 // 1-100000
+    .page(1)?;                       // page number >= 1
+```
 
-    // method 1: create iterator from reference (so that you can reuse the broker object)
-    // same as `&broker.into_iter()`
-    for item in &broker {
-        println!("{}", item);
-    }
+#### Timestamp Formats
+Flexible timestamp parsing with automatic normalization to RFC3339:
+- Unix timestamp: `"1640995200"`
+- RFC3339: `"2022-01-01T00:00:00Z"`
+- Pure dates: `"2022-01-01"`, `"2022/01/01"`, `"20220101"`
+- Date with time: `"2022-01-01 12:30:00"`
 
-    // method 2: create iterator from the broker object (taking ownership)
-    let items = broker.into_iter().collect::<Vec<BrokerItem>>();
+### Basic Usage
 
-    assert_eq!(items.len(), 106);
+#### Using Iterator (Recommended)
+Automatically handles pagination to stream all matching items:
+
+```rust
+let broker = BgpkitBroker::new()
+    .ts_start("2022-01-01").unwrap()
+    .ts_end("2022-01-02").unwrap();
+
+// Iterate by reference (reusable broker)
+for item in &broker {
+    println!("{}", item);
 }
+
+// Or consume broker into iterator
+let items: Vec<BrokerItem> = broker.into_iter().collect();
+```
+
+#### Manual Page Queries
+For specific page access or custom iteration:
+
+```rust
+let mut broker = BgpkitBroker::new()
+    .ts_start("2022-01-01").unwrap()
+    .page(3).unwrap()
+    .page_size(20).unwrap();
+
+// Query single page
+let items = broker.query_single_page()?;
+
+// Turn to next page
+broker.turn_page(4);
+let next_items = broker.query_single_page()?;
+```
+
+### Shortcuts for Common BGP Analysis
+
+The SDK provides convenient shortcuts for frequent BGP data analysis patterns:
+
+#### Daily RIB Analysis
+Get RIB files captured at midnight for daily snapshots:
+
+```rust
+// Get daily RIBs from diverse collectors for comprehensive analysis
+let broker = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-31").unwrap();
+
+let diverse_collectors = broker.most_diverse_collectors(5, None).unwrap();
+let daily_ribs = broker
+    .clone()
+    .collector_id(&diverse_collectors.join(",")).unwrap()
+    .daily_ribs().unwrap();
+
+println!("Found {} daily snapshots from {} collectors", 
+         daily_ribs.len(), diverse_collectors.len());
+```
+
+#### Recent BGP Updates Monitoring
+Monitor recent BGP changes:
+
+```rust
+// Get updates from last 6 hours from specific collectors
+let recent_updates = BgpkitBroker::new()
+    .collector_id("route-views2,rrc00").unwrap()
+    .recent_updates(6).unwrap();
+
+println!("Found {} recent update files", recent_updates.len());
+```
+
+#### Intelligent Collector Selection
+Find collectors with maximum ASN diversity:
+
+```rust
+// Get most diverse RouteViews collectors
+let broker = BgpkitBroker::new();
+let rv_collectors = broker.most_diverse_collectors(3, Some("routeviews")).unwrap();
+
+// Use for comprehensive update analysis
+let comprehensive_updates = broker
+    .clone()
+    .collector_id(&rv_collectors.join(",")).unwrap()
+    .recent_updates(12).unwrap();
+```
+
+### Advanced Features
+
+#### Query Latest Files
+Get the most recent file for each collector:
+
+```rust
+let broker = BgpkitBroker::new();
+let latest_files = broker.latest()?;
+
+// Filter by specific collector
+let broker = BgpkitBroker::new()
+    .collector_id("rrc00").unwrap();
+let latest = broker.latest()?;
+```
+
+#### Query Collector Peers
+Access BGP peer information with filtering options:
+
+```rust
+let broker = BgpkitBroker::new()
+    .collector_id("route-views2").unwrap()
+    .peers_only_full_feed(true);
+
+let peers = broker.get_peers()?;
+for peer in peers {
+    println!("ASN: {}, IP: {}, Prefixes: v4={}/v6={}",
+        peer.asn, peer.ip, peer.num_v4_pfxs, peer.num_v6_pfxs);
+}
+```
+
+Additional peer filters:
+- `.peers_asn(ASN)` - Filter by peer AS number
+- `.peers_ip(IP)` - Filter by peer IP address
+
+### Environment Configuration
+
+- `BGPKIT_BROKER_URL` - Custom broker API endpoint (default: `https://api.bgpkit.com/v3/broker`)
+- `ONEIO_ACCEPT_INVALID_CERTS` - Set to `true` to accept invalid SSL certificates
+
+### Data Structures
+
+**BrokerItem** - BGP archive file metadata:
+- `ts_start`, `ts_end` - Time range coverage
+- `collector_id` - Collector identifier (e.g., "rrc00", "route-views2")
+- `data_type` - File type ("rib" or "updates")
+- `url` - File download URL
+- `rough_size`, `exact_size` - File size information
+
+**BrokerPeer** - Collector peer information:
+- `asn`, `ip` - Peer identification
+- `collector` - Associated collector
+- `num_v4_pfxs`, `num_v6_pfxs` - Prefix counts
+- `num_connected_asns` - Connected AS count
+
+### Error Handling
+
+The SDK provides early validation with helpful error messages:
+
+```rust
+// Using ? operator for clean error propagation
+fn process_data() -> Result<(), BrokerError> {
+    let broker = BgpkitBroker::new()
+        .ts_start("invalid-date")?;  // Returns ConfigurationError
+    Ok(())
+}
+
+// Or handle errors explicitly
+match BgpkitBroker::new().collector_id("invalid-collector") {
+    Ok(broker) => { /* use broker */ },
+    Err(e) => eprintln!("Configuration error: {}", e),
+}
+```
+
+### Migration from v0.7 or earlier
+
+Add `.unwrap()` or proper error handling to configuration methods:
+
+```rust
+// Before: methods returned Self
+let broker = BgpkitBroker::new()
+    .ts_start("2022-01-01")
+    .ts_end("2022-01-02");
+
+// After: methods return Result<Self, BrokerError>
+let broker = BgpkitBroker::new()
+    .ts_start("2022-01-01").unwrap()
+    .ts_end("2022-01-02").unwrap();
 ```
 
 ## `bgpkit-broker` CLI Tool
@@ -124,7 +308,7 @@ Commands:
 
 Options:
       --no-log     disable logging
-      --env <ENV>  
+      --env <ENV>
   -h, --help       Print help
   -V, --version    Print version
 ```
@@ -146,7 +330,7 @@ Options:
   -i, --update-interval <UPDATE_INTERVAL>  update interval in seconds [default: 300]
       --no-log                             disable logging
   -b, --bootstrap                          bootstrap the database if it does not exist
-      --env <ENV>                          
+      --env <ENV>
   -s, --silent                             disable bootstrap progress bar
   -h, --host <HOST>                        host address [default: 0.0.0.0]
   -p, --port <PORT>                        port number [default: 40064]
@@ -180,7 +364,7 @@ Arguments:
 Options:
   -d, --days <DAYS>  force number of days to look back. by default resume from the latest available data time
       --no-log       disable logging
-      --env <ENV>    
+      --env <ENV>
   -h, --help         Print help
   -V, --version      Print version
 ```
@@ -202,7 +386,7 @@ Arguments:
 Options:
   -f, --force                              force writing backup file to existing file if specified
       --no-log                             disable logging
-      --env <ENV>                          
+      --env <ENV>
   -s, --sqlite-cmd-path <SQLITE_CMD_PATH>  specify sqlite3 command path
   -h, --help                               Print help
   -V, --version                            Print version
@@ -220,7 +404,7 @@ Usage: bgpkit-broker search [OPTIONS]
 Options:
       --no-log                       disable logging
   -t, --ts-start <TS_START>          Start timestamp
-      --env <ENV>                    
+      --env <ENV>
   -T, --ts-end <TS_END>              End timestamp
   -d, --duration <DURATION>          Duration string, e.g. 1 hour
   -p, --project <PROJECT>            filter by route collector projects, i.e. `route-views` or `riperis`
@@ -250,7 +434,7 @@ Usage: bgpkit-broker latest [OPTIONS]
 Options:
   -c, --collector <COLLECTOR>  filter by collector ID
       --no-log                 disable logging
-      --env <ENV>              
+      --env <ENV>
   -u, --url <URL>              Specify broker endpoint
   -o, --outdated               Showing only latest items that are outdated
   -j, --json                   Print out search results in JSON format instead of Markdown table
@@ -270,7 +454,7 @@ Usage: bgpkit-broker live [OPTIONS]
 Options:
       --no-log             disable logging
   -u, --url <URL>          URL to NATS server, e.g. nats://localhost:4222. If not specified, will try to read from BGPKIT_BROKER_NATS_URL env variable
-      --env <ENV>          
+      --env <ENV>
   -s, --subject <SUBJECT>  Subject to subscribe to, default to public.broker.>
   -p, --pretty             Pretty print JSON output
   -h, --help               Print help
@@ -290,7 +474,7 @@ Options:
   -c, --collector <COLLECTOR>  filter by collector ID
       --no-log                 disable logging
   -a, --peer-asn <PEER_ASN>    filter by peer AS number
-      --env <ENV>              
+      --env <ENV>
   -i, --peer-ip <PEER_IP>      filter by peer IP address
   -f, --full-feed-only         show only full-feed peers
   -j, --json                   Print out search results in JSON format instead of Markdown table
@@ -326,7 +510,7 @@ Usage: bgpkit-broker doctor [OPTIONS]
 
 Options:
       --no-log     disable logging
-      --env <ENV>  
+      --env <ENV>
   -h, --help       Print help
   -V, --version    Print version
 ```

@@ -6,7 +6,7 @@ files with different search parameters available.
 
 # Examples
 
-## Using Iterator
+## Basic Usage with Iterator
 
 The recommended usage to collect [BrokerItem]s is to use the built-in iterator. The
 [BrokerItemIterator] handles making API queries so that it can continuously stream new items until
@@ -17,65 +17,161 @@ to worry about pagination.
 use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
 let broker = BgpkitBroker::new()
-        .ts_start("1634693400")
-        .ts_end("1634693400");
+    .ts_start("2022-01-01").unwrap()
+    .ts_end("2022-01-02").unwrap()
+    .collector_id("route-views2").unwrap();
 
-
-// method 1: create iterator from reference (so that you can reuse the broker object)
-// same as `&broker.into_iter()`
+// Iterate by reference (reusable broker)
 for item in &broker {
-    println!("{}", item);
+    println!("BGP file: {} from {} ({})",
+             item.url, item.collector_id, item.data_type);
 }
 
-// method 2: create iterator from the broker object (taking ownership)
-let items = broker.into_iter().collect::<Vec<BrokerItem>>();
-
-assert_eq!(items.len(), 106);
+// Or collect into vector
+let items: Vec<BrokerItem> = broker.into_iter().collect();
+println!("Found {} BGP archive files", items.len());
 ```
 
-## Making Individual Queries
+## Practical BGP Data Analysis with Shortcuts
 
-User can make individual queries to the BGPKIT broker backend by calling [BgpkitBroker::query_single_page]
-function.
+The SDK provides convenient shortcuts for common BGP data analysis patterns:
 
-Below is an example of creating a new struct instance and make queries to the API:
-```rust
+### Daily RIB Analysis Across Diverse Collectors
+
+```no_run
 use bgpkit_broker::BgpkitBroker;
 
-let mut broker = BgpkitBroker::new()
-    .ts_start("1634693400")
-    .ts_end("1634693400")
-    .page(3)
-    .page_size(10);
+// Find the most diverse collectors for comprehensive analysis
+let broker = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-31").unwrap();
 
-let res = broker.query_single_page();
-for data in res.unwrap() {
-    println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
-}
+let diverse_collectors = broker.most_diverse_collectors(5, None).unwrap();
+println!("Selected {} diverse collectors: {:?}",
+         diverse_collectors.len(), diverse_collectors);
 
-broker.turn_page(4);
-let res = broker.query_single_page();
-for data in res.unwrap() {
-    println!("{} {} {} {}", data.ts_start, data.data_type, data.collector_id, data.url);
+// Get daily RIB snapshots from these collectors
+let daily_ribs = broker
+    .clone()
+    .collector_id(&diverse_collectors.join(",")).unwrap()
+    .daily_ribs().unwrap();
+
+println!("Found {} daily RIB snapshots for analysis", daily_ribs.len());
+for rib in daily_ribs.iter().take(3) {
+    println!("Daily snapshot: {} from {} at {}",
+             rib.collector_id,
+             rib.ts_start.format("%Y-%m-%d"),
+             rib.url);
 }
 ```
 
-Making individual queries is useful when you care about a specific page or want to implement
- a customized iteration procedure. Use [BgpkitBroker::turn_page] to manually change to a different
-page.
+### Recent BGP Updates Monitoring
 
-## Getting the Latest File for Each Collector
+```no_run
+use bgpkit_broker::BgpkitBroker;
 
-We also provide way to fetch the latest file information for each collector available with the
-[BgpkitBroker::latest] call. The function returns a JSON-deserialized result (see [CollectorLatestItem])
-to the RESTful API at <https://api.broker.bgpkit.com/v3/latest>.
+// Monitor recent BGP updates from multiple collectors
+let recent_updates = BgpkitBroker::new()
+    .collector_id("route-views2,rrc00,route-views6").unwrap()
+    .recent_updates(6).unwrap(); // last 6 hours
 
-```rust
+println!("Found {} recent BGP update files", recent_updates.len());
+for update in recent_updates.iter().take(5) {
+    println!("Update: {} from {} at {}",
+             update.collector_id,
+             update.ts_start.format("%Y-%m-%d %H:%M:%S"),
+             update.url);
+}
+```
+
+### Project-specific Analysis
+
+```no_run
+use bgpkit_broker::BgpkitBroker;
+
+// Compare RouteViews vs RIPE RIS daily snapshots
+let routeviews_ribs = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-07").unwrap()
+    .project("routeviews").unwrap()
+    .daily_ribs().unwrap();
+
+let ripe_ribs = BgpkitBroker::new()
+    .ts_start("2024-01-01").unwrap()
+    .ts_end("2024-01-07").unwrap()
+    .project("riperis").unwrap()
+    .daily_ribs().unwrap();
+
+println!("RouteViews daily RIBs: {}", routeviews_ribs.len());
+println!("RIPE RIS daily RIBs: {}", ripe_ribs.len());
+```
+
+### Advanced Collector Selection
+
+```no_run
 use bgpkit_broker::BgpkitBroker;
 
 let broker = BgpkitBroker::new();
-for item in broker.latest().unwrap() {
-    println!("{}", item);
+
+// Get diverse RouteViews collectors for focused analysis
+let rv_collectors = broker.most_diverse_collectors(3, Some("routeviews")).unwrap();
+println!("Diverse RouteViews collectors: {:?}", rv_collectors);
+
+// Use them to get comprehensive recent updates
+let comprehensive_updates = broker
+    .clone()
+    .collector_id(&rv_collectors.join(",")).unwrap()
+    .recent_updates(12).unwrap(); // last 12 hours
+
+println!("Got {} updates from {} collectors",
+         comprehensive_updates.len(), rv_collectors.len());
+```
+
+## Manual Page Queries
+
+For fine-grained control over pagination or custom iteration patterns:
+
+```rust,no_run
+use bgpkit_broker::BgpkitBroker;
+
+let mut broker = BgpkitBroker::new()
+    .ts_start("2022-01-01").unwrap()
+    .ts_end("2022-01-02").unwrap()
+    .page(1).unwrap()
+    .page_size(50).unwrap();
+
+// Query specific page
+let page1_items = broker.query_single_page().unwrap();
+println!("Page 1: {} items", page1_items.len());
+
+// Move to next page
+broker.turn_page(2);
+let page2_items = broker.query_single_page().unwrap();
+println!("Page 2: {} items", page2_items.len());
+```
+
+## Getting Latest Files and Peer Information
+
+Access the most recent data and peer information:
+
+```rust,no_run
+use bgpkit_broker::BgpkitBroker;
+
+// Get latest files from all collectors
+let broker = BgpkitBroker::new();
+let latest_files = broker.latest().unwrap();
+println!("Latest files from {} collectors", latest_files.len());
+
+// Get full-feed peers from specific collector
+let peers = BgpkitBroker::new()
+    .collector_id("route-views2").unwrap()
+    .peers_only_full_feed(true)
+    .get_peers().unwrap();
+
+println!("Found {} full-feed peers", peers.len());
+for peer in peers.iter().take(3) {
+    println!("Peer: AS{} ({}) - v4: {}, v6: {}",
+             peer.asn, peer.ip, peer.num_v4_pfxs, peer.num_v6_pfxs);
 }
 ```
 */
@@ -97,11 +193,14 @@ mod item;
 pub mod notifier;
 mod peer;
 mod query;
+mod shortcuts;
 
 use crate::collector::DEFAULT_COLLECTORS_CONFIG;
 use crate::peer::BrokerPeersResult;
 use crate::query::{BrokerQueryResult, CollectorLatestResult};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 pub use collector::{load_collectors, Collector};
+
 #[cfg(feature = "cli")]
 pub use crawler::crawl_collector;
 #[cfg(feature = "backend")]
@@ -211,20 +310,196 @@ impl BgpkitBroker {
         Self::accept_invalid_certs(self)
     }
 
+    /// Parse and validate timestamp string with support for multiple formats.
+    ///
+    /// Supported formats:
+    /// - Unix timestamp: "1640995200"
+    /// - RFC3339/ISO8601: "2022-01-01T00:00:00Z", "2022-01-01T12:30:45Z"
+    /// - RFC3339 without Z: "2022-01-01T00:00:00", "2022-01-01T12:30:45"
+    /// - Date with time: "2022-01-01 00:00:00", "2022-01-01 12:30:45"
+    /// - Pure date (start of day): "2022-01-01", "2022/01/01"
+    /// - Pure date with dots: "2022.01.01"
+    /// - Compact date: "20220101"
+    ///
+    /// For pure date formats, the time component defaults to 00:00:00 (start of day).
+    /// Returns a `DateTime<Utc>` for consistent handling and formatting.
+    fn parse_timestamp(timestamp: &str) -> Result<DateTime<Utc>, BrokerError> {
+        let ts_str = timestamp.trim();
+
+        // Try parsing as RFC3339 with timezone (including +00:00, -05:00, Z, etc.)
+        if let Ok(dt_with_tz) = DateTime::parse_from_rfc3339(ts_str) {
+            return Ok(dt_with_tz.with_timezone(&Utc));
+        }
+
+        // Try parsing as RFC3339/ISO8601 with Z 
+        if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H:%M:%SZ") {
+            return Ok(Utc.from_utc_datetime(&naive_dt));
+        }
+
+        // Try parsing as RFC3339 without Z (assume UTC)
+        if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H:%M:%S") {
+            return Ok(Utc.from_utc_datetime(&naive_dt));
+        }
+
+        // Try parsing as "YYYY-MM-DD HH:MM:SS" (assume UTC)
+        if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S") {
+            return Ok(Utc.from_utc_datetime(&naive_dt));
+        }
+
+        // Try parsing pure date formats and convert to start of day
+        let date_formats = [
+            "%Y-%m-%d", // 2022-01-01
+            "%Y/%m/%d", // 2022/01/01
+            "%Y.%m.%d", // 2022.01.01
+            "%Y%m%d",   // 20220101 - must be exactly 8 digits
+        ];
+
+        for format in &date_formats {
+            if let Ok(date) = NaiveDate::parse_from_str(ts_str, format) {
+                // Additional validation for compact format to ensure it's actually a date
+                if format == &"%Y%m%d" && ts_str.len() != 8 {
+                    continue;
+                }
+                // Convert to start of day in UTC
+                let naive_datetime = date.and_hms_opt(0, 0, 0).unwrap();
+                return Ok(Utc.from_utc_datetime(&naive_datetime));
+            }
+        }
+
+        // Finally, try parsing as Unix timestamp (only if it's reasonable length and all digits)
+        if ts_str.len() >= 9 && ts_str.len() <= 13 && ts_str.chars().all(|c| c.is_ascii_digit()) {
+            if let Ok(timestamp) = ts_str.parse::<i64>() {
+                if let Some(dt) = Utc.timestamp_opt(timestamp, 0).single() {
+                    return Ok(dt);
+                }
+            }
+        }
+
+        Err(BrokerError::ConfigurationError(format!(
+            "Invalid timestamp format '{ts_str}'. Supported formats:\n\
+                - Unix timestamp: '1640995200'\n\
+                - RFC3339 with timezone: '2022-01-01T00:00:00+00:00', '2022-01-01T00:00:00Z', '2022-01-01T05:00:00-05:00'\n\
+                - RFC3339 without timezone: '2022-01-01T00:00:00' (assumes UTC)\n\
+                - Date with time: '2022-01-01 00:00:00'\n\
+                - Pure date: '2022-01-01', '2022/01/01', '2022.01.01', '20220101'"
+        )))
+    }
+
+    /// Validate all configuration parameters before making API calls.
+    ///
+    /// This performs the same validation that was previously done at configuration time,
+    /// but now happens just before queries are executed. Returns normalized query parameters.
+    fn validate_configuration(&self) -> Result<QueryParams, BrokerError> {
+        // Validate timestamps and normalize them
+        let mut normalized_params = self.query_params.clone();
+
+        if let Some(ts) = &self.query_params.ts_start {
+            let parsed_datetime = Self::parse_timestamp(ts)?;
+            normalized_params.ts_start =
+                Some(parsed_datetime.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+
+        if let Some(ts) = &self.query_params.ts_end {
+            let parsed_datetime = Self::parse_timestamp(ts)?;
+            normalized_params.ts_end =
+                Some(parsed_datetime.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+
+        // Validate collectors
+        if let Some(collector_str) = &self.query_params.collector_id {
+            let collectors: Vec<&str> = collector_str.split(',').map(|s| s.trim()).collect();
+            for collector in &collectors {
+                if !self.collector_project_map.contains_key(*collector) {
+                    let valid_collectors: Vec<String> =
+                        self.collector_project_map.keys().cloned().collect();
+                    return Err(BrokerError::ConfigurationError(format!(
+                        "Invalid collector ID '{collector}'. Valid collectors are: {}",
+                        valid_collectors.join(", ")
+                    )));
+                }
+            }
+        }
+
+        // Validate project
+        if let Some(project_str) = &self.query_params.project {
+            let project_lower = project_str.to_lowercase();
+            match project_lower.as_str() {
+                "rrc" | "riperis" | "ripe_ris" | "routeviews" | "route_views" | "rv" => {
+                    // Valid project
+                }
+                _ => {
+                    return Err(BrokerError::ConfigurationError(format!(
+                        "Invalid project '{project_str}'. Valid projects are: 'riperis' (aliases: 'rrc', 'ripe_ris') or 'routeviews' (aliases: 'route_views', 'rv')"
+                    )));
+                }
+            }
+        }
+
+        // Validate data type
+        if let Some(data_type_str) = &self.query_params.data_type {
+            let data_type_lower = data_type_str.to_lowercase();
+            match data_type_lower.as_str() {
+                "rib" | "ribs" | "r" | "update" | "updates" => {
+                    // Valid data type
+                }
+                _ => {
+                    return Err(BrokerError::ConfigurationError(format!(
+                        "Invalid data type '{data_type_str}'. Valid data types are: 'rib' (aliases: 'ribs', 'r') or 'updates' (alias: 'update')"
+                    )));
+                }
+            }
+        }
+
+        // Validate page number
+        if self.query_params.page < 1 {
+            return Err(BrokerError::ConfigurationError(format!(
+                "Invalid page number {}. Page number must be >= 1",
+                self.query_params.page
+            )));
+        }
+
+        // Validate page size
+        if !(1..=100000).contains(&self.query_params.page_size) {
+            return Err(BrokerError::ConfigurationError(format!(
+                "Invalid page size {}. Page size must be between 1 and 100000",
+                self.query_params.page_size
+            )));
+        }
+
+        Ok(normalized_params)
+    }
+
     /// Add a filter of starting timestamp.
+    ///
+    /// Supports multiple timestamp formats including Unix timestamps, RFC3339 dates, and pure dates.
+    /// Validation occurs at query time.
     ///
     /// # Examples
     ///
-    /// Specify a Unix timestamp.
+    /// Specify a Unix timestamp:
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_start("1640995200");
     /// ```
     ///
-    /// Specify a RFC3335-formatted time string.
+    /// Specify a RFC3339-formatted time string:
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_start("2022-01-01T00:00:00Z");
+    /// ```
+    ///
+    /// Specify a pure date (defaults to start of day):
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_start("2022-01-01");
+    /// ```
+    ///
+    /// Other supported formats:
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_start("2022/01/01")  // slash format
+    ///     .ts_start("2022.01.01")  // dot format
+    ///     .ts_start("20220101");   // compact format
     /// ```
     pub fn ts_start<S: Display>(self, ts_start: S) -> Self {
         let mut query_params = self.query_params;
@@ -239,18 +514,27 @@ impl BgpkitBroker {
 
     /// Add a filter of ending timestamp.
     ///
+    /// Supports the same multiple timestamp formats as `ts_start`.
+    /// Validation occurs at query time.
+    ///
     /// # Examples
     ///
-    /// Specify a Unix timestamp.
+    /// Specify a Unix timestamp:
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_end("1640995200");
     /// ```
     ///
-    /// Specify a RFC3335-formatted time string.
+    /// Specify a RFC3339-formatted time string:
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_end("2022-01-01T00:00:00Z");
+    /// ```
+    ///
+    /// Specify a pure date (defaults to start of day):
+    /// ```
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .ts_end("2022-01-01");
     /// ```
     pub fn ts_end<S: Display>(self, ts_end: S) -> Self {
         let mut query_params = self.query_params;
@@ -266,6 +550,7 @@ impl BgpkitBroker {
     /// Add a filter of collector ID (e.g. `rrc00` or `route-views2`).
     ///
     /// See the full list of collectors [here](https://github.com/bgpkit/bgpkit-broker-backend/blob/main/deployment/full-config.json).
+    /// Validation occurs at query time.
     ///
     /// # Examples
     ///
@@ -291,7 +576,7 @@ impl BgpkitBroker {
         }
     }
 
-    /// Add a filter of project name, i.e. `riperis` or `routeviews`.
+    /// Add a filter of project name with validation, i.e. `riperis` or `routeviews`.
     ///
     /// # Examples
     ///
@@ -303,7 +588,7 @@ impl BgpkitBroker {
     /// ```
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .project("routeviews");
-    ///```
+    /// ```
     pub fn project<S: Display>(self, project: S) -> Self {
         let mut query_params = self.query_params;
         query_params.project = Some(project.to_string());
@@ -316,6 +601,8 @@ impl BgpkitBroker {
     }
 
     /// Add filter of data type, i.e. `rib` or `updates`.
+    ///
+    /// Validation occurs at query time.
     ///
     /// # Examples
     ///
@@ -341,6 +628,8 @@ impl BgpkitBroker {
 
     /// Change the current page number, starting from 1.
     ///
+    /// Validation occurs at query time.
+    ///
     /// # Examples
     ///
     /// Start iterating with page 2.
@@ -360,6 +649,8 @@ impl BgpkitBroker {
     }
 
     /// Change current page size, default 100.
+    ///
+    /// Validation occurs at query time.
     ///
     /// # Examples
     ///
@@ -443,7 +734,7 @@ impl BgpkitBroker {
     /// # Examples
     ///
     /// Manually get the first two pages of items.
-    /// ```
+    /// ```no_run
     /// let mut broker = bgpkit_broker::BgpkitBroker::new();
     /// let mut items = vec![];
     /// items.extend(broker.query_single_page().unwrap());
@@ -459,12 +750,13 @@ impl BgpkitBroker {
     /// # Examples
     ///
     /// Manually get the first page of items.
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new();
     /// let items = broker.query_single_page().unwrap();
     /// ```
     pub fn query_single_page(&self) -> Result<Vec<BrokerItem>, BrokerError> {
-        let url = format!("{}/search{}", &self.broker_url, &self.query_params);
+        let validated_params = self.validate_configuration()?;
+        let url = format!("{}/search{}", &self.broker_url, &validated_params);
         log::info!("sending broker query to {}", &url);
         match self.run_files_query(url.as_str()) {
             Ok(res) => Ok(res),
@@ -476,7 +768,7 @@ impl BgpkitBroker {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new();
     /// assert!(broker.health_check().is_ok())
     /// ```
@@ -507,7 +799,7 @@ impl BgpkitBroker {
     /// # Examples
     ///
     /// Get all RIB files on 2022-01-01 from route-views2.
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///     .ts_start("2022-01-01T00:00:00Z")
     ///     .ts_end("2022-01-01T23:59:00Z")
@@ -519,7 +811,7 @@ impl BgpkitBroker {
     /// assert_eq!(items.len(), 12);
     /// ```
     pub fn query(&self) -> Result<Vec<BrokerItem>, BrokerError> {
-        let mut p: QueryParams = self.query_params.clone();
+        let mut p = self.validate_configuration()?;
 
         let mut items = vec![];
         loop {
@@ -552,7 +844,7 @@ impl BgpkitBroker {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new();
     /// let latest_items = broker.latest().unwrap();
     /// for item in &latest_items {
@@ -567,14 +859,13 @@ impl BgpkitBroker {
                 Err(_) => {
                     return Err(BrokerError::BrokerError(
                         "Error parsing response".to_string(),
-                    ))
+                    ));
                 }
             },
             Err(e) => {
                 return Err(BrokerError::BrokerError(format!(
-                    "Unable to connect to the URL ({}): {}",
-                    latest_query_url, e
-                )))
+                    "Unable to connect to the URL ({latest_query_url}): {e}"
+                )));
             }
         };
 
@@ -642,7 +933,7 @@ impl BgpkitBroker {
     ///
     /// ## Get all peers
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new();
     /// let peers = broker.get_peers().unwrap();
     /// for peer in &peers {
@@ -652,7 +943,7 @@ impl BgpkitBroker {
     ///
     /// ## Get peers from a specific collector
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///    .collector_id("route-views2");
     /// let peers = broker.get_peers().unwrap();
@@ -663,7 +954,7 @@ impl BgpkitBroker {
     ///
     /// ## Get peers from a specific ASN
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///   .peers_asn(64496);
     /// let peers = broker.get_peers().unwrap();
@@ -674,7 +965,7 @@ impl BgpkitBroker {
     ///
     /// ## Get peers from a specific IP address
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///   .peers_ip("192.168.1.1".parse().unwrap());
     /// let peers = broker.get_peers().unwrap();
@@ -685,7 +976,7 @@ impl BgpkitBroker {
     ///
     /// ## Get peers with full feed
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///  .peers_only_full_feed(true);
     /// let peers = broker.get_peers().unwrap();
@@ -696,7 +987,7 @@ impl BgpkitBroker {
     ///
     /// ## Get peers from a specific collector with full feed
     ///
-    /// ```
+    /// ```no_run
     /// let broker = bgpkit_broker::BgpkitBroker::new()
     ///  .collector_id("route-views2")
     /// .peers_only_full_feed(true);
@@ -709,20 +1000,20 @@ impl BgpkitBroker {
         let mut url = format!("{}/peers", self.broker_url);
         let mut param_strings = vec![];
         if let Some(ip) = &self.query_params.peers_ip {
-            param_strings.push(format!("ip={}", ip));
+            param_strings.push(format!("ip={ip}"));
         }
         if let Some(asn) = &self.query_params.peers_asn {
-            param_strings.push(format!("asn={}", asn));
+            param_strings.push(format!("asn={asn}"));
         }
         if self.query_params.peers_only_full_feed {
             param_strings.push("full_feed=true".to_string());
         }
         if let Some(collector_id) = &self.query_params.collector_id {
-            param_strings.push(format!("collector={}", collector_id));
+            param_strings.push(format!("collector={collector_id}"));
         }
         if !param_strings.is_empty() {
             let param_string = param_strings.join("&");
-            url = format!("{}?{}", url, param_string);
+            url = format!("{url}?{param_string}");
         }
 
         let peers = match self.client.get(url.as_str()).send() {
@@ -731,14 +1022,13 @@ impl BgpkitBroker {
                 Err(_) => {
                     return Err(BrokerError::BrokerError(
                         "Error parsing response".to_string(),
-                    ))
+                    ));
                 }
             },
             Err(e) => {
                 return Err(BrokerError::BrokerError(format!(
-                    "Unable to connect to the URL ({}): {}",
-                    url, e
-                )))
+                    "Unable to connect to the URL ({url}): {e}"
+                )));
             }
         };
         Ok(peers)
@@ -772,7 +1062,7 @@ impl BgpkitBroker {
 /// either iterate through items by taking the ownership of the broker, or use the reference to broker
 /// to iterate.
 ///
-/// ```
+/// ```no_run
 /// use bgpkit_broker::{BgpkitBroker, BrokerItem};
 ///
 /// let mut broker = BgpkitBroker::new()
@@ -890,10 +1180,12 @@ mod tests {
     #[test]
     fn test_broker_error() {
         let broker = BgpkitBroker::new().page(-1);
-        let res = broker.query();
-
-        assert!(res.is_err());
-        // assert!(matches!(res.err(), Some(BrokerError::NetworkError(_))));
+        let result = broker.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
     }
 
     #[test]
@@ -1027,5 +1319,387 @@ mod tests {
             .any(|peer| peer.collector == "rrc00" || peer.collector == "route-views2"));
 
         assert!(rrc_rv_peers.len() > rrc_peers.len());
+    }
+
+    #[test]
+    fn test_timestamp_parsing_unix() {
+        let broker = BgpkitBroker::new();
+
+        // Valid Unix timestamps - configuration succeeds, normalization happens at query time
+        let result = broker.clone().ts_start("1640995200");
+        // Raw input is stored during configuration
+        assert_eq!(result.query_params.ts_start, Some("1640995200".to_string()));
+
+        let result = broker.clone().ts_end("1640995200");
+        assert_eq!(result.query_params.ts_end, Some("1640995200".to_string()));
+    }
+
+    #[test]
+    fn test_timestamp_parsing_rfc3339() {
+        let broker = BgpkitBroker::new();
+
+        // RFC3339 with Z - raw input stored during configuration
+        let result = broker.clone().ts_start("2022-01-01T00:00:00Z");
+        assert_eq!(
+            result.query_params.ts_start,
+            Some("2022-01-01T00:00:00Z".to_string())
+        );
+
+        // RFC3339 without Z - raw input stored during configuration
+        let result = broker.clone().ts_start("2022-01-01T12:30:45");
+        assert_eq!(
+            result.query_params.ts_start,
+            Some("2022-01-01T12:30:45".to_string())
+        );
+
+        // Date with time format - raw input stored during configuration
+        let result = broker.clone().ts_end("2022-01-01 12:30:45");
+        assert_eq!(
+            result.query_params.ts_end,
+            Some("2022-01-01 12:30:45".to_string())
+        );
+    }
+
+    #[test]
+    fn test_timestamp_parsing_pure_dates() {
+        let broker = BgpkitBroker::new();
+
+        // Standard date format - raw input stored during configuration
+        let result = broker.clone().ts_start("2022-01-01");
+        assert_eq!(result.query_params.ts_start, Some("2022-01-01".to_string()));
+
+        // Slash format
+        let result = broker.clone().ts_start("2022/01/01");
+        assert_eq!(result.query_params.ts_start, Some("2022/01/01".to_string()));
+
+        // Dot format
+        let result = broker.clone().ts_end("2022.01.01");
+        assert_eq!(result.query_params.ts_end, Some("2022.01.01".to_string()));
+
+        // Compact format
+        let result = broker.clone().ts_end("20220101");
+        assert_eq!(result.query_params.ts_end, Some("20220101".to_string()));
+    }
+
+    #[test]
+    fn test_timestamp_parsing_whitespace() {
+        let broker = BgpkitBroker::new();
+
+        // Test that raw input with whitespace is stored during configuration
+        let result = broker.clone().ts_start("  2022-01-01  ");
+        assert_eq!(
+            result.query_params.ts_start,
+            Some("  2022-01-01  ".to_string())
+        );
+
+        let result = broker.clone().ts_end("\t1640995200\n");
+        assert_eq!(
+            result.query_params.ts_end,
+            Some("\t1640995200\n".to_string())
+        );
+    }
+
+    #[test]
+    fn test_timestamp_parsing_errors() {
+        let broker = BgpkitBroker::new();
+
+        // Invalid format - error occurs at query time
+        let broker_with_invalid = broker.clone().ts_start("invalid-timestamp");
+        let result = broker_with_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+
+        // Invalid date - error occurs at query time
+        let broker_with_invalid = broker.clone().ts_end("2022-13-01");
+        let result = broker_with_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+
+        // Invalid compact date - error occurs at query time
+        let broker_with_invalid = broker.clone().ts_start("20221301");
+        let result = broker_with_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+
+        // Partially valid format - error occurs at query time
+        let broker_with_invalid = broker.clone().ts_start("2022-01");
+        let result = broker_with_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_parse_timestamp_direct() {
+        use chrono::{NaiveDate, NaiveDateTime};
+
+        // Test the parse_timestamp function directly - it now returns DateTime<Utc>
+
+        // Unix timestamp
+        let expected_unix = Utc.timestamp_opt(1640995200, 0).single().unwrap();
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("1640995200").unwrap(),
+            expected_unix
+        );
+
+        // RFC3339 formats
+        let expected_rfc3339_z = Utc.from_utc_datetime(
+            &NaiveDateTime::parse_from_str("2022-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("2022-01-01T00:00:00Z").unwrap(),
+            expected_rfc3339_z
+        );
+
+        let expected_rfc3339_no_z = Utc.from_utc_datetime(
+            &NaiveDateTime::parse_from_str("2022-01-01T12:30:45", "%Y-%m-%dT%H:%M:%S").unwrap(),
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("2022-01-01T12:30:45").unwrap(),
+            expected_rfc3339_no_z
+        );
+
+        let expected_space_format = Utc.from_utc_datetime(
+            &NaiveDateTime::parse_from_str("2022-01-01 12:30:45", "%Y-%m-%d %H:%M:%S").unwrap(),
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("2022-01-01 12:30:45").unwrap(),
+            expected_space_format
+        );
+
+        // Pure date formats (all convert to start of day in UTC)
+        let expected_date = Utc.from_utc_datetime(
+            &NaiveDate::from_ymd_opt(2022, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("2022-01-01").unwrap(),
+            expected_date
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("2022/01/01").unwrap(),
+            expected_date
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("2022.01.01").unwrap(),
+            expected_date
+        );
+        assert_eq!(
+            BgpkitBroker::parse_timestamp("20220101").unwrap(),
+            expected_date
+        );
+
+        // Test timezone formats - these should now work
+        let result_plus_tz = BgpkitBroker::parse_timestamp("2022-01-01T00:00:00+00:00").unwrap();
+        assert_eq!(result_plus_tz, expected_date);
+        println!("✓ +00:00 timezone format works");
+        
+        // Test timezone conversion: 2022-01-01T05:00:00-05:00 = 2022-01-01T10:00:00Z
+        let result_minus_tz = BgpkitBroker::parse_timestamp("2022-01-01T05:00:00-05:00").unwrap();
+        let expected_10am = Utc.with_ymd_and_hms(2022, 1, 1, 10, 0, 0).unwrap();
+        assert_eq!(result_minus_tz, expected_10am);
+        println!("✓ -05:00 timezone format works (05:00-05:00 = 10:00Z)");
+
+        // Error cases
+        assert!(BgpkitBroker::parse_timestamp("invalid").is_err());
+        assert!(BgpkitBroker::parse_timestamp("2022-13-01").is_err());
+        assert!(BgpkitBroker::parse_timestamp("2022-01").is_err());
+    }
+
+    #[test]
+    fn test_collector_id_validation() {
+        let broker = BgpkitBroker::new();
+
+        // Valid single collector - no error at configuration time
+        let broker_valid = broker.clone().collector_id("rrc00");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Valid multiple collectors - no error at configuration time
+        let broker_valid = broker.clone().collector_id("rrc00,route-views2");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Invalid collector - error occurs at query time
+        let broker_invalid = broker.clone().collector_id("invalid-collector");
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+
+        // Mixed valid and invalid collectors - error occurs at query time
+        let broker_invalid = broker.clone().collector_id("rrc00,invalid-collector");
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_project_validation() {
+        let broker = BgpkitBroker::new();
+
+        // Valid projects - no error at configuration time
+        let broker_valid = broker.clone().project("riperis");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().project("routeviews");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Valid aliases - no error at configuration time
+        let broker_valid = broker.clone().project("rrc");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().project("rv");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Invalid project - error occurs at query time
+        let broker_invalid = broker.clone().project("invalid-project");
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_data_type_validation() {
+        let broker = BgpkitBroker::new();
+
+        // Valid data types - no error at configuration time
+        let broker_valid = broker.clone().data_type("rib");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().data_type("updates");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Valid aliases - no error at configuration time
+        let broker_valid = broker.clone().data_type("ribs");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().data_type("update");
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Invalid data type - error occurs at query time
+        let broker_invalid = broker.clone().data_type("invalid-type");
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_page_validation() {
+        let broker = BgpkitBroker::new();
+
+        // Valid page number - no error at configuration time
+        let broker_valid = broker.clone().page(1);
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().page(100);
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Invalid page number - error occurs at query time
+        let broker_invalid = broker.clone().page(0);
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+
+        let broker_invalid = broker.clone().page(-1);
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_page_size_validation() {
+        let broker = BgpkitBroker::new();
+
+        // Valid page sizes - no error at configuration time
+        let broker_valid = broker.clone().page_size(1);
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().page_size(100);
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        let broker_valid = broker.clone().page_size(100000);
+        let result = broker_valid.query();
+        assert!(result.is_ok());
+
+        // Invalid page sizes - error occurs at query time
+        let broker_invalid = broker.clone().page_size(0);
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+
+        let broker_invalid = broker.clone().page_size(100001);
+        let result = broker_invalid.query();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_method_chaining() {
+        let broker = BgpkitBroker::new()
+            .ts_start("1634693400")
+            .ts_end("1634693400")
+            .collector_id("rrc00")
+            .project("riperis")
+            .data_type("rib")
+            .page(1)
+            .page_size(10);
+
+        // Raw input is stored during configuration
+        assert_eq!(broker.query_params.ts_start, Some("1634693400".to_string()));
+        assert_eq!(broker.query_params.ts_end, Some("1634693400".to_string()));
+        assert_eq!(broker.query_params.collector_id, Some("rrc00".to_string()));
+        assert_eq!(broker.query_params.project, Some("riperis".to_string()));
+        assert_eq!(broker.query_params.data_type, Some("rib".to_string()));
+        assert_eq!(broker.query_params.page, 1);
+        assert_eq!(broker.query_params.page_size, 10);
     }
 }
