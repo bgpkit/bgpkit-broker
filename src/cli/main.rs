@@ -654,47 +654,26 @@ fn main() {
             }
 
             if let Some(ts_start) = query.ts_start {
-                broker = broker.ts_start(ts_start).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid start timestamp: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.ts_start(ts_start);
             }
             if let Some(ts_end) = query.ts_end {
-                broker = broker.ts_end(ts_end).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid end timestamp: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.ts_end(ts_end);
             }
             if let Some(project) = query.project {
-                broker = broker.project(project).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid project: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.project(project);
             }
             if let Some(collector_id) = query.collector_id {
-                broker = broker.collector_id(collector_id).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid collector ID: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.collector_id(collector_id);
             }
             if let Some(data_type) = query.data_type {
-                broker = broker.data_type(data_type).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid data type: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.data_type(data_type);
             }
             let (page, page_size) = (
                 query.page.unwrap_or(1),
                 query.page_size.unwrap_or(DEFAULT_PAGE_SIZE),
             );
-            broker = broker.page(page as i64).unwrap_or_else(|e| {
-                eprintln!("Error: Invalid page number: {}", e);
-                std::process::exit(1);
-            });
-            broker = broker.page_size(page_size as i64).unwrap_or_else(|e| {
-                eprintln!("Error: Invalid page size: {}", e);
-                std::process::exit(1);
-            });
+            broker = broker.page(page as i64);
+            broker = broker.page_size(page_size as i64);
             let items = broker.query_single_page().unwrap();
 
             if json {
@@ -719,10 +698,7 @@ fn main() {
                 return;
             }
             if let Some(collector_id) = collector {
-                broker = broker.collector_id(collector_id).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid collector ID: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.collector_id(collector_id);
             }
 
             let mut items = broker.latest().unwrap();
@@ -768,10 +744,7 @@ fn main() {
                 return;
             }
             if let Some(collector_id) = collector {
-                broker = broker.collector_id(collector_id).unwrap_or_else(|e| {
-                    eprintln!("Error: Invalid collector ID: {}", e);
-                    std::process::exit(1);
-                });
+                broker = broker.collector_id(collector_id);
             }
             if let Some(asn) = peer_asn {
                 broker = broker.peers_asn(asn);

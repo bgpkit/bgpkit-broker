@@ -6,19 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking Changes
 
-* **SDK Configuration API**: All configuration methods now return `Result<Self, BrokerError>` for consistent error handling
-    * Methods affected: `ts_start()`, `ts_end()`, `collector_id()`, `project()`, `data_type()`, `page()`, `page_size()`
-    * **Migration required**: Add `.unwrap()` or proper error handling to all configuration method calls
-    * **Benefits**: Early validation with helpful error messages, consistent API design, better error propagation
-    * **Example**: `BgpkitBroker::new().ts_start("2022-01-01").unwrap()` or use `?` operator for error propagation
+None - This release maintains API compatibility with previous versions.
 
 ### Code improvements
 
-* **Timestamp parsing**: Added flexible timestamp parsing with consistent RFC3339 output formatting
+* **Timestamp parsing**: Updated internal timestamp parsing implementation for better validation
     * Support for pure dates (e.g., `2022-01-01`), Unix timestamps, RFC3339 formats, and various date separators
-    * Internal `parse_timestamp` function now returns `DateTime<Utc>` for type safety and consistent formatting
-    * All timestamps normalized to `YYYY-MM-DDTHH:MM:SSZ` format for API consistency
+    * Internal `parse_timestamp` function now returns `DateTime<Utc>` for type safety
+    * Validation occurs at query time with helpful error messages for invalid timestamp formats
     * Pure dates automatically converted to start-of-day UTC timestamps
+
+* **Database tests**: Updated database tests to use temporary files with proper cleanup
+    * Replace hardcoded test database paths with unique temporary file paths using system temp directory
+    * Add automatic cleanup of SQLite database files including WAL and SHM files
+    * Improve test isolation and prevent interference between test runs
+    * Tests now suitable for CI/CD environments without leaving leftover files
 
 ## v0.7.11 - 2025-04-08
 
