@@ -92,9 +92,12 @@ fn main() {
 
     // Example 4: Compare project-specific diverse collectors
     println!("\n=== Project-Specific Diverse Collectors Example ===");
-    
+
     // RouteViews collectors
-    match broker.clone().most_diverse_collectors(3, Some("routeviews")) {
+    match broker
+        .clone()
+        .most_diverse_collectors(3, Some("routeviews"))
+    {
         Ok(rv_collectors) => {
             println!("Top {} RouteViews diverse collectors:", rv_collectors.len());
             for (i, collector) in rv_collectors.iter().enumerate() {
@@ -104,7 +107,7 @@ fn main() {
         Err(e) => println!("Error finding RouteViews collectors: {}", e),
     }
 
-    // RIPE RIS collectors  
+    // RIPE RIS collectors
     match broker.clone().most_diverse_collectors(3, Some("riperis")) {
         Ok(ripe_collectors) => {
             println!("Top {} RIPE RIS diverse collectors:", ripe_collectors.len());
