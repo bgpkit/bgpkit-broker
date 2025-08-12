@@ -17,9 +17,9 @@ to worry about pagination.
 use bgpkit_broker::{BgpkitBroker, BrokerItem};
 
 let broker = BgpkitBroker::new()
-    .ts_start("2022-01-01").unwrap()
-    .ts_end("2022-01-02").unwrap()
-    .collector_id("route-views2").unwrap();
+    .ts_start("2022-01-01")
+    .ts_end("2022-01-02")
+    .collector_id("route-views2");
 
 // Iterate by reference (reusable broker)
 for item in &broker {
@@ -43,8 +43,8 @@ use bgpkit_broker::BgpkitBroker;
 
 // Find the most diverse collectors for comprehensive analysis
 let broker = BgpkitBroker::new()
-    .ts_start("2024-01-01").unwrap()
-    .ts_end("2024-01-31").unwrap();
+    .ts_start("2024-01-01")
+    .ts_end("2024-01-31");
 
 let diverse_collectors = broker.most_diverse_collectors(5, None).unwrap();
 println!("Selected {} diverse collectors: {:?}",
@@ -53,7 +53,7 @@ println!("Selected {} diverse collectors: {:?}",
 // Get daily RIB snapshots from these collectors
 let daily_ribs = broker
     .clone()
-    .collector_id(&diverse_collectors.join(",")).unwrap()
+    .collector_id(&diverse_collectors.join(","))
     .daily_ribs().unwrap();
 
 println!("Found {} daily RIB snapshots for analysis", daily_ribs.len());
@@ -72,7 +72,7 @@ use bgpkit_broker::BgpkitBroker;
 
 // Monitor recent BGP updates from multiple collectors
 let recent_updates = BgpkitBroker::new()
-    .collector_id("route-views2,rrc00,route-views6").unwrap()
+    .collector_id("route-views2,rrc00,route-views6")
     .recent_updates(6).unwrap(); // last 6 hours
 
 println!("Found {} recent BGP update files", recent_updates.len());
@@ -91,15 +91,15 @@ use bgpkit_broker::BgpkitBroker;
 
 // Compare RouteViews vs RIPE RIS daily snapshots
 let routeviews_ribs = BgpkitBroker::new()
-    .ts_start("2024-01-01").unwrap()
-    .ts_end("2024-01-07").unwrap()
-    .project("routeviews").unwrap()
+    .ts_start("2024-01-01")
+    .ts_end("2024-01-07")
+    .project("routeviews")
     .daily_ribs().unwrap();
 
 let ripe_ribs = BgpkitBroker::new()
-    .ts_start("2024-01-01").unwrap()
-    .ts_end("2024-01-07").unwrap()
-    .project("riperis").unwrap()
+    .ts_start("2024-01-01")
+    .ts_end("2024-01-07")
+    .project("riperis")
     .daily_ribs().unwrap();
 
 println!("RouteViews daily RIBs: {}", routeviews_ribs.len());
@@ -120,7 +120,7 @@ println!("Diverse RouteViews collectors: {:?}", rv_collectors);
 // Use them to get comprehensive recent updates
 let comprehensive_updates = broker
     .clone()
-    .collector_id(&rv_collectors.join(",")).unwrap()
+    .collector_id(&rv_collectors.join(","))
     .recent_updates(12).unwrap(); // last 12 hours
 
 println!("Got {} updates from {} collectors",
@@ -135,10 +135,10 @@ For fine-grained control over pagination or custom iteration patterns:
 use bgpkit_broker::BgpkitBroker;
 
 let mut broker = BgpkitBroker::new()
-    .ts_start("2022-01-01").unwrap()
-    .ts_end("2022-01-02").unwrap()
-    .page(1).unwrap()
-    .page_size(50).unwrap();
+    .ts_start("2022-01-01")
+    .ts_end("2022-01-02")
+    .page(1)
+    .page_size(50);
 
 // Query specific page
 let page1_items = broker.query_single_page().unwrap();
@@ -164,7 +164,7 @@ println!("Latest files from {} collectors", latest_files.len());
 
 // Get full-feed peers from specific collector
 let peers = BgpkitBroker::new()
-    .collector_id("route-views2").unwrap()
+    .collector_id("route-views2")
     .peers_only_full_feed(true)
     .get_peers().unwrap();
 
@@ -331,7 +331,7 @@ impl BgpkitBroker {
             return Ok(dt_with_tz.with_timezone(&Utc));
         }
 
-        // Try parsing as RFC3339/ISO8601 with Z 
+        // Try parsing as RFC3339/ISO8601 with Z
         if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H:%M:%SZ") {
             return Ok(Utc.from_utc_datetime(&naive_dt));
         }
@@ -1506,7 +1506,7 @@ mod tests {
         let result_plus_tz = BgpkitBroker::parse_timestamp("2022-01-01T00:00:00+00:00").unwrap();
         assert_eq!(result_plus_tz, expected_date);
         println!("✓ +00:00 timezone format works");
-        
+
         // Test timezone conversion: 2022-01-01T05:00:00-05:00 = 2022-01-01T10:00:00Z
         let result_minus_tz = BgpkitBroker::parse_timestamp("2022-01-01T05:00:00-05:00").unwrap();
         let expected_10am = Utc.with_ymd_and_hms(2022, 1, 1, 10, 0, 0).unwrap();
@@ -1525,26 +1525,26 @@ mod tests {
 
         // Valid single collector - no error at configuration time
         let broker_valid = broker.clone().collector_id("rrc00");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         // Valid multiple collectors - no error at configuration time
         let broker_valid = broker.clone().collector_id("rrc00,route-views2");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Invalid collector - error occurs at query time
+        // Invalid collector - error occurs at validation
         let broker_invalid = broker.clone().collector_id("invalid-collector");
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
             Some(BrokerError::ConfigurationError(_))
         ));
 
-        // Mixed valid and invalid collectors - error occurs at query time
+        // Mixed valid and invalid collectors - error occurs at validation
         let broker_invalid = broker.clone().collector_id("rrc00,invalid-collector");
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
@@ -1558,25 +1558,25 @@ mod tests {
 
         // Valid projects - no error at configuration time
         let broker_valid = broker.clone().project("riperis");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().project("routeviews");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         // Valid aliases - no error at configuration time
         let broker_valid = broker.clone().project("rrc");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().project("rv");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Invalid project - error occurs at query time
+        // Invalid project - error occurs at validation
         let broker_invalid = broker.clone().project("invalid-project");
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
@@ -1590,25 +1590,25 @@ mod tests {
 
         // Valid data types - no error at configuration time
         let broker_valid = broker.clone().data_type("rib");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().data_type("updates");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         // Valid aliases - no error at configuration time
         let broker_valid = broker.clone().data_type("ribs");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().data_type("update");
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Invalid data type - error occurs at query time
+        // Invalid data type - error occurs at validation
         let broker_invalid = broker.clone().data_type("invalid-type");
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
@@ -1622,24 +1622,16 @@ mod tests {
 
         // Valid page number - no error at configuration time
         let broker_valid = broker.clone().page(1);
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().page(100);
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Invalid page number - error occurs at query time
+        // Invalid page number - error occurs at validation
         let broker_invalid = broker.clone().page(0);
-        let result = broker_invalid.query();
-        assert!(result.is_err());
-        assert!(matches!(
-            result.err(),
-            Some(BrokerError::ConfigurationError(_))
-        ));
-
-        let broker_invalid = broker.clone().page(-1);
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
@@ -1653,20 +1645,20 @@ mod tests {
 
         // Valid page sizes - no error at configuration time
         let broker_valid = broker.clone().page_size(1);
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().page_size(100);
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
         let broker_valid = broker.clone().page_size(100000);
-        let result = broker_valid.query();
+        let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Invalid page sizes - error occurs at query time
+        // Invalid page sizes - error occurs at validation
         let broker_invalid = broker.clone().page_size(0);
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
@@ -1674,7 +1666,7 @@ mod tests {
         ));
 
         let broker_invalid = broker.clone().page_size(100001);
-        let result = broker_invalid.query();
+        let result = broker_invalid.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),

@@ -22,10 +22,15 @@ None - This release maintains API compatibility with previous versions.
 
 * **Configuration validation**: Restructured parameter validation for better error handling
     * Moved validation from configuration time to query execution time
-    * Added `validate_configuration()` method with comprehensive parameter checking
+    * Added `validate_configuration()` method with parameter checking
     * Validation includes timestamps, collectors, projects, data types, page numbers, and page sizes
     * Provides detailed error messages with valid options for invalid parameters
     * Maintains method chaining simplicity while ensuring data correctness at query time
+
+* **Test performance**: Improved test suite execution speed
+    * Updated validation tests to call `validate_configuration()` directly instead of `query()`
+    * Modified `test_recent_updates` to test parameter configuration without network calls
+    * Tests now run significantly faster while maintaining coverage and functionality
 
 * **Timestamp parsing**: Enhanced timestamp parsing with timezone support and better validation
     * Added support for RFC3339 timestamps with timezone offsets (e.g., `2022-01-01T00:00:00+00:00`, `2022-01-01T05:00:00-05:00`)
