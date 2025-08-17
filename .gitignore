@@ -9,3 +9,4 @@
 *.duckdb*
 *.parquet
 /.env
+.claude

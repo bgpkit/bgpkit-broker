@@ -6,7 +6,7 @@ mod utils;
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::{backup_database, perform_periodic_backup};
 use crate::bootstrap::download_file;
-use crate::utils::get_missing_collectors;
+use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
@@ -17,36 +17,12 @@ use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::path::Path;
 use std::process::exit;
 use tabled::settings::Style;
 use tabled::Table;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
-pub(crate) fn is_local_path(path: &str) -> bool {
-    if path.contains("://") {
-        return false;
-    }
-    let path = Path::new(path);
-    path.is_absolute() || path.is_relative()
-}
-
-pub(crate) fn parse_s3_path(path: &str) -> Option<(String, String)> {
-    // split a path like s3://bucket/path/to/file into (bucket, path/to/file)
-    let parts = path.split("://").collect::<Vec<&str>>();
-    if parts.len() != 2 || parts[0] != "s3" {
-        return None;
-    }
-    let parts = parts[1].split('/').collect::<Vec<&str>>();
-    let bucket = parts[0].to_string();
-    // join the rest delimited by `/`
-    let path = format!("/{}", parts[1..].join("/"));
-    if parts.ends_with(&["/"]) {
-        return None;
-    }
-    Some((bucket, path))
-}
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -85,7 +61,7 @@ enum Commands {
         silent: bool,
 
         /// host address
-        #[clap(long, default_value = "0.0.0.0")]
+        #[clap(short = 'H', long, default_value = "0.0.0.0")]
         host: String,
 
         /// port number
@@ -277,6 +253,17 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
     Ok(())
 }
 
+fn get_backup_interval() -> std::time::Duration {
+    const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 24;
+    
+    let hours = std::env::var("BGPKIT_BROKER_BACKUP_INTERVAL_HOURS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_BACKUP_INTERVAL_HOURS);
+    
+    std::time::Duration::from_secs(hours * 60 * 60)
+}
+
 async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
     match dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
         Ok(url) => {
@@ -419,16 +406,17 @@ fn display_configuration_summary(
     // Backup configuration
     match std::env::var("BGPKIT_BROKER_BACKUP_TO") {
         Ok(backup_to) => {
+            let interval_hours = get_backup_interval().as_secs() / 3600;
             if oneio::s3_url_parse(&backup_to).is_ok() {
                 // S3 backup
                 if oneio::s3_env_check().is_err() {
-                    error!("Backup: CONFIGURED to S3 ({}) - WARNING: S3 environment variables not properly set", backup_to);
+                    error!("Backup: CONFIGURED to S3 ({}) every {} hours - WARNING: S3 environment variables not properly set", backup_to, interval_hours);
                 } else {
-                    info!("Backup: CONFIGURED to S3 ({})", backup_to);
+                    info!("Backup: CONFIGURED to S3 ({}) every {} hours", backup_to, interval_hours);
                 }
             } else {
                 // Local backup
-                info!("Backup: CONFIGURED to local path ({})", backup_to);
+                info!("Backup: CONFIGURED to local path ({}) every {} hours", backup_to, interval_hours);
             }
         }
         Err(_) => {
@@ -596,10 +584,10 @@ fn main() {
                             update_database(&mut db, collectors.clone(), None, &notifier, true)
                                 .await;
 
-                            // check if backup is needed (daily)
+                            // check if backup is needed
                             if let Some(ref backup_destination) = backup_to_clone {
                                 let now = std::time::Instant::now();
-                                let backup_interval = std::time::Duration::from_secs(24 * 60 * 60); // 24 hours
+                                let backup_interval = get_backup_interval();
 
                                 if now.duration_since(last_backup_time) >= backup_interval {
                                     info!("starting daily backup procedure...");

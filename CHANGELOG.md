@@ -17,7 +17,7 @@ None - This release maintains API compatibility with previous versions.
 * **Periodic backup system**: Added automated database backup functionality to the serve command
     * Enabled via `BGPKIT_BROKER_BACKUP_TO` environment variable for backup destination
     * Supports both local file system and S3 destinations (e.g., `s3://bucket/path/backup.db`)
-    * Runs daily backups (24-hour intervals) integrated with the database update cycle
+    * Configurable backup interval via `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` (default: 24 hours)
     * Backup-specific heartbeat notifications via `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL`
     * Separate heartbeat endpoints for regular updates vs backup completion
     * Eliminates race conditions by running backups only after successful database updates

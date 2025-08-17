@@ -62,9 +62,9 @@ pub(crate) async fn perform_periodic_backup(
 ) -> Result<(), String> {
     info!("performing periodic backup from {} to {}", from, backup_to);
 
-    if crate::is_local_path(backup_to) {
+    if crate::utils::is_local_path(backup_to) {
         backup_database(from, backup_to, true, sqlite_cmd_path)
-    } else if let Some((bucket, s3_path)) = crate::parse_s3_path(backup_to) {
+    } else if let Some((bucket, s3_path)) = crate::utils::parse_s3_path(backup_to) {
         perform_s3_backup(from, &bucket, &s3_path, sqlite_cmd_path).await
     } else {
         Err("invalid backup destination format".to_string())
@@ -77,7 +77,7 @@ async fn perform_s3_backup(
     s3_path: &str,
     sqlite_cmd_path: Option<String>,
 ) -> Result<(), String> {
-    let temp_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let temp_dir = tempfile::tempdir().map_err(|e| format!("failed to create temporary directory: {}", e))?;
     let temp_file_path = temp_dir
         .path()
         .join("temp.db")
