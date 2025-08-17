@@ -215,8 +215,19 @@ Additional peer filters:
 
 ### Environment Configuration
 
+**SDK Configuration:**
 - `BGPKIT_BROKER_URL` - Custom broker API endpoint (default: `https://api.bgpkit.com/v3/broker`)
 - `ONEIO_ACCEPT_INVALID_CERTS` - Set to `true` to accept invalid SSL certificates
+
+**CLI Server Configuration:**
+- `BGPKIT_BROKER_BACKUP_TO` - Backup destination (local path or S3 URL like `s3://bucket/path/backup.db`)
+- `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` - Backup interval in hours (default: 24)
+- `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL` - Heartbeat URL for backup completion notifications
+- `BGPKIT_BROKER_HEARTBEAT_URL` - Heartbeat URL for general database update notifications
+- `BGPKIT_BROKER_NATS_URL` - NATS server URL for live notifications
+- `BGPKIT_BROKER_NATS_USER` - NATS server username
+- `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password
+- `BGPKIT_BROKER_NATS_ROOT_SUBJECT` - NATS root subject (default: `public.broker`)
 
 ### Data Structures
 
@@ -332,7 +343,7 @@ Options:
   -b, --bootstrap                          bootstrap the database if it does not exist
       --env <ENV>
   -s, --silent                             disable bootstrap progress bar
-  -h, --host <HOST>                        host address [default: 0.0.0.0]
+  -H, --host <HOST>                        host address [default: 0.0.0.0]
   -p, --port <PORT>                        port number [default: 40064]
   -r, --root <ROOT>                        root path, useful for configuring docs UI [default: /]
       --no-update                          disable updater service
@@ -341,12 +352,29 @@ Options:
   -V, --version                            Print version
 ```
 
-For sending NATS notifications, there are three environment variables that need to be set:
+**Periodic Backup Configuration:**
 
-* `BGPKIT_BROKER_NATS_URL`: the URL for the NATS server, such as `nats.broker.bgpkit.com`
-* `BGPKIT_BROKER_NATS_USER`: NATS server user name
+The serve command supports automated periodic backups when configured with environment variables:
+
+* `BGPKIT_BROKER_BACKUP_TO`: Backup destination (local path or S3 URL like `s3://bucket/path/backup.db`)
+* `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS`: Backup interval in hours (default: 24)
+* `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL`: HTTP endpoint to notify when backup completes
+
+Example:
+```bash
+export BGPKIT_BROKER_BACKUP_TO="./daily-backup.db"
+export BGPKIT_BROKER_BACKUP_INTERVAL_HOURS="12"
+bgpkit-broker serve database.db
+```
+
+**NATS Notifications:**
+
+For sending NATS notifications, set these environment variables:
+
+* `BGPKIT_BROKER_NATS_URL`: NATS server URL (e.g., `nats.broker.bgpkit.com`)
+* `BGPKIT_BROKER_NATS_USER`: NATS server username
 * `BGPKIT_BROKER_NATS_PASSWORD`: NATS server password
-* `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS server root subject, such as `public.broker`
+* `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS root subject (e.g., `public.broker`)
 
 #### `update`
 

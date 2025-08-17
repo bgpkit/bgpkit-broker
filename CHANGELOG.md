@@ -8,7 +8,31 @@ All notable changes to this project will be documented in this file.
 
 None - This release maintains API compatibility with previous versions.
 
-### Features
+### API Changes
+
+None - This release maintains API compatibility with previous versions.
+
+### Backend Changes
+
+* **Periodic backup system**: Added automated database backup functionality to the serve command
+    * Enabled via `BGPKIT_BROKER_BACKUP_TO` environment variable for backup destination
+    * Supports both local file system and S3 destinations (e.g., `s3://bucket/path/backup.db`)
+    * Configurable backup interval via `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` (default: 24 hours)
+    * Backup-specific heartbeat notifications via `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL`
+    * Separate heartbeat endpoints for regular updates vs backup completion
+    * Eliminates race conditions by running backups only after successful database updates
+
+* **Configuration summary display**: Added startup configuration summary for better operational visibility
+    * Displays periodic update status, API service configuration, backup settings, and heartbeat configuration
+    * Shows S3 environment validation status when S3 backup destinations are configured
+    * NATS notification status and configuration validation
+    * Helps operators quickly verify service configuration at startup
+
+* **Bootstrap sequence optimization**: Fixed duplicate database updates during bootstrap process
+    * Eliminated redundant database update that occurred both during bootstrap and update thread startup
+    * Streamlined bootstrap flow for cleaner startup sequence and reduced processing time
+
+### SDK Changes
 
 * **Shortcuts module**: Added convenience methods for common BGP data queries
     * `daily_ribs()` - Filter RIB files captured at midnight (00:00:00) for daily snapshots
@@ -17,8 +41,6 @@ None - This release maintains API compatibility with previous versions.
     * All shortcuts integrate seamlessly with existing filtering methods and support method chaining
     * Enhanced diversity algorithm selects collectors based on unique ASN coverage from full-feed peers
     * Project filtering supported for targeted RouteViews or RIPE RIS analysis
-
-### Code improvements
 
 * **Configuration validation**: Restructured parameter validation for better error handling
     * Moved validation from configuration time to query execution time

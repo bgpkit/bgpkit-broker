@@ -54,3 +54,57 @@ pub(crate) fn backup_database(
         )),
     }
 }
+
+pub(crate) async fn perform_periodic_backup(
+    from: &str,
+    backup_to: &str,
+    sqlite_cmd_path: Option<String>,
+) -> Result<(), String> {
+    info!("performing periodic backup from {} to {}", from, backup_to);
+
+    if crate::utils::is_local_path(backup_to) {
+        backup_database(from, backup_to, true, sqlite_cmd_path)
+    } else if let Some((bucket, s3_path)) = crate::utils::parse_s3_path(backup_to) {
+        perform_s3_backup(from, &bucket, &s3_path, sqlite_cmd_path).await
+    } else {
+        Err("invalid backup destination format".to_string())
+    }
+}
+
+async fn perform_s3_backup(
+    from: &str,
+    bucket: &str,
+    s3_path: &str,
+    sqlite_cmd_path: Option<String>,
+) -> Result<(), String> {
+    let temp_dir = tempfile::tempdir().map_err(|e| format!("failed to create temporary directory: {}", e))?;
+    let temp_file_path = temp_dir
+        .path()
+        .join("temp.db")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    match backup_database(from, &temp_file_path, true, sqlite_cmd_path) {
+        Ok(_) => {
+            info!(
+                "uploading backup file {} to S3 at s3://{}/{}",
+                &temp_file_path, bucket, s3_path
+            );
+            match oneio::s3_upload(bucket, s3_path, &temp_file_path) {
+                Ok(_) => {
+                    info!("periodic backup file uploaded to S3");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("failed to upload periodic backup file to S3: {}", e);
+                    Err(format!("failed to upload backup file to S3: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            error!("failed to create periodic backup database: {}", e);
+            Err(e)
+        }
+    }
+}
