@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased changes
 
+None
+
+## v0.8.0 - 2025-08-17
+
 ### Breaking Changes
 
 None - This release maintains API compatibility with previous versions.

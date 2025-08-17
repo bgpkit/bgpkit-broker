@@ -77,7 +77,8 @@ async fn perform_s3_backup(
     s3_path: &str,
     sqlite_cmd_path: Option<String>,
 ) -> Result<(), String> {
-    let temp_dir = tempfile::tempdir().map_err(|e| format!("failed to create temporary directory: {}", e))?;
+    let temp_dir =
+        tempfile::tempdir().map_err(|e| format!("failed to create temporary directory: {}", e))?;
     let temp_file_path = temp_dir
         .path()
         .join("temp.db")

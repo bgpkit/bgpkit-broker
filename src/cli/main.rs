@@ -23,7 +23,6 @@ use tabled::Table;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
-
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 #[clap(propagate_version = true)]
@@ -255,12 +254,12 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
 
 fn get_backup_interval() -> std::time::Duration {
     const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 24;
-    
+
     let hours = std::env::var("BGPKIT_BROKER_BACKUP_INTERVAL_HOURS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_BACKUP_INTERVAL_HOURS);
-    
+
     std::time::Duration::from_secs(hours * 60 * 60)
 }
 
@@ -412,11 +411,17 @@ fn display_configuration_summary(
                 if oneio::s3_env_check().is_err() {
                     error!("Backup: CONFIGURED to S3 ({}) every {} hours - WARNING: S3 environment variables not properly set", backup_to, interval_hours);
                 } else {
-                    info!("Backup: CONFIGURED to S3 ({}) every {} hours", backup_to, interval_hours);
+                    info!(
+                        "Backup: CONFIGURED to S3 ({}) every {} hours",
+                        backup_to, interval_hours
+                    );
                 }
             } else {
                 // Local backup
-                info!("Backup: CONFIGURED to local path ({}) every {} hours", backup_to, interval_hours);
+                info!(
+                    "Backup: CONFIGURED to local path ({}) every {} hours",
+                    backup_to, interval_hours
+                );
             }
         }
         Err(_) => {

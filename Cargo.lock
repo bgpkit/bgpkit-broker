@@ -346,7 +346,7 @@ checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
 name = "bgpkit-broker"
-version = "0.7.11"
+version = "0.8.0"
 dependencies = [
  "async-nats",
  "axum",

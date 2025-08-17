@@ -1,6 +1,6 @@
 [package]
 name = "bgpkit-broker"
-version = "0.7.11"
+version = "0.8.0"
 edition = "2021"
 authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
 readme = "README.md"
@@ -24,7 +24,12 @@ required-features = ["cli"]
 #############################################
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
-reqwest = { version = "0.12.7", default-features = false, features = ["blocking", "json", "stream", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12.7", default-features = false, features = [
+    "blocking",
+    "json",
+    "stream",
+    "rustls-tls-native-roots",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1.0"
@@ -64,29 +69,46 @@ http = { version = "1.0", optional = true }
 axum-prometheus = { version = "0.8.0", optional = true }
 
 # database dependencies
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"], optional = true }
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "sqlite",
+], optional = true }
 async-nats = { version = "0.40", optional = true }
 
 [features]
 default = []
 cli = [
     # command-line interface
-    "clap", "dirs", "humantime", "num_cpus", "tracing-subscriber", "tabled", "itertools", "tempfile", "which",
+    "clap",
+    "dirs",
+    "humantime",
+    "num_cpus",
+    "tracing-subscriber",
+    "tabled",
+    "itertools",
+    "tempfile",
+    "which",
     "bgpkit-commons",
     # crawler
-    "futures", "oneio", "regex", "scraper", "tokio",
+    "futures",
+    "oneio",
+    "regex",
+    "scraper",
+    "tokio",
     # notification
     "nats",
     # database
     "backend",
     # bootstrap
-    "indicatif", "futures-util",
+    "indicatif",
+    "futures-util",
     # API
-    "axum", "axum-prometheus", "http", "tower-http",
+    "axum",
+    "axum-prometheus",
+    "http",
+    "tower-http",
 ]
-backend = [
-    "tokio", "sqlx",
-]
+backend = ["tokio", "sqlx"]
 
 # notification features
 nats = ["async-nats"]
