@@ -4,7 +4,7 @@ mod bootstrap;
 mod utils;
 
 use crate::api::{start_api_service, BrokerSearchQuery};
-use crate::backup::backup_database;
+use crate::backup::{backup_database, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::get_missing_collectors;
 use bgpkit_broker::notifier::NatsNotifier;
@@ -24,7 +24,7 @@ use tabled::Table;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
-fn is_local_path(path: &str) -> bool {
+pub(crate) fn is_local_path(path: &str) -> bool {
     if path.contains("://") {
         return false;
     }
@@ -32,7 +32,7 @@ fn is_local_path(path: &str) -> bool {
     path.is_absolute() || path.is_relative()
 }
 
-fn parse_s3_path(path: &str) -> Option<(String, String)> {
+pub(crate) fn parse_s3_path(path: &str) -> Option<(String, String)> {
     // split a path like s3://bucket/path/to/file into (bucket, path/to/file)
     let parts = path.split("://").collect::<Vec<&str>>();
     if parts.len() != 2 || parts[0] != "s3" {
@@ -85,7 +85,7 @@ enum Commands {
         silent: bool,
 
         /// host address
-        #[clap(short = 'h', long, default_value = "0.0.0.0")]
+        #[clap(long, default_value = "0.0.0.0")]
         host: String,
 
         /// port number
@@ -277,6 +277,20 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
     Ok(())
 }
 
+async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
+    match dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
+        Ok(url) => {
+            info!("sending backup heartbeat to {}", &url);
+            reqwest::get(&url).await?.error_for_status()?;
+            Ok(())
+        }
+        Err(_) => {
+            info!("no backup heartbeat url specified, skipping");
+            Ok(())
+        }
+    }
+}
+
 /// update the database with data crawled from the given collectors
 async fn update_database(
     db: &mut LocalBrokerDb,
@@ -376,7 +390,76 @@ fn enable_logging() {
         .init();
 }
 
+fn display_configuration_summary(
+    do_update: bool,
+    do_api: bool,
+    update_interval: u64,
+    host: &str,
+    port: u16,
+) {
+    info!("=== BGPKIT Broker Configuration ===");
+
+    // Update service status
+    if do_update {
+        info!(
+            "Periodic updates: ENABLED (interval: {} seconds)",
+            update_interval
+        );
+    } else {
+        info!("Periodic updates: DISABLED");
+    }
+
+    // API service status
+    if do_api {
+        info!("API service: ENABLED ({}:{})", host, port);
+    } else {
+        info!("API service: DISABLED");
+    }
+
+    // Backup configuration
+    match std::env::var("BGPKIT_BROKER_BACKUP_TO") {
+        Ok(backup_to) => {
+            if oneio::s3_url_parse(&backup_to).is_ok() {
+                // S3 backup
+                if oneio::s3_env_check().is_err() {
+                    error!("Backup: CONFIGURED to S3 ({}) - WARNING: S3 environment variables not properly set", backup_to);
+                } else {
+                    info!("Backup: CONFIGURED to S3 ({})", backup_to);
+                }
+            } else {
+                // Local backup
+                info!("Backup: CONFIGURED to local path ({})", backup_to);
+            }
+        }
+        Err(_) => {
+            info!("Backup: DISABLED");
+        }
+    }
+
+    // Heartbeat configuration
+    let general_heartbeat = std::env::var("BGPKIT_BROKER_HEARTBEAT_URL").is_ok();
+    let backup_heartbeat = std::env::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL").is_ok();
+
+    match (general_heartbeat, backup_heartbeat) {
+        (true, true) => info!("Heartbeats: CONFIGURED (both general and backup)"),
+        (true, false) => info!("Heartbeats: CONFIGURED (general only)"),
+        (false, true) => info!("Heartbeats: CONFIGURED (backup only)"),
+        (false, false) => info!("Heartbeats: DISABLED"),
+    }
+
+    // NATS configuration
+    if std::env::var("BGPKIT_BROKER_NATS_URL").is_ok() {
+        info!("NATS notifications: CONFIGURED");
+    } else {
+        info!("NATS notifications: DISABLED");
+    }
+
+    info!("=====================================");
+}
+
 fn main() {
+    dotenvy::dotenv().ok();
+
     let cli = Cli::parse();
 
     let do_log = !cli.no_log;
@@ -409,8 +492,15 @@ fn main() {
             no_update,
             no_api,
         } => {
+            let do_update = !no_update;
+            let do_api = !no_api;
             if do_log {
                 enable_logging();
+            }
+
+            // Display configuration summary
+            if do_log {
+                display_configuration_summary(do_update, do_api, update_interval, &host, port);
             }
 
             if std::fs::metadata(&db_path).is_err() {
@@ -425,12 +515,7 @@ fn main() {
                         );
                         download_file(&from, &db_path, silent).await.unwrap();
 
-                        if !no_update {
-                            info!("first update after bootstrap...");
-                            let mut db = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
-                            let collectors = load_collectors().unwrap();
-                            update_database(&mut db, collectors.clone(), None, &None, true).await;
-                        }
+                        // The update thread will handle the first update
                     });
                 } else {
                     error!(
@@ -453,9 +538,11 @@ fn main() {
 
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
-            if !no_update {
+            if do_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
                 let path = db_path.clone();
+                let backup_to = std::env::var("BGPKIT_BROKER_BACKUP_TO").ok();
+                let backup_to_clone = backup_to.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
@@ -470,30 +557,90 @@ fn main() {
                         };
 
                         let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
-                        let mut interval =
+                        let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
-                        // the first tick happens wihtout waiting
-                        interval.tick().await;
+
+                        // track last backup time for daily backups
+                        let mut last_backup_time = std::time::Instant::now();
+
+                        // the first tick happens without waiting
+                        update_interval_timer.tick().await;
 
                         // first execution
                         update_database(&mut db, collectors.clone(), None, &notifier, true).await;
                         db.analyze().await.unwrap();
+                        // perform initial backup if configured
+                        if let Some(ref backup_destination) = backup_to_clone {
+                            info!("performing initial backup after first update...");
+                            match perform_periodic_backup(&path, backup_destination, None).await {
+                                Ok(_) => {
+                                    info!("initial backup completed successfully");
+                                    last_backup_time = std::time::Instant::now();
+
+                                    // send backup heartbeat if configured
+                                    if let Err(e) = try_send_backup_heartbeat().await {
+                                        error!("failed to send backup heartbeat: {}", e);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("initial backup failed: {}", e);
+                                }
+                            }
+                        }
+
                         ready_tx.send(()).unwrap();
                         loop {
-                            interval.tick().await;
+                            update_interval_timer.tick().await;
+
                             // updating from the latest data available
                             update_database(&mut db, collectors.clone(), None, &notifier, true)
                                 .await;
+
+                            // check if backup is needed (daily)
+                            if let Some(ref backup_destination) = backup_to_clone {
+                                let now = std::time::Instant::now();
+                                let backup_interval = std::time::Duration::from_secs(24 * 60 * 60); // 24 hours
+
+                                if now.duration_since(last_backup_time) >= backup_interval {
+                                    info!("starting daily backup procedure...");
+                                    match perform_periodic_backup(&path, backup_destination, None)
+                                        .await
+                                    {
+                                        Ok(_) => {
+                                            info!("daily backup completed successfully");
+                                            last_backup_time = now;
+
+                                            // send backup heartbeat if configured
+                                            if let Err(e) = try_send_backup_heartbeat().await {
+                                                error!("failed to send backup heartbeat: {}", e);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("daily backup failed: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
                 });
+
+                if backup_to.is_some() {
+                    info!(
+                        "periodic backup enabled, backing up to: {}",
+                        backup_to.as_ref().unwrap()
+                    );
+                } else {
+                    info!("BGPKIT_BROKER_BACKUP_TO not set, periodic backup disabled");
+                }
             }
 
-            if !no_api {
+            if do_api {
                 let rt = get_tokio_runtime();
                 rt.block_on(async {
-                    if !no_update {
+                    if do_update {
                         // if update is enabled,
                         // we wait for the first update to complete before proceeding
                         ready_rx.await.unwrap();
@@ -608,11 +755,11 @@ fn main() {
                 }
             }
 
-            if let Ok(url) = dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
-                get_tokio_runtime().block_on(async {
-                    try_send_heartbeat(Some(url)).await.unwrap();
-                });
-            }
+            get_tokio_runtime().block_on(async {
+                if let Err(e) = try_send_backup_heartbeat().await {
+                    error!("failed to send backup heartbeat: {}", e);
+                }
+            });
         }
         Commands::Update { db_path, days } => {
             if std::fs::metadata(&db_path).is_err() {
@@ -769,7 +916,6 @@ fn main() {
             subject,
             pretty,
         } => {
-            dotenvy::dotenv().ok();
             if do_log {
                 enable_logging();
             }
