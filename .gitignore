@@ -10,3 +10,4 @@
 *.parquet
 /.env
 .claude
+CLAUDE.md

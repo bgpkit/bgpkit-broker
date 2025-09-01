@@ -56,7 +56,7 @@ and [route leak detection][route-leak].
 Add the following dependency to your `Cargo.toml`:
 
 ```toml
-bgpkit-broker = "0.7"
+bgpkit-broker = "0.8"
 ```
 
 ### Overview
