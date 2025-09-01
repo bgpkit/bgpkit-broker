@@ -4,7 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased changes
 
-None
+### Improvements
+
+* Updated dependencies to the latest versions
+
+### Bug fixes
+
+* Fixed incorrect database initialization schema error
+
+### Data updates
+
+* Added getafix.mnl collector
+* Added ix-br2.gru collector
 
 ## v0.8.0 - 2025-08-17
 
@@ -40,7 +51,7 @@ None - This release maintains API compatibility with previous versions.
 
 * **Shortcuts module**: Added convenience methods for common BGP data queries
     * `daily_ribs()` - Filter RIB files captured at midnight (00:00:00) for daily snapshots
-    * `recent_updates(hours)` - Get BGP update files from the last N hours 
+    * `recent_updates(hours)` - Get BGP update files from the last N hours
     * `most_diverse_collectors(n, project)` - Find collectors with maximum ASN diversity using greedy algorithm
     * All shortcuts integrate seamlessly with existing filtering methods and support method chaining
     * Enhanced diversity algorithm selects collectors based on unique ASN coverage from full-feed peers
@@ -59,7 +70,8 @@ None - This release maintains API compatibility with previous versions.
     * Tests now run significantly faster while maintaining coverage and functionality
 
 * **Timestamp parsing**: Enhanced timestamp parsing with timezone support and better validation
-    * Added support for RFC3339 timestamps with timezone offsets (e.g., `2022-01-01T00:00:00+00:00`, `2022-01-01T05:00:00-05:00`)
+    * Added support for RFC3339 timestamps with timezone offsets (e.g., `2022-01-01T00:00:00+00:00`,
+      `2022-01-01T05:00:00-05:00`)
     * Support for pure dates (e.g., `2022-01-01`), Unix timestamps, RFC3339 formats, and various date separators
     * Internal `parse_timestamp` function now returns `DateTime<Utc>` with proper timezone conversion
     * Validation occurs at query time with helpful error messages for invalid timestamp formats
