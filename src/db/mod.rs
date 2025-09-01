@@ -82,7 +82,7 @@ impl LocalBrokerDb {
                 name TEXT,
                 url TEXT,
                 project TEXT,
-                update_interval INTEGER
+                updates_interval INTEGER
                 );
 
             CREATE TABLE IF NOT EXISTS types (
