@@ -14,8 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Data updates
 
-* Added getafix.mnl collector (Malta)
-* Added ix-br2.gru collector (Brazil)
+* Added getafix.mnl collector
+* Added ix-br2.gru collector
 
 ## v0.8.0 - 2025-08-17
 
