@@ -375,6 +375,14 @@ lazy_static! {
         {
           "id":"namex.fco",
           "url": "https://archive.routeviews.org/namex.fco/bgpdata"
+        },
+        {
+          "id":"getafix.mnl",
+          "url": "http://archive.routeviews.org/getafix.mnl/bgpdata"
+        },
+        {
+          "id":"ix-br2.gru",
+          "url": "http://archive.routeviews.org/ix-br2.gru/bgpdata"
         }
       ]
     }
