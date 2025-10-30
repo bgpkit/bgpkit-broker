@@ -383,6 +383,10 @@ lazy_static! {
         {
           "id":"ix-br2.gru",
           "url": "http://archive.routeviews.org/ix-br2.gru/bgpdata"
+        },
+        {
+          "id":"hkix.hkg",
+          "url": "http://archive.routeviews.org/hkix.hkg/bgpdata"
         }
       ]
     }
