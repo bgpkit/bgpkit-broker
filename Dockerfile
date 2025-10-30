@@ -1,5 +1,5 @@
 # select build image
-FROM rust:1.85.1 AS build
+FROM rust:1.90.0 AS build
 
 # create a new empty shell project
 RUN USER=root cargo new --bin my_project
@@ -13,7 +13,7 @@ COPY ./Cargo.toml .
 RUN cargo build --release --all-features
 
 # our final base
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # copy the build artifact from the build stage
 COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit-broker
