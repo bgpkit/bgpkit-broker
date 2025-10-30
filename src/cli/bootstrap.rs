@@ -6,8 +6,10 @@ use std::cmp::min;
 use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
+use tracing::info;
 
 pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), String> {
+    info!("downloading bootstrap database file {} to {}", &url, &path);
     let client = reqwest::ClientBuilder::new()
         .user_agent("bgpkit-broker/3")
         .connect_timeout(Duration::from_secs(30))
@@ -52,5 +54,6 @@ pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), St
     if !silent {
         pb.finish_with_message(format!("Downloading {} to {}... Done", url, path));
     }
+    info!("bootstrap download finished");
     Ok(())
 }
