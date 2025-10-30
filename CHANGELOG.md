@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.0 - 2025-10-30
+
+### SDK Changes
+
+* **Total count support**: Added `query_total_count()` method to fetch total matching item count
+    * New `query_total_count()` method returns total count without fetching items
+    * `BrokerQueryResult` now includes optional `total` field for pagination support
+    * Enables efficient count queries for pagination UI components
+
+### API Changes
+
+* **Search result enhancement**: Added `total` field to `/v3/search` endpoint response
+    * API now returns the total count of matching items alongside paginated results
+    * `BrokerSearchResult` includes `total` field for client-side pagination
+
+### Code Improvements
+
+* Refactored bootstrap download logging to centralize and clean redundant code
+* Updated oneio dependency to version 0.20.0 with specific features
+
+### Data Updates
+
+* Added the following recent RouteViews collectors:
+    * `hkix.hkg`
+    * `ix-br.gru`
+
 ## v0.8.1 - 2025-09-01
 
 ### Improvements
