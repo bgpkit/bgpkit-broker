@@ -62,6 +62,7 @@ pub struct BrokerHealthQueryParams {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerSearchResult {
+    pub total: usize,
     pub count: usize,
     pub page: usize,
     pub page_size: usize,
@@ -191,7 +192,7 @@ async fn search(
         .as_ref()
         .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
 
-    let items = match state
+    let search_result = match state
         .database
         .search(
             collectors,
@@ -204,7 +205,7 @@ async fn search(
         )
         .await
     {
-        Ok(items) => items,
+        Ok(result) => result,
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -230,11 +231,12 @@ async fn search(
         });
 
     Json(BrokerSearchResult {
-        count: items.len(),
+        total: search_result.total,
+        count: search_result.items.len(),
         page,
         page_size,
         error: None,
-        data: items,
+        data: search_result.items,
         meta,
     })
     .into_response()
@@ -256,6 +258,7 @@ async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         });
 
     Json(BrokerSearchResult {
+        total: items.len(),
         count: items.len(),
         page: 0,
         page_size: items.len(),

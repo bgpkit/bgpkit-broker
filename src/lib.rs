@@ -1204,7 +1204,6 @@ mod tests {
         let broker = BgpkitBroker::new()
             .ts_start("1634693400")
             .ts_end("1634693400");
-
         assert!(broker.into_iter().count() >= 54);
     }
 

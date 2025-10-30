@@ -25,6 +25,13 @@ pub struct LocalBrokerDb {
     types: Vec<BrokerItemType>,
 }
 
+pub struct DbSearchResult {
+    pub items: Vec<BrokerItem>,
+    pub page: usize,
+    pub page_size: usize,
+    pub total: usize,
+}
+
 fn get_ts_start_clause(ts: i64) -> String {
     format!(
         r#"
@@ -175,7 +182,7 @@ impl LocalBrokerDb {
         ts_end: Option<NaiveDateTime>,
         page: Option<usize>,
         page_size: Option<usize>,
-    ) -> Result<Vec<BrokerItem>, BrokerError> {
+    ) -> Result<DbSearchResult, BrokerError> {
         let mut where_clauses: Vec<String> = vec![];
         if let Some(collectors) = collectors {
             if !collectors.is_empty() {
@@ -255,6 +262,25 @@ impl LocalBrokerDb {
             _ => format!("LIMIT {} OFFSET {}", limit, offset),
         };
 
+        // Build the WHERE clause string once to use in both queries
+        let where_clause_str = match where_clauses.len() {
+            0 => "".to_string(),
+            _ => format!("WHERE {}", where_clauses.join(" AND ")),
+        };
+
+        // First query: Get total count
+        let count_query = format!(
+            "SELECT COUNT(*) as total FROM files_view {}",
+            where_clause_str
+        );
+        debug!("Count query: {}", count_query.as_str());
+
+        let total_count = sqlx::query(count_query.as_str())
+            .map(|row: SqliteRow| row.get::<i64, _>("total") as usize)
+            .fetch_one(&self.conn_pool)
+            .await?;
+
+        // Second query: Get paginated results
         let query_string = format!(
             r#"
             SELECT collector_name, collector_url, project_name, timestamp, type, rough_size, exact_size, updates_interval
@@ -263,13 +289,9 @@ impl LocalBrokerDb {
             ORDER BY timestamp ASC, type, collector_name
             {}
             "#,
-            match where_clauses.len() {
-                0 => "".to_string(),
-                _ => format!("WHERE {}", where_clauses.join(" AND ")),
-            },
-            limit_clause,
+            where_clause_str, limit_clause,
         );
-        debug!("{}", query_string.as_str());
+        debug!("Data query: {}", query_string.as_str());
 
         let collector_name_to_info = self
             .collectors
@@ -305,7 +327,13 @@ impl LocalBrokerDb {
             })
             .fetch_all(&self.conn_pool)
             .await?;
-        Ok(items)
+
+        Ok(DbSearchResult {
+            items,
+            page: page.unwrap_or(1),
+            page_size: page_size.unwrap_or(DEFAULT_PAGE_SIZE),
+            total: total_count,
+        })
     }
 
     /// Runs the SQLite `ANALYZE` command on the database connection pool.
@@ -525,7 +553,7 @@ mod tests {
         // The important thing is that the call succeeds
 
         // Test search with filters
-        let items = db
+        let result = db
             .search(
                 Some(vec!["rrc21".to_string(), "route-views2".to_string()]),
                 None,
@@ -538,7 +566,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(items.is_empty()); // No data in fresh database
+        assert!(result.items.is_empty()); // No data in fresh database
+        assert_eq!(result.total, 0); // Total should also be 0
 
         // Cleanup
         drop(db);
