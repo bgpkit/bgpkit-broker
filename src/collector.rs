@@ -381,6 +381,10 @@ lazy_static! {
           "url": "http://archive.routeviews.org/getafix.mnl/bgpdata"
         },
         {
+          "id":"ix-br.gru",
+          "url": "http://archive.routeviews.org/ix-br.gru/bgpdata"
+        },
+        {
           "id":"ix-br2.gru",
           "url": "http://archive.routeviews.org/ix-br2.gru/bgpdata"
         },
