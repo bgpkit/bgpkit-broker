@@ -502,12 +502,7 @@ fn main() {
                     let rt = get_tokio_runtime();
                     let from = BOOTSTRAP_URL.to_string();
                     rt.block_on(async {
-                        info!(
-                            "downloading bootstrap database file {} to {}",
-                            &from, &db_path
-                        );
                         download_file(&from, &db_path, silent).await.unwrap();
-
                         // The update thread will handle the first update
                     });
                 } else {
@@ -663,10 +658,6 @@ fn main() {
             // download the database file
             let rt = get_tokio_runtime();
             rt.block_on(async {
-                info!(
-                    "downloading bootstrap database file {} to {}",
-                    &from, &db_path
-                );
                 download_file(&from, &db_path, silent).await.unwrap();
             });
         }
@@ -698,10 +689,6 @@ fn main() {
                 // download the database file
                 let collectors = load_collectors().unwrap();
                 get_tokio_runtime().block_on(async {
-                    info!(
-                        "downloading bootstrap database file {} to {}",
-                        &bootstrap_url, &from
-                    );
                     download_file(&bootstrap_url, &from, true).await.unwrap();
                     let mut db = LocalBrokerDb::new(&from).await.unwrap();
                     update_database(&mut db, collectors, None, &None, false).await;
