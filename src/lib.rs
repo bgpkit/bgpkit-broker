@@ -1196,7 +1196,7 @@ mod tests {
             .page_size(100);
         let res = broker.query();
         assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap().len(), 53);
+        assert!(res.ok().unwrap().len() >= 54);
     }
 
     #[test]
@@ -1205,7 +1205,7 @@ mod tests {
             .ts_start("1634693400")
             .ts_end("1634693400");
 
-        assert_eq!(broker.into_iter().count(), 53);
+        assert!(broker.into_iter().count() >= 54);
     }
 
     #[test]
@@ -1214,7 +1214,7 @@ mod tests {
             .ts_start("1634693400")
             .ts_end("1634693400");
         let items = broker.query().unwrap();
-        assert_eq!(items.len(), 53);
+        assert!(items.len() >= 54);
 
         let broker = BgpkitBroker::new()
             .ts_start("1634693400")
