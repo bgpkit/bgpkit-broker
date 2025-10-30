@@ -233,6 +233,7 @@ impl QueryParams {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerCollector {
@@ -243,6 +244,7 @@ pub struct BrokerCollector {
     pub updates_interval: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "cli", derive(tabled::Tabled))]
 pub struct BrokerItemType {
@@ -262,6 +264,8 @@ pub(crate) struct CollectorLatestResult {
 /// Query result struct that contains data or error message
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct BrokerQueryResult {
+    /// total number of items
+    pub total: Option<i64>,
     /// number of items returned in **current** call
     pub count: Option<i64>,
     /// the page number of the current call

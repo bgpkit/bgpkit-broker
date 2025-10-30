@@ -759,7 +759,41 @@ impl BgpkitBroker {
         let url = format!("{}/search{}", &self.broker_url, &validated_params);
         log::info!("sending broker query to {}", &url);
         match self.run_files_query(url.as_str()) {
-            Ok(res) => Ok(res),
+            Ok(res) => Ok(res.data),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Query the total count of items matching the current search criteria without fetching the items.
+    ///
+    /// This method is useful when you need to know how many items match your search criteria
+    /// without downloading all the items. It performs the same validation as a regular query
+    /// but only returns the count.
+    ///
+    /// # Returns
+    /// - `Ok(i64)`: The total number of matching items
+    /// - `Err(BrokerError)`: If the query fails or the count is missing from the response
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use bgpkit_broker::BgpkitBroker;
+    ///
+    /// let broker = BgpkitBroker::new()
+    ///     .ts_start("2024-01-01")
+    ///     .ts_end("2024-01-02")
+    ///     .collector_id("route-views2");
+    ///
+    /// let count = broker.query_total_count().unwrap();
+    /// println!("Found {} matching items", count);
+    /// ```
+    pub fn query_total_count(&self) -> Result<i64, BrokerError> {
+        let validated_params = self.validate_configuration()?;
+        let url = format!("{}/search{}", &self.broker_url, &validated_params);
+        match self.run_files_query(url.as_str()) {
+            Ok(res) => res.total.ok_or(BrokerError::BrokerError(
+                "count not found in response".to_string(),
+            )),
             Err(e) => Err(e),
         }
     }
@@ -817,7 +851,7 @@ impl BgpkitBroker {
         loop {
             let url = format!("{}/search{}", &self.broker_url, &p);
 
-            let res_items = self.run_files_query(url.as_str())?;
+            let res_items = self.run_files_query(url.as_str())?.data;
 
             let items_count = res_items.len() as i64;
 
@@ -1034,7 +1068,7 @@ impl BgpkitBroker {
         Ok(peers)
     }
 
-    fn run_files_query(&self, url: &str) -> Result<Vec<BrokerItem>, BrokerError> {
+    fn run_files_query(&self, url: &str) -> Result<BrokerQueryResult, BrokerError> {
         log::info!("sending broker query to {}", &url);
         match self.client.get(url).send() {
             Ok(res) => match res.json::<BrokerQueryResult>() {
@@ -1042,7 +1076,7 @@ impl BgpkitBroker {
                     if let Some(e) = res.error {
                         Err(BrokerError::BrokerError(e))
                     } else {
-                        Ok(res.data)
+                        Ok(res)
                     }
                 }
                 Err(e) => {

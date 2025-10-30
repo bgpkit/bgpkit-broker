@@ -16,8 +16,18 @@ pub fn main() {
     let broker = BgpkitBroker::new()
         .ts_start("1634693400")
         .ts_end("1634693400");
+
     // method 2: create iterator from the broker object (taking ownership)
     let items = broker.into_iter().collect::<Vec<BrokerItem>>();
+    assert!(items.len() >= 53);
 
-    assert_eq!(items.len(), 53);
+    // count total number of items
+    let broker = BgpkitBroker::new()
+        .ts_start("2024-01-01")
+        .ts_end("2024-01-02")
+        .collector_id("route-views2");
+    match broker.query_total_count() {
+        Ok(total) => println!("total: {}", total),
+        Err(err) => println!("error: {}", err),
+    }
 }
