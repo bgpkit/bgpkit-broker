@@ -391,6 +391,10 @@ lazy_static! {
         {
           "id":"hkix.hkg",
           "url": "http://archive.routeviews.org/hkix.hkg/bgpdata"
+        },
+        {
+          "id":"netnod.mmx",
+          "url": "http://archive.routeviews.org/netnod.mmx/bgpdata"
         }
       ]
     }
