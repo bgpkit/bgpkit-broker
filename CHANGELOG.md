@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
 * add RouteViews `netnod.mmx` collector to the supported collectors list
     * official RouteViews news: https://www.routeviews.org/routeviews/2025/11/04/new-collector-at-netnod-stockholm-sweden-copenhagen-denmark/
 
+### SDK improvements
+
+* add user-agent with SDK library version to HTTP requests
+
 ### CLI improvements
 
 * `bgpkit-broker serve` now starts the API server before the initial backup is complete, reducing starting time significantly

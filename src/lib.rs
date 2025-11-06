@@ -233,16 +233,24 @@ impl Default for BgpkitBroker {
         };
 
         let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
-        let client = match std::env::var("ONEIO_ACCEPT_INVALID_CERTS")
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str()
+
+        let accept_invalid_certs = match std::env::var("ONEIO_ACCEPT_INVALID_CERTS") {
+            Ok(t) => {
+                let l = t.to_lowercase();
+                l.starts_with("true") || l.starts_with("y")
+            }
+            Err(_) => false,
+        };
+
+        let client = match reqwest::blocking::ClientBuilder::new()
+            .danger_accept_invalid_certs(accept_invalid_certs)
+            .user_agent(concat!("bgpkit-broker/", env!("CARGO_PKG_VERSION")))
+            .build()
         {
-            "true" | "yes" | "y" => reqwest::blocking::ClientBuilder::new()
-                .danger_accept_invalid_certs(true)
-                .build()
-                .unwrap(),
-            _ => reqwest::blocking::Client::new(),
+            Ok(c) => c,
+            Err(e) => {
+                panic!("Failed to build HTTP client for broker requests: {}", e);
+            }
         };
 
         Self {
