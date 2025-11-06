@@ -557,6 +557,10 @@ fn main() {
                         // first execution
                         update_database(&mut db, collectors.clone(), None, &notifier, true).await;
                         db.analyze().await.unwrap();
+
+                        // sending readiness signal; API can start now
+                        ready_tx.send(()).unwrap();
+
                         // perform initial backup if configured
                         if let Some(ref backup_destination) = backup_to_clone {
                             info!("performing initial backup after first update...");
@@ -576,7 +580,6 @@ fn main() {
                             }
                         }
 
-                        ready_tx.send(()).unwrap();
                         loop {
                             update_interval_timer.tick().await;
 
