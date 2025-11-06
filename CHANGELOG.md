@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.1 - 2025-11-05
+
+### New collector
+
+* add RouteViews `netnod.mmx` collector to the supported collectors list
+    * official RouteViews news: https://www.routeviews.org/routeviews/2025/11/04/new-collector-at-netnod-stockholm-sweden-copenhagen-denmark/
+
 ## v0.9.0 - 2025-10-30
 
 ### SDK Changes
