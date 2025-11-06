@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.
 
 * `bgpkit-broker serve` now starts the API server before the initial backup is complete, reducing starting time significantly
 
+### Bug fixes
+
+* **Collector validation improvements**: Fixed collector ID validation to be truly permissive
+    * Unknown/new collectors are now allowed (permissive behavior as intended)
+    * Collector IDs are properly normalized (trimmed, deduplicated, comma-joined)
+    * Fixed multi-collector filtering in `latest()` method to correctly handle comma-separated lists
+    * Example: `.collector_id("rrc00,route-views2")` now correctly matches items from either collector
+
 ## v0.9.0 - 2025-10-30
 
 ### SDK Changes

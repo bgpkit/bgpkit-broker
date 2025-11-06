@@ -209,7 +209,7 @@ pub use error::BrokerError;
 pub use item::BrokerItem;
 pub use peer::BrokerPeer;
 pub use query::{QueryParams, SortOrder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::IpAddr;
 
@@ -405,19 +405,31 @@ impl BgpkitBroker {
                 Some(parsed_datetime.format("%Y-%m-%dT%H:%M:%SZ").to_string());
         }
 
-        // Validate collectors
+        // Permissive collector validation: normalize only, no network I/O
         if let Some(collector_str) = &self.query_params.collector_id {
-            let collectors: Vec<&str> = collector_str.split(',').map(|s| s.trim()).collect();
-            for collector in &collectors {
-                if !self.collector_project_map.contains_key(*collector) {
-                    let valid_collectors: Vec<String> =
-                        self.collector_project_map.keys().cloned().collect();
-                    return Err(BrokerError::ConfigurationError(format!(
-                        "Invalid collector ID '{collector}'. Valid collectors are: {}",
-                        valid_collectors.join(", ")
-                    )));
+            let collectors: Vec<String> = collector_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+
+            if collectors.is_empty() {
+                return Err(BrokerError::ConfigurationError(
+                    "Collector ID cannot be empty".to_string(),
+                ));
+            }
+
+            // Deduplicate while preserving order
+            let mut seen = HashSet::new();
+            let mut deduped = Vec::with_capacity(collectors.len());
+            for c in collectors {
+                if seen.insert(c.clone()) {
+                    deduped.push(c);
                 }
             }
+
+            normalized_params.collector_id = Some(deduped.join(","));
         }
 
         // Validate project
@@ -948,8 +960,14 @@ impl BgpkitBroker {
             }
 
             if let Some(collector_id) = &self.query_params.collector_id {
-                if item.collector_id.as_str() != collector_id.as_str() {
-                    matches = false
+                let wanted: HashSet<&str> = collector_id
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if !wanted.contains(item.collector_id.as_str()) {
+                    return false;
                 }
             }
 
@@ -1556,28 +1574,29 @@ mod tests {
     fn test_collector_id_validation() {
         let broker = BgpkitBroker::new();
 
-        // Valid single collector - no error at configuration time
+        // Valid single collector - no error at validation time
         let broker_valid = broker.clone().collector_id("rrc00");
         let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Valid multiple collectors - no error at configuration time
+        // Valid multiple collectors - no error at validation time
         let broker_valid = broker.clone().collector_id("rrc00,route-views2");
         let result = broker_valid.validate_configuration();
         assert!(result.is_ok());
 
-        // Invalid collector - error occurs at validation
-        let broker_invalid = broker.clone().collector_id("invalid-collector");
-        let result = broker_invalid.validate_configuration();
-        assert!(result.is_err());
-        assert!(matches!(
-            result.err(),
-            Some(BrokerError::ConfigurationError(_))
-        ));
+        // Unknown collector should be allowed (permissive behavior)
+        let broker_unknown = broker.clone().collector_id("brand-new-collector");
+        let result = broker_unknown.validate_configuration();
+        assert!(result.is_ok());
 
-        // Mixed valid and invalid collectors - error occurs at validation
-        let broker_invalid = broker.clone().collector_id("rrc00,invalid-collector");
-        let result = broker_invalid.validate_configuration();
+        // Mixed known and unknown collectors should be allowed
+        let broker_mixed = broker.clone().collector_id("rrc00,brand-new-collector");
+        let result = broker_mixed.validate_configuration();
+        assert!(result.is_ok());
+
+        // Empty/whitespace-only should error
+        let broker_empty = broker.clone().collector_id(", ,  ,");
+        let result = broker_empty.validate_configuration();
         assert!(result.is_err());
         assert!(matches!(
             result.err(),
