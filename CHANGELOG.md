@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.2 - 2025-11-18
+
+### New collector
+
+* add RouteViews `iix.cgk` collector to the supported collectors list
+    * official RouteViews news: https://www.routeviews.org/routeviews/2025/11/14/new-collector-at-iix-jakarta-indonesia/
+
+### Cli improvements
+
+* fixed a shorthand parameter collision for `bgpkit-broker search` command
+  * associated `-D` for `--data-type`, and `-d` for `--duration`
+
 ## v0.9.1 - 2025-11-05
 
 ### New collector

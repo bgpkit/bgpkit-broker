@@ -1,6 +1,6 @@
 [package]
 name = "bgpkit-broker"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
 readme = "README.md"
