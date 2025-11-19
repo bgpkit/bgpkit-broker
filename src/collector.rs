@@ -373,6 +373,10 @@ lazy_static! {
           "url": "https://archive.routeviews.org/kinx.icn/bgpdata"
         },
         {
+          "id": "iix.cgk",
+          "url": "https://archive.routeviews.org/iix.cgk/bgpdata"
+        },
+        {
           "id":"namex.fco",
           "url": "https://archive.routeviews.org/namex.fco/bgpdata"
         },
