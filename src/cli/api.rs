@@ -42,7 +42,7 @@ pub struct BrokerSearchQuery {
     pub collector_id: Option<String>,
 
     /// filter by data types, i.e. 'updates', 'rib'.
-    #[clap(short, long)]
+    #[clap(short = 'D', long)]
     pub data_type: Option<String>,
 
     /// page number
