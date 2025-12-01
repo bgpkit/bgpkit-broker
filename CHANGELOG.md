@@ -20,11 +20,20 @@ All notable changes to this project will be documented in this file.
     * Warns users if backup configuration is set but database is remote
 * `bgpkit-broker backup` remains local-only (use Turso's built-in backup for remote)
 * `bgpkit-broker bootstrap` remains local-only
+* Removed all `.unwrap()` calls in CLI for better error handling with remote databases
+
+### Crawler improvements
+
+* Added retry logic with exponential backoff for failed HTTP requests
+    * Default: 3 retries with 1 second initial backoff (doubles each retry)
+    * Configurable via environment variables
 
 ### Environment variables
 
 * New: `TURSO_DATABASE_URL` - Remote Turso database URL (optional)
 * New: `TURSO_AUTH_TOKEN` - Remote Turso authentication token (optional)
+* New: `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum retry attempts for crawls (default: 3)
+* New: `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff in milliseconds (default: 1000)
 
 ## v0.9.2 - 2025-11-18
 

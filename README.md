@@ -229,6 +229,10 @@ Additional peer filters:
 - `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password
 - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` - NATS root subject (default: `public.broker`)
 
+**Crawler Configuration:**
+- `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum retry attempts for failed crawls (default: 3)
+- `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff duration in milliseconds (default: 1000)
+
 **Turso Database Configuration (for remote database mode):**
 - `TURSO_DATABASE_URL` - Turso database URL (e.g., `libsql://your-database.turso.io`)
 - `TURSO_AUTH_TOKEN` - Turso authentication token
