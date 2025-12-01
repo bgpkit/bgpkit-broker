@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased changes
+
+### Crawler improvements
+
+* Added retry logic with exponential backoff for failed HTTP requests during crawling
+    * Default: 3 retries with 1 second initial backoff (doubles each retry: 1s, 2s, 4s)
+    * Configurable via `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` and `BGPKIT_BROKER_CRAWLER_BACKOFF_MS`
+
+### Database maintenance
+
+* Added automatic cleanup of old meta table entries
+    * Entries older than 30 days are automatically deleted after each database update
+    * Configurable via `BGPKIT_BROKER_META_RETENTION_DAYS`
+
 ## v0.9.2 - 2025-11-18
 
 ### New collector

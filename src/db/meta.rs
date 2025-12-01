@@ -2,7 +2,19 @@ use crate::{BrokerError, LocalBrokerDb};
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
-use tracing::debug;
+use tracing::{debug, info};
+
+/// Default number of days to retain meta entries.
+const DEFAULT_META_RETENTION_DAYS: i64 = 30;
+
+/// Get the number of days to retain meta entries.
+/// Default is 30 days. Can be configured via BGPKIT_BROKER_META_RETENTION_DAYS.
+fn get_meta_retention_days() -> i64 {
+    std::env::var("BGPKIT_BROKER_META_RETENTION_DAYS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_META_RETENTION_DAYS)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdatesMeta {
@@ -83,5 +95,37 @@ impl LocalBrokerDb {
         .fetch_one(&self.conn_pool)
         .await?;
         Ok(count)
+    }
+
+    /// Deletes meta table entries older than the configured retention period.
+    ///
+    /// # Environment Variables
+    /// * `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
+    ///
+    /// # Returns
+    /// * `Ok(u64)` - Number of deleted entries
+    /// * `Err(BrokerError)` - If there is an issue executing the query
+    pub async fn cleanup_old_meta_entries(&self) -> Result<u64, BrokerError> {
+        let retention_days = get_meta_retention_days();
+        let cutoff_ts = chrono::Utc::now().timestamp() - (retention_days * 24 * 60 * 60);
+
+        debug!(
+            "Cleaning up meta entries older than {} days (before timestamp {})",
+            retention_days, cutoff_ts
+        );
+
+        let result = sqlx::query(&format!("DELETE FROM meta WHERE update_ts < {}", cutoff_ts))
+            .execute(&self.conn_pool)
+            .await?;
+
+        let deleted = result.rows_affected();
+        if deleted > 0 {
+            info!(
+                "Cleaned up {} old meta entries (older than {} days)",
+                deleted, retention_days
+            );
+        }
+
+        Ok(deleted)
     }
 }
