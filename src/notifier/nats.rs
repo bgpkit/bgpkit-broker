@@ -131,7 +131,13 @@ impl NatsNotifier {
             Some(s) => match s.next().await {
                 None => None,
                 Some(msg) => {
-                    let msg_text = std::str::from_utf8(msg.payload.as_ref()).unwrap();
+                    let msg_text = match std::str::from_utf8(msg.payload.as_ref()) {
+                        Ok(text) => text,
+                        Err(e) => {
+                            error!("NATS message UTF-8 decode error: {}", e);
+                            return None;
+                        }
+                    };
                     match serde_json::from_str::<BrokerItem>(msg_text) {
                         Ok(item) => Some(item),
                         Err(_e) => {

@@ -55,21 +55,17 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
         let items = extract_link_size(body.as_str());
         items
             .iter()
-            .map(|(link, size)| {
+            .filter_map(|(link, size)| {
                 let url = match url.as_str().contains("https") {
                     true => format!("{}/{}", url, link),
                     false => format!("{}/{}", url, link).replace("http", "https"),
                 };
-                let updates_link_pattern: Regex = Regex::new(r".*(........\.....)\.gz.*").unwrap();
-                let time_str = updates_link_pattern
-                    .captures(&url)
-                    .unwrap()
-                    .get(1)
-                    .unwrap()
-                    .as_str();
-                let unix_time = NaiveDateTime::parse_from_str(time_str, "%Y%m%d.%H%M").unwrap();
+                let updates_link_pattern: Regex =
+                    Regex::new(r".*(........\.....)\.gz.*").expect("invalid regex pattern");
+                let time_str = updates_link_pattern.captures(&url)?.get(1)?.as_str();
+                let unix_time = NaiveDateTime::parse_from_str(time_str, "%Y%m%d.%H%M").ok()?;
                 match link.contains("update") {
-                    true => BrokerItem {
+                    true => Some(BrokerItem {
                         ts_start: unix_time,
                         ts_end: unix_time + chrono::Duration::seconds(5 * 60),
                         url: url.clone(),
@@ -77,8 +73,8 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                         collector_id: collector_id.clone(),
                         data_type: "updates".to_string(),
                         exact_size: 0,
-                    },
-                    false => BrokerItem {
+                    }),
+                    false => Some(BrokerItem {
                         ts_start: unix_time,
                         ts_end: unix_time,
                         url: url.clone(),
@@ -86,13 +82,13 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                         collector_id: collector_id.clone(),
                         data_type: "rib".to_string(),
                         exact_size: 0,
-                    },
+                    }),
                 }
             })
             .collect()
     })
     .await
-    .unwrap();
+    .expect("blocking task panicked");
 
     debug!("crawling data for {} ... finished", &new_url);
     Ok(data_items)

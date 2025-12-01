@@ -59,20 +59,15 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
             let items = extract_link_size(body.as_str());
             items
                 .iter()
-                .map(|(link, size)| {
+                .filter_map(|(link, size)| {
                     let url = format!("{}/{}", &url, link);
                     #[allow(clippy::regex_creation_in_loops)]
                     let link_time_pattern: Regex =
-                        Regex::new(r".*(........\.....)\.bz2.*").unwrap();
-                    let time_str = link_time_pattern
-                        .captures(&url)
-                        .unwrap()
-                        .get(1)
-                        .unwrap()
-                        .as_str();
-                    let unix_time = NaiveDateTime::parse_from_str(time_str, "%Y%m%d.%H%M").unwrap();
+                        Regex::new(r".*(........\.....)\.bz2.*").expect("invalid regex pattern");
+                    let time_str = link_time_pattern.captures(&url)?.get(1)?.as_str();
+                    let unix_time = NaiveDateTime::parse_from_str(time_str, "%Y%m%d.%H%M").ok()?;
                     match link.contains("update") {
-                        true => BrokerItem {
+                        true => Some(BrokerItem {
                             ts_start: unix_time,
                             ts_end: unix_time + chrono::Duration::seconds(15 * 60),
                             url: url.clone(),
@@ -80,8 +75,8 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                             collector_id: collector_id_clone.clone(),
                             data_type: "updates".to_string(),
                             exact_size: 0,
-                        },
-                        false => BrokerItem {
+                        }),
+                        false => Some(BrokerItem {
                             ts_start: unix_time,
                             ts_end: unix_time,
                             url: url.clone(),
@@ -89,13 +84,13 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                             collector_id: collector_id_clone.clone(),
                             data_type: "rib".to_string(),
                             exact_size: 0,
-                        },
+                        }),
                     }
                 })
                 .collect()
         })
         .await
-        .unwrap();
+        .expect("blocking task panicked");
         all_items.extend(data_items);
     }
 

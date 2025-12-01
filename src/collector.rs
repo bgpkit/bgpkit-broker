@@ -406,5 +406,5 @@ lazy_static! {
 }
     "#
     )
-    .unwrap();
+    .expect("invalid default collectors configuration");
 }

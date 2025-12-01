@@ -301,6 +301,7 @@ impl BgpkitBroker {
 
     /// DANGER: Accept invalid SSL certificates.
     pub fn accept_invalid_certs(self) -> Self {
+        #[allow(clippy::unwrap_used)]
         Self {
             broker_url: self.broker_url,
             query_params: self.query_params,
@@ -369,8 +370,9 @@ impl BgpkitBroker {
                     continue;
                 }
                 // Convert to start of day in UTC
-                let naive_datetime = date.and_hms_opt(0, 0, 0).unwrap();
-                return Ok(Utc.from_utc_datetime(&naive_datetime));
+                if let Some(naive_datetime) = date.and_hms_opt(0, 0, 0) {
+                    return Ok(Utc.from_utc_datetime(&naive_datetime));
+                }
             }
         }
 
@@ -1191,6 +1193,7 @@ impl Iterator for BrokerItemIterator {
             self.cached_items.reverse();
         }
 
+        #[allow(clippy::unwrap_used)]
         Some(self.cached_items.pop().unwrap())
     }
 }

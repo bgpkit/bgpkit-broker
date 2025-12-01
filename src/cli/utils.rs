@@ -20,36 +20,44 @@ pub fn get_missing_collectors(latest_items: &[BrokerItem]) -> Vec<CollectorInfo>
         .iter()
         .map(|i| i.collector_id.clone())
         .collect();
-    let all_collectors_map: HashMap<String, MrtCollector> =
-        bgpkit_commons::mrt_collectors::get_all_collectors()
-            .unwrap()
-            .into_iter()
-            .map(|c| (c.name.clone(), c))
-            .collect();
+
+    let all_collectors = match bgpkit_commons::mrt_collectors::get_all_collectors() {
+        Ok(collectors) => collectors,
+        Err(_) => return Vec::new(),
+    };
+
+    let all_collectors_map: HashMap<String, MrtCollector> = all_collectors
+        .into_iter()
+        .map(|c| (c.name.clone(), c))
+        .collect();
 
     let all_collector_names: HashSet<String> = all_collectors_map
         .values()
         .map(|c| c.name.clone())
         .collect();
 
+    let country_map = match bgpkit_commons::countries::Countries::new() {
+        Ok(map) => map,
+        Err(_) => return Vec::new(),
+    };
+
     // get the difference between the two sets
     let missing_collectors: Vec<CollectorInfo> = all_collector_names
         .difference(&latest_collectors)
-        .map(|c| {
+        .filter_map(|c| {
             // convert to CollectorInfo
-            let collector = all_collectors_map.get(c).unwrap();
-            let country_map = bgpkit_commons::countries::Countries::new().unwrap();
-            CollectorInfo {
+            let collector = all_collectors_map.get(c)?;
+            let country_name = country_map
+                .lookup_by_code(&collector.country)
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| collector.country.clone());
+            Some(CollectorInfo {
                 project: collector.project.to_string(),
                 name: collector.name.clone(),
-                country: country_map
-                    .lookup_by_code(&collector.country)
-                    .unwrap()
-                    .name
-                    .clone(),
+                country: country_name,
                 activated_on: collector.activated_on,
                 data_url: collector.data_url.clone(),
-            }
+            })
         })
         .sorted_by(|a, b| a.name.cmp(&b.name))
         .collect();

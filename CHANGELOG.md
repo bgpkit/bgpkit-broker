@@ -16,6 +16,14 @@ All notable changes to this project will be documented in this file.
     * Entries older than 30 days are automatically deleted after each database update
     * Configurable via `BGPKIT_BROKER_META_RETENTION_DAYS`
 
+### Code improvements
+
+* Replaced `.unwrap()` calls with proper error handling throughout the codebase
+    * CLI now handles errors gracefully with informative error messages
+    * Database operations log errors instead of panicking
+    * Crawlers skip malformed entries instead of crashing
+    * API endpoints handle invalid data gracefully
+
 ## v0.9.2 - 2025-11-18
 
 ### New collector

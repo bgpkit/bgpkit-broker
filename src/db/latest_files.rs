@@ -5,6 +5,7 @@ use chrono::{DateTime, NaiveDateTime};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use std::collections::HashMap;
+use tracing::error;
 
 use super::LocalBrokerDb;
 
@@ -26,7 +27,7 @@ impl LocalBrokerDb {
     }
 
     pub async fn bootstrap_latest_table(&self) {
-        sqlx::query(
+        if let Err(e) = sqlx::query(
             r#"
                 INSERT INTO "latest" ("timestamp", "collector_name", "type", "rough_size", "exact_size")
                 SELECT
@@ -54,7 +55,9 @@ impl LocalBrokerDb {
                         ELSE "latest"."exact_size"
                     END;
             "#
-        ).execute(&self.conn_pool).await.unwrap();
+        ).execute(&self.conn_pool).await {
+            error!("failed to bootstrap latest table: {}", e);
+        }
     }
 
     pub async fn update_latest_files(&self, files: &[BrokerItem], bootstrap: bool) {
@@ -115,10 +118,12 @@ impl LocalBrokerDb {
                     "#,
             value_str
         );
-        sqlx::query(query_str.as_str())
+        if let Err(e) = sqlx::query(query_str.as_str())
             .execute(&self.conn_pool)
             .await
-            .unwrap();
+        {
+            error!("failed to update latest files: {}", e);
+        }
     }
 
     pub async fn get_latest_files(&self) -> Vec<BrokerItem> {
@@ -127,32 +132,48 @@ impl LocalBrokerDb {
             .iter()
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
-        sqlx::query("select timestamp, collector_name, type, rough_size, exact_size from latest")
-            .map(|row: SqliteRow| {
-                let timestamp = row.get::<i64, _>(0);
-                let collector_name = row.get::<String, _>(1);
-                let type_name = row.get::<String, _>(2);
-                let rough_size = row.get::<i64, _>(3);
-                let exact_size = row.get::<i64, _>(4);
-                let collector = collector_name_to_info.get(&collector_name).unwrap();
+        match sqlx::query(
+            "select timestamp, collector_name, type, rough_size, exact_size from latest",
+        )
+        .map(|row: SqliteRow| {
+            let timestamp = row.get::<i64, _>(0);
+            let collector_name = row.get::<String, _>(1);
+            let type_name = row.get::<String, _>(2);
+            let rough_size = row.get::<i64, _>(3);
+            let exact_size = row.get::<i64, _>(4);
 
-                let is_rib = type_name.as_str() == "rib";
+            // Skip if collector not found
+            let collector = match collector_name_to_info.get(&collector_name) {
+                Some(c) => c,
+                None => return None,
+            };
 
-                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
-                let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
+            let is_rib = type_name.as_str() == "rib";
 
-                BrokerItem {
-                    ts_start,
-                    ts_end,
-                    collector_id: collector_name,
-                    data_type: type_name,
-                    url,
-                    rough_size,
-                    exact_size,
-                }
+            let ts_start = match DateTime::from_timestamp(timestamp, 0) {
+                Some(dt) => dt.naive_utc(),
+                None => return None,
+            };
+            let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
+
+            Some(BrokerItem {
+                ts_start,
+                ts_end,
+                collector_id: collector_name,
+                data_type: type_name,
+                url,
+                rough_size,
+                exact_size,
             })
-            .fetch_all(&self.conn_pool)
-            .await
-            .unwrap()
+        })
+        .fetch_all(&self.conn_pool)
+        .await
+        {
+            Ok(items) => items.into_iter().flatten().collect(),
+            Err(e) => {
+                error!("failed to get latest files: {}", e);
+                Vec::new()
+            }
+        }
     }
 }

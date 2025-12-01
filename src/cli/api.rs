@@ -150,7 +150,9 @@ async fn search(
             if let Some(duration_str) = &query.duration {
                 match humantime::parse_duration(duration_str.as_str()) {
                     Ok(d) => {
-                        ts_end = Some(start + chrono::Duration::from_std(d).unwrap());
+                        if let Ok(duration) = chrono::Duration::from_std(d) {
+                            ts_end = Some(start + duration);
+                        }
                     }
                     Err(_) => {
                         return (
@@ -169,7 +171,9 @@ async fn search(
             if let Some(duration_str) = &query.duration {
                 match humantime::parse_duration(duration_str.as_str()) {
                     Ok(d) => {
-                        ts_start = Some(end - chrono::Duration::from_std(d).unwrap());
+                        if let Ok(duration) = chrono::Duration::from_std(d) {
+                            ts_start = Some(end - duration);
+                        }
                     }
                     Err(_) => {
                         return (
@@ -223,11 +227,11 @@ async fn search(
         .get_latest_updates_meta()
         .await
         .unwrap_or_default()
-        .map(|data| Meta {
-            latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)
-                .unwrap()
-                .naive_utc(),
-            latest_update_duration: data.update_duration,
+        .and_then(|data| {
+            Some(Meta {
+                latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)?.naive_utc(),
+                latest_update_duration: data.update_duration,
+            })
         });
 
     Json(BrokerSearchResult {
@@ -250,11 +254,11 @@ async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         .get_latest_updates_meta()
         .await
         .unwrap_or_default()
-        .map(|data| Meta {
-            latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)
-                .unwrap()
-                .naive_utc(),
-            latest_update_duration: data.update_duration,
+        .and_then(|data| {
+            Some(Meta {
+                latest_update_ts: chrono::DateTime::from_timestamp(data.update_ts, 0)?.naive_utc(),
+                latest_update_duration: data.update_duration,
+            })
         });
 
     Json(BrokerSearchResult {
@@ -359,12 +363,16 @@ async fn missing_collectors(State(state): State<Arc<AppState>>) -> impl IntoResp
 fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
     if let Ok(ts_end) = ts_str.parse::<i64>() {
         // it's unix timestamp
-        return Ok(DateTime::from_timestamp(ts_end, 0).unwrap().naive_utc());
+        return DateTime::from_timestamp(ts_end, 0)
+            .map(|dt| dt.naive_utc())
+            .ok_or_else(|| format!("invalid unix timestamp: {}", ts_end));
     }
 
     if let Ok(d) = NaiveDate::parse_from_str(ts_str, "%Y-%m-%d") {
         // it's a date
-        return Ok(d.and_hms_opt(0, 0, 0).unwrap());
+        return d
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| format!("invalid date: {}", ts_str));
     }
 
     if let Ok(t) = DateTime::parse_from_rfc3339(ts_str) {

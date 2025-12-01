@@ -232,7 +232,7 @@ fn get_tokio_runtime() -> Runtime {
         .enable_all()
         .max_blocking_threads(blocking_cpus)
         .build()
-        .unwrap();
+        .expect("failed to create tokio runtime");
     rt
 }
 
@@ -301,7 +301,10 @@ async fn update_database(
                 "collector {} not found in database, inserting collector meta information first...",
                 &c.id
             );
-            db.insert_collector(c).await.unwrap();
+            if let Err(e) = db.insert_collector(c).await {
+                error!("failed to insert collector {}: {}", c.id, e);
+                continue;
+            }
             collector_updated = true;
         }
     }
@@ -336,17 +339,21 @@ async fn update_database(
     while let Some(res) = stream.next().await {
         let db = db.clone();
         match res {
-            Ok(items) => {
-                let inserted = db.insert_items(&items, true).await.unwrap();
-                if !inserted.is_empty() {
-                    if let Some(n) = notifier {
-                        if let Err(e) = n.send(&inserted).await {
-                            error!("{}", e);
+            Ok(items) => match db.insert_items(&items, true).await {
+                Ok(inserted) => {
+                    if !inserted.is_empty() {
+                        if let Some(n) = notifier {
+                            if let Err(e) = n.send(&inserted).await {
+                                error!("{}", e);
+                            }
                         }
                     }
+                    total_inserted_count += inserted.len();
                 }
-                total_inserted_count += inserted.len();
-            }
+                Err(e) => {
+                    error!("failed to insert items: {}", e);
+                }
+            },
             Err(e) => {
                 error!("{}", e);
                 continue;
@@ -355,9 +362,12 @@ async fn update_database(
     }
 
     let duration = Utc::now() - now;
-    db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
+    if let Err(e) = db
+        .insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
         .await
-        .unwrap();
+    {
+        error!("failed to insert meta: {}", e);
+    }
 
     // Cleanup old meta entries
     if let Err(e) = db.cleanup_old_meta_entries().await {
@@ -507,7 +517,10 @@ fn main() {
                     let rt = get_tokio_runtime();
                     let from = BOOTSTRAP_URL.to_string();
                     rt.block_on(async {
-                        download_file(&from, &db_path, silent).await.unwrap();
+                        if let Err(e) = download_file(&from, &db_path, silent).await {
+                            error!("failed to download bootstrap file: {}", e);
+                            exit(1);
+                        }
                         // The update thread will handle the first update
                     });
                 } else {
@@ -539,7 +552,13 @@ fn main() {
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
-                    let collectors = load_collectors().unwrap();
+                    let collectors = match load_collectors() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            error!("failed to load collectors: {}", e);
+                            exit(1);
+                        }
+                    };
                     rt.block_on(async {
                         let notifier = match NatsNotifier::new(None).await {
                             Ok(n) => Some(n),
@@ -549,7 +568,13 @@ fn main() {
                             }
                         };
 
-                        let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
+                        let mut db = match LocalBrokerDb::new(path.as_str()).await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                error!("failed to open database: {}", e);
+                                exit(1);
+                            }
+                        };
                         let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
 
@@ -561,10 +586,14 @@ fn main() {
 
                         // first execution
                         update_database(&mut db, collectors.clone(), None, &notifier, true).await;
-                        db.analyze().await.unwrap();
+                        if let Err(e) = db.analyze().await {
+                            error!("failed to analyze database: {}", e);
+                        }
 
                         // sending readiness signal; API can start now
-                        ready_tx.send(()).unwrap();
+                        if ready_tx.send(()).is_err() {
+                            error!("failed to send ready signal");
+                        }
 
                         // perform initial backup if configured
                         if let Some(ref backup_destination) = backup_to_clone {
@@ -623,10 +652,10 @@ fn main() {
                     });
                 });
 
-                if backup_to.is_some() {
+                if let Some(ref backup_destination) = backup_to {
                     info!(
                         "periodic backup enabled, backing up to: {}",
-                        backup_to.as_ref().unwrap()
+                        backup_destination
                     );
                 } else {
                     info!("BGPKIT_BROKER_BACKUP_TO not set, periodic backup disabled");
@@ -639,12 +668,22 @@ fn main() {
                     if do_update {
                         // if update is enabled,
                         // we wait for the first update to complete before proceeding
-                        ready_rx.await.unwrap();
+                        if let Err(e) = ready_rx.await {
+                            error!("failed to receive ready signal: {}", e);
+                            exit(1);
+                        }
                     }
-                    let database = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
-                    start_api_service(database.clone(), host, port, root)
-                        .await
-                        .unwrap();
+                    let database = match LocalBrokerDb::new(db_path.as_str()).await {
+                        Ok(db) => db,
+                        Err(e) => {
+                            error!("failed to open database for API: {}", e);
+                            exit(1);
+                        }
+                    };
+                    if let Err(e) = start_api_service(database.clone(), host, port, root).await {
+                        error!("API service failed: {}", e);
+                        exit(1);
+                    }
                 });
             }
         }
@@ -666,7 +705,10 @@ fn main() {
             // download the database file
             let rt = get_tokio_runtime();
             rt.block_on(async {
-                download_file(&from, &db_path, silent).await.unwrap();
+                if let Err(e) = download_file(&from, &db_path, silent).await {
+                    error!("failed to download bootstrap file: {}", e);
+                    exit(1);
+                }
             });
         }
         Commands::Backup {
@@ -695,30 +737,57 @@ fn main() {
                 }
 
                 // download the database file
-                let collectors = load_collectors().unwrap();
+                let collectors = match load_collectors() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!("failed to load collectors: {}", e);
+                        exit(1);
+                    }
+                };
                 get_tokio_runtime().block_on(async {
-                    download_file(&bootstrap_url, &from, true).await.unwrap();
-                    let mut db = LocalBrokerDb::new(&from).await.unwrap();
+                    if let Err(e) = download_file(&bootstrap_url, &from, true).await {
+                        error!("failed to download bootstrap file: {}", e);
+                        exit(1);
+                    }
+                    let mut db = match LocalBrokerDb::new(&from).await {
+                        Ok(db) => db,
+                        Err(e) => {
+                            error!("failed to open database: {}", e);
+                            exit(1);
+                        }
+                    };
                     update_database(&mut db, collectors, None, &None, false).await;
-                    db.analyze().await.unwrap();
+                    if let Err(e) = db.analyze().await {
+                        error!("failed to analyze database: {}", e);
+                    }
                 });
             }
 
             if is_local_path(&to) {
                 // back up to the local directory
-                backup_database(&from, &to, force, sqlite_cmd_path).unwrap();
+                if let Err(e) = backup_database(&from, &to, force, sqlite_cmd_path) {
+                    error!("failed to backup database: {}", e);
+                    exit(1);
+                }
                 return;
             }
 
             if let Some((bucket, s3_path)) = parse_s3_path(&to) {
                 // back up to S3
-                let temp_dir = tempfile::tempdir().unwrap();
-                let temp_file_path = temp_dir
-                    .path()
-                    .join("temp.db")
-                    .to_str()
-                    .unwrap()
-                    .to_string();
+                let temp_dir = match tempfile::tempdir() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        error!("failed to create temp directory: {}", e);
+                        exit(1);
+                    }
+                };
+                let temp_file_path = match temp_dir.path().join("temp.db").to_str() {
+                    Some(p) => p.to_string(),
+                    None => {
+                        error!("failed to create temp file path");
+                        exit(1);
+                    }
+                };
 
                 match backup_database(&from, &temp_file_path, force, sqlite_cmd_path) {
                     Ok(_) => {
@@ -762,10 +831,22 @@ fn main() {
             let rt = get_tokio_runtime();
 
             // load all collectors from configuration file
-            let collectors = load_collectors().unwrap();
+            let collectors = match load_collectors() {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("failed to load collectors: {}", e);
+                    exit(1);
+                }
+            };
 
             rt.block_on(async {
-                let mut db = LocalBrokerDb::new(&db_path).await.unwrap();
+                let mut db = match LocalBrokerDb::new(&db_path).await {
+                    Ok(db) => db,
+                    Err(e) => {
+                        error!("failed to open database: {}", e);
+                        exit(1);
+                    }
+                };
                 let notifier = match NatsNotifier::new(None).await {
                     Ok(n) => Some(n),
                     Err(_e) => {
@@ -809,10 +890,19 @@ fn main() {
             );
             broker = broker.page(page as i64);
             broker = broker.page_size(page_size as i64);
-            let items = broker.query_single_page().unwrap();
+            let items = match broker.query_single_page() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query broker: {}", e);
+                    return;
+                }
+            };
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                match serde_json::to_string_pretty(&items) {
+                    Ok(s) => println!("{}", s),
+                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                }
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
@@ -836,7 +926,13 @@ fn main() {
                 broker = broker.collector_id(collector_id);
             }
 
-            let mut items = broker.latest().unwrap();
+            let mut items = match broker.latest() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query latest: {}", e);
+                    return;
+                }
+            };
             if outdated {
                 const DEPRECATED_COLLECTORS: [&str; 6] = [
                     "rrc02",
@@ -859,7 +955,10 @@ fn main() {
                 });
             }
             if json {
-                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                match serde_json::to_string_pretty(&items) {
+                    Ok(s) => println!("{}", s),
+                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                }
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
@@ -890,10 +989,19 @@ fn main() {
             if full_feed_only {
                 broker = broker.peers_only_full_feed(true);
             }
-            let items = broker.get_peers().unwrap();
+            let items = match broker.get_peers() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query peers: {}", e);
+                    return;
+                }
+            };
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                match serde_json::to_string_pretty(&items) {
+                    Ok(s) => println!("{}", s),
+                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                }
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
@@ -923,7 +1031,10 @@ fn main() {
                 }
                 while let Some(item) = notifier.next().await {
                     if pretty {
-                        println!("{}", serde_json::to_string_pretty(&item).unwrap());
+                        match serde_json::to_string_pretty(&item) {
+                            Ok(s) => println!("{}", s),
+                            Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                        }
                     } else {
                         println!("{}", item);
                     }
@@ -950,7 +1061,13 @@ fn main() {
             println!();
 
             println!("checking for missing collectors...");
-            let latest_items = broker.latest().unwrap();
+            let latest_items = match broker.latest() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query latest: {}", e);
+                    return;
+                }
+            };
 
             let missing_collectors = get_missing_collectors(&latest_items);
 
