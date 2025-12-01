@@ -28,9 +28,11 @@ pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), St
 
     // Indicatif setup
     let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})").unwrap()
-        .progress_chars("#>-"));
+    let style = ProgressStyle::default_bar()
+        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .map_err(|e| format!("Failed to create progress bar style: {}", e))?
+        .progress_chars("#>-");
+    pb.set_style(style);
     if !silent {
         pb.set_message(format!("Downloading {} to {}...", url, path));
     }

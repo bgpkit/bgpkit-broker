@@ -54,11 +54,12 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
     let mut res: Vec<(String, i64)> = vec![];
 
     if body.contains("table") {
-        let size_pattern: Regex = Regex::new(r" *([\d.]+)([MKGmkg]*)").unwrap();
+        let size_pattern: Regex =
+            Regex::new(r" *([\d.]+)([MKGmkg]*)").expect("invalid regex pattern");
         // table-based html pages, works with RouteViews and RIPE RIS old version
         let fragment = Html::parse_fragment(body);
-        let row_selector = Selector::parse("tr").unwrap();
-        let link_selector = Selector::parse("a").unwrap();
+        let row_selector = Selector::parse("tr").expect("invalid selector");
+        let link_selector = Selector::parse("a").expect("invalid selector");
         for elem in fragment.select(&row_selector) {
             let text_arr = elem
                 .text()
@@ -68,33 +69,38 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
             if text.is_empty() || text.contains("Name") || text.contains("Parent") {
                 continue;
             }
-            let href = elem
-                .select(&link_selector)
-                .next()
-                .unwrap()
-                .value()
-                .attr("href");
+            let href = match elem.select(&link_selector).next() {
+                Some(e) => e.value().attr("href"),
+                None => continue,
+            };
             let size = match size_str_to_bytes(text_arr[2], &size_pattern) {
                 None => continue,
                 Some(v) => v,
             };
-            res.push((href.unwrap().to_string(), size));
+            if let Some(href_str) = href {
+                res.push((href_str.to_string(), size));
+            }
         }
     } else {
-        let size_pattern: Regex = Regex::new(r" +([\d.]+)([MKGmkg]*)$").unwrap();
+        let size_pattern: Regex =
+            Regex::new(r" +([\d.]+)([MKGmkg]*)$").expect("invalid regex pattern");
         for line in body.lines() {
-            let size = size_str_to_bytes(line, &size_pattern);
-            if size.is_none() {
-                continue;
-            }
+            let size = match size_str_to_bytes(line, &size_pattern) {
+                Some(s) => s,
+                None => continue,
+            };
 
             let fragment = Html::parse_fragment(line);
-            let link_selector = Selector::parse("a").unwrap();
+            let link_selector = Selector::parse("a").expect("invalid selector");
             let mut link = "".to_string();
             if let Some(elem) = fragment.select(&link_selector).next() {
-                link = elem.value().attr("href").unwrap().to_string();
+                if let Some(href) = elem.value().attr("href") {
+                    link = href.to_string();
+                }
             }
-            res.push((link, size.unwrap()));
+            if !link.is_empty() {
+                res.push((link, size));
+            }
         }
     }
     res
@@ -183,10 +189,10 @@ pub(crate) async fn crawl_months_list(
     collector_root_url: &str,
     from_month: Option<NaiveDate>,
 ) -> Result<Vec<NaiveDate>, BrokerError> {
-    let rounded_month =
-        from_month.map(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap());
+    let rounded_month = from_month.and_then(|d| NaiveDate::from_ymd_opt(d.year(), d.month(), 1));
 
-    let month_link_pattern: Regex = Regex::new(r#"<a href="(....\...)/">.*"#).unwrap();
+    let month_link_pattern: Regex =
+        Regex::new(r#"<a href="(....\...)/">.*"#).expect("invalid regex pattern");
     let body = fetch_body(collector_root_url).await?;
     let mut res = vec![];
     for cap in month_link_pattern.captures_iter(body.as_str()) {
@@ -194,9 +200,10 @@ pub(crate) async fn crawl_months_list(
         let parsed_month =
             NaiveDate::parse_from_str(format!("{}.01", month.as_str()).as_str(), "%Y.%m.%d")?;
         if let Some(rounded) = rounded_month {
-            let new_month = NaiveDate::from_ymd_opt(rounded.year(), rounded.month(), 1).unwrap();
-            if parsed_month < new_month {
-                continue;
+            if let Some(new_month) = NaiveDate::from_ymd_opt(rounded.year(), rounded.month(), 1) {
+                if parsed_month < new_month {
+                    continue;
+                }
             }
         }
         if parsed_month > Utc::now().naive_utc().date() {

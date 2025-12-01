@@ -83,7 +83,7 @@ async fn perform_s3_backup(
         .path()
         .join("temp.db")
         .to_str()
-        .unwrap()
+        .ok_or("failed to convert temp file path to string")?
         .to_string();
 
     match backup_database(from, &temp_file_path, true, sqlite_cmd_path) {

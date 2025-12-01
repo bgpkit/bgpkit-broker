@@ -278,6 +278,7 @@ pub(crate) struct BrokerQueryResult {
     pub data: Vec<BrokerItem>,
 }
 
+#[allow(clippy::unwrap_used)]
 impl Display for BrokerQueryResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", serde_json::to_string(self).unwrap())

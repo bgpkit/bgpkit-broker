@@ -11,7 +11,7 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
 use std::collections::HashMap;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub use meta::UpdatesMeta;
 
@@ -151,25 +151,31 @@ impl LocalBrokerDb {
     }
 
     pub async fn reload_collectors(&mut self) {
-        self.collectors =
-            sqlx::query("select id, name, url, project, updates_interval from collectors")
-                .map(|row: SqliteRow| BrokerCollector {
-                    id: row.get::<i64, _>("id"),
-                    name: row.get::<String, _>("name"),
-                    url: row.get::<String, _>("url"),
-                    project: row.get::<String, _>("project"),
-                    updates_interval: row.get::<i64, _>("updates_interval"),
-                })
-                .fetch_all(&self.conn_pool)
-                .await
-                .unwrap();
+        match sqlx::query("select id, name, url, project, updates_interval from collectors")
+            .map(|row: SqliteRow| BrokerCollector {
+                id: row.get::<i64, _>("id"),
+                name: row.get::<String, _>("name"),
+                url: row.get::<String, _>("url"),
+                project: row.get::<String, _>("project"),
+                updates_interval: row.get::<i64, _>("updates_interval"),
+            })
+            .fetch_all(&self.conn_pool)
+            .await
+        {
+            Ok(collectors) => self.collectors = collectors,
+            Err(e) => {
+                error!("failed to reload collectors: {}", e);
+            }
+        }
     }
 
     async fn force_checkpoint(&self) {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
+        if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
             .execute(&self.conn_pool)
             .await
-            .unwrap();
+        {
+            error!("failed to force checkpoint: {}", e);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -299,7 +305,7 @@ impl LocalBrokerDb {
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
 
-        let items = sqlx::query(query_string.as_str())
+        let items: Vec<Option<BrokerItem>> = sqlx::query(query_string.as_str())
             .map(|row: SqliteRow| {
                 let collector_name = row.get::<String, _>("collector_name");
                 let _collector_url = row.get::<String, _>("collector_url");
@@ -310,12 +316,12 @@ impl LocalBrokerDb {
                 let exact_size = row.get::<i64, _>("exact_size");
                 let _updates_interval = row.get::<i64, _>("updates_interval");
 
-                let collector = collector_name_to_info.get(collector_name.as_str()).unwrap();
+                let collector = collector_name_to_info.get(collector_name.as_str())?;
 
-                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
+                let ts_start = DateTime::from_timestamp(timestamp, 0)?.naive_utc();
 
                 let (url, ts_end) = infer_url(collector, &ts_start, type_name.as_str() == "rib");
-                BrokerItem {
+                Some(BrokerItem {
                     ts_start,
                     ts_end,
                     collector_id: collector_name,
@@ -323,13 +329,13 @@ impl LocalBrokerDb {
                     url,
                     rough_size,
                     exact_size,
-                }
+                })
             })
             .fetch_all(&self.conn_pool)
             .await?;
 
         Ok(DbSearchResult {
-            items,
+            items: items.into_iter().flatten().collect(),
             page: page.unwrap_or(1),
             page_size: page_size.unwrap_or(DEFAULT_PAGE_SIZE),
             total: total_count,
@@ -397,28 +403,39 @@ impl LocalBrokerDb {
         for batch in items.chunks(1000) {
             let values_str = batch
                 .iter()
-                .map(|item| {
+                .filter_map(|item| {
                     let collector_id = match collector_name_to_id.get(item.collector_id.as_str()) {
                         Some(id) => *id,
                         None => {
-                            panic!(
+                            error!(
                                 "Collector name to id mapping {} not found",
                                 item.collector_id
                             );
+                            return None;
                         }
                     };
-                    format!(
+                    let type_id = match type_name_to_id.get(item.data_type.as_str()) {
+                        Some(id) => *id,
+                        None => {
+                            error!("Type name to id mapping {} not found", item.data_type);
+                            return None;
+                        }
+                    };
+                    Some(format!(
                         "({}, {}, {}, {}, {})",
                         item.ts_start.and_utc().timestamp(),
                         collector_id,
-                        type_name_to_id.get(item.data_type.as_str()).unwrap(),
+                        type_id,
                         item.rough_size,
                         item.exact_size,
-                    )
+                    ))
                 })
                 .collect::<Vec<String>>()
                 .join(", ");
-            let inserted_rows = sqlx::query(
+            if values_str.is_empty() {
+                continue;
+            }
+            let inserted_rows: Vec<Option<BrokerItem>> = sqlx::query(
                 format!(
                 r#"INSERT OR IGNORE INTO files (timestamp, collector_id, type_id, rough_size, exact_size) VALUES {}
                     RETURNING timestamp, collector_id, type_id, rough_size, exact_size
@@ -432,18 +449,18 @@ impl LocalBrokerDb {
                 let rough_size = row.get::<i64,_>(3);
                 let exact_size = row.get::<i64,_>(4);
 
-                let collector = collector_id_to_info.get(&collector_id).unwrap();
-                let type_name = type_id_to_name.get(&type_id).unwrap().to_owned();
+                let collector = collector_id_to_info.get(&collector_id)?;
+                let type_name = type_id_to_name.get(&type_id)?.to_owned();
                 let is_rib = type_name.as_str() == "rib";
 
-                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
+                let ts_start = DateTime::from_timestamp(timestamp, 0)?.naive_utc();
                 let (url, ts_end) = infer_url(
                     collector,
                     &ts_start,
                     is_rib,
                 );
 
-                BrokerItem{
+                Some(BrokerItem{
                     ts_start,
                     ts_end,
                     collector_id: collector.name.clone(),
@@ -451,9 +468,9 @@ impl LocalBrokerDb {
                     url,
                     rough_size,
                     exact_size,
-                }
+                })
             }).fetch_all(&self.conn_pool).await?;
-            inserted.extend(inserted_rows);
+            inserted.extend(inserted_rows.into_iter().flatten());
         }
         debug!("Inserted {} items", inserted.len());
         if update_latest {
