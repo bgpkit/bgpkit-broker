@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased changes
+
+### Database backend refactoring
+
+* Added PostgreSQL database backend support alongside existing SQLite
+* Introduced `BrokerDb` trait for database abstraction
+* New database backends:
+  * `SqliteDb` - SQLite backend (default, for single-instance deployments)
+  * `PostgresDb` - PostgreSQL backend (for scalable, production deployments)
+  * `DatabaseBackend` - Unified enum wrapper for runtime backend selection
+* Both backends implement the same `BrokerDb` trait for transparent switching
+* Added `LocalBrokerDb` type alias for backward compatibility
+
+### CLI improvements
+
+* `serve` and `update` commands now support optional database path
+* If no SQLite path provided, uses PostgreSQL via environment variables
+* New environment variables for PostgreSQL:
+  * `BROKER_DATABASE_HOST` - PostgreSQL host (default: localhost)
+  * `BROKER_DATABASE_PORT` - PostgreSQL port (default: 5432)
+  * `BROKER_DATABASE_USERNAME` - PostgreSQL username
+  * `BROKER_DATABASE_PASSWORD` - PostgreSQL password
+  * `BROKER_DATABASE` - PostgreSQL database name
+  * `BROKER_DATABASE_SCHEMA` - Optional schema name for managed PostgreSQL
+
+### Migration tools
+
+* Added SQLite to PostgreSQL migration tooling in `migration/sqlite-to-postgres/`
+  * Python migration script with progress tracking
+  * PostgreSQL schema with optimized indexes
+  * Support for partial migrations (default: last 30 days)
+  * Custom schema support for managed PostgreSQL services
+
 ## v0.9.2 - 2025-11-18
 
 ### New collector

@@ -220,14 +220,41 @@ Additional peer filters:
 - `ONEIO_ACCEPT_INVALID_CERTS` - Set to `true` to accept invalid SSL certificates
 
 **CLI Server Configuration:**
-- `BGPKIT_BROKER_BACKUP_TO` - Backup destination (local path or S3 URL like `s3://bucket/path/backup.db`)
-- `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` - Backup interval in hours (default: 24)
+- `BGPKIT_BROKER_BACKUP_TO` - Backup destination (local path or S3 URL like `s3://bucket/path/backup.db`). Only supported for SQLite backend.
+- `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` - Backup interval in hours (default: `24`)
 - `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL` - Heartbeat URL for backup completion notifications
 - `BGPKIT_BROKER_HEARTBEAT_URL` - Heartbeat URL for general database update notifications
 - `BGPKIT_BROKER_NATS_URL` - NATS server URL for live notifications
-- `BGPKIT_BROKER_NATS_USER` - NATS server username
-- `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password
+- `BGPKIT_BROKER_NATS_USER` - NATS server username (default: `public`)
+- `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password (default: `public`)
 - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` - NATS root subject (default: `public.broker`)
+
+**PostgreSQL Database Configuration:**
+
+When no SQLite path is provided, the CLI will attempt to connect to PostgreSQL using these environment variables:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `BROKER_DATABASE` | Yes | - | PostgreSQL database name |
+| `BROKER_DATABASE_USERNAME` | Yes | - | PostgreSQL username |
+| `BROKER_DATABASE_PASSWORD` | Yes | - | PostgreSQL password |
+| `BROKER_DATABASE_HOST` | No | `localhost` | PostgreSQL host |
+| `BROKER_DATABASE_PORT` | No | `5432` | PostgreSQL port |
+| `BROKER_DATABASE_SCHEMA` | No | - | PostgreSQL schema (for managed services like PlanetScale) |
+| `BROKER_DATABASE_SSLMODE` | No | `require` | SSL mode: `disable`, `prefer`, or `require` |
+| `BROKER_DATABASE_POOL_SIZE` | No | `3` | Maximum connections in the pool |
+
+**Crawler Tuning Options:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BROKER_CRAWL_TIMEOUT_SECS` | `60` | HTTP request timeout in seconds |
+| `BROKER_CRAWL_MAX_RETRIES` | `3` | Maximum retry attempts for failed HTTP requests |
+| `BROKER_CRAWL_PARALLELISM` | `2` | Number of collectors to crawl in parallel |
+| `BROKER_INSERT_BATCH_SIZE` | `500` | Batch size for PostgreSQL inserts (PostgreSQL only) |
+
+**Development/Debug Options:**
+- `BROKER_DISABLE_AUTO_BOOTSTRAP` - When set to `1` or `true`, collectors without existing data will be skipped instead of triggering a full historical crawl. Useful for testing with partial data.
 
 ### Data Structures
 
@@ -329,13 +356,18 @@ Options:
 `bgpkit-broker serve` is the main command to start the BGPKIT Broker service. It will start a web server that serves the
 API endpoints. It will also periodically update the local database unless the `--no-update` flag is set.
 
+The command supports two database backends:
+- **SQLite** (default): Provide a path to a SQLite database file
+- **PostgreSQL**: Set `BROKER_DATABASE_*` environment variables (no db_path argument needed)
+
 ```text
   Serve the Broker content via RESTful API
 
-Usage: bgpkit-broker serve [OPTIONS] <DB_PATH>
+Usage: bgpkit-broker serve [OPTIONS] [DB_PATH]
 
 Arguments:
-  <DB_PATH>  broker db file location
+  [DB_PATH]  SQLite database file path. If not provided, will use PostgreSQL
+             configured via BROKER_DATABASE_* environment variables.
 
 Options:
   -i, --update-interval <UPDATE_INTERVAL>  update interval in seconds [default: 300]
@@ -350,6 +382,22 @@ Options:
       --no-api                             disable API service
   -h, --help                               Print help
   -V, --version                            Print version
+```
+
+**Example with SQLite:**
+```bash
+bgpkit-broker serve --bootstrap ./broker.sqlite3
+```
+
+**Example with PostgreSQL:**
+```bash
+export BROKER_DATABASE_HOST=localhost
+export BROKER_DATABASE_PORT=5432
+export BROKER_DATABASE_USERNAME=postgres
+export BROKER_DATABASE_PASSWORD=secret
+export BROKER_DATABASE=bgpkit_broker
+
+bgpkit-broker serve
 ```
 
 **Periodic Backup Configuration:**

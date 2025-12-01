@@ -11,3 +11,8 @@
 /.env
 .claude
 CLAUDE.md
+
+# Migration directory
+migration/sqlite-to-postgres/.env
+migration/sqlite-to-postgres/.venv/
+migration/sqlite-to-postgres/__pycache__/

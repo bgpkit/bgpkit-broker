@@ -204,7 +204,10 @@ pub use collector::{load_collectors, Collector};
 #[cfg(feature = "cli")]
 pub use crawler::crawl_collector;
 #[cfg(feature = "backend")]
-pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
+pub use db::{
+    BrokerDb, DatabaseBackend, DbSearchResult, LocalBrokerDb, PostgresConfig, PostgresDb, SqliteDb,
+    UpdatesMeta, DEFAULT_PAGE_SIZE,
+};
 pub use error::BrokerError;
 pub use item::BrokerItem;
 pub use peer::BrokerPeer;

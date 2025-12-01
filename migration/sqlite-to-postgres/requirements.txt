@@ -1,0 +1,3 @@
+psycopg2-binary>=2.9.0
+dotenv
+tqdm>=4.65.0

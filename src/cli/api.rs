@@ -4,7 +4,8 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use axum_prometheus::PrometheusMetricLayerBuilder;
-use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
+use bgpkit_broker::db::{BrokerDb, DatabaseBackend, DEFAULT_PAGE_SIZE};
+use bgpkit_broker::BrokerItem;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use clap::Args;
 use http::{Method, StatusCode};
@@ -16,7 +17,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 struct AppState {
-    database: LocalBrokerDb,
+    database: DatabaseBackend,
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]
@@ -391,7 +392,7 @@ fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
 }
 
 pub async fn start_api_service(
-    database: LocalBrokerDb,
+    database: DatabaseBackend,
     host: String,
     port: u16,
     root: String,

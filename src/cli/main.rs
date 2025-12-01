@@ -7,11 +7,9 @@ use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::{backup_database, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
+use bgpkit_broker::db::{BrokerDb, DatabaseBackend, PostgresConfig, SqliteDb, DEFAULT_PAGE_SIZE};
 use bgpkit_broker::notifier::NatsNotifier;
-use bgpkit_broker::{
-    crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
-    DEFAULT_PAGE_SIZE,
-};
+use bgpkit_broker::{crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector};
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
@@ -44,8 +42,9 @@ const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqli
 enum Commands {
     /// Serve the Broker content via RESTful API
     Serve {
-        /// broker db file location
-        db_path: String,
+        /// SQLite database file path. If not provided, will use PostgreSQL
+        /// configured via BROKER_DATABASE_* environment variables.
+        db_path: Option<String>,
 
         /// update interval in seconds
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
@@ -82,9 +81,10 @@ enum Commands {
 
     /// Update the Broker database
     Update {
-        /// broker db file location
+        /// SQLite database file path. If not provided, will use PostgreSQL
+        /// configured via BROKER_DATABASE_* environment variables.
         #[clap()]
-        db_path: String,
+        db_path: Option<String>,
 
         /// force number of days to look back.
         /// by default resume from the latest available data time.
@@ -278,14 +278,20 @@ async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
 }
 
 /// update the database with data crawled from the given collectors
-async fn update_database(
-    db: &mut LocalBrokerDb,
+async fn update_database<D: BrokerDb + Clone>(
+    db: &mut D,
     collectors: Vec<Collector>,
     days: Option<u32>,
     notifier: &Option<NatsNotifier>,
     send_heartbeat: bool,
 ) {
     let now = Utc::now();
+
+    // Check if auto-bootstrap is disabled via environment variable
+    // When disabled, collectors without existing data will be skipped instead of bootstrapped
+    let disable_auto_bootstrap = std::env::var("BROKER_DISABLE_AUTO_BOOTSTRAP")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
 
     let latest_ts_map: HashMap<String, NaiveDateTime> = db
         .get_latest_files()
@@ -294,29 +300,55 @@ async fn update_database(
         .map(|f| (f.collector_id.clone(), f.ts_start))
         .collect();
 
-    let mut collector_updated = false;
-    for c in &collectors {
-        if !latest_ts_map.contains_key(&c.id) {
+    // Filter collectors based on auto-bootstrap setting
+    let collectors_to_update: Vec<&Collector> = if disable_auto_bootstrap {
+        // Only update collectors that already have data
+        let filtered: Vec<_> = collectors
+            .iter()
+            .filter(|c| latest_ts_map.contains_key(&c.id))
+            .collect();
+        let skipped_count = collectors.len() - filtered.len();
+        if skipped_count > 0 {
             info!(
-                "collector {} not found in database, inserting collector meta information first...",
-                &c.id
+                "BROKER_DISABLE_AUTO_BOOTSTRAP is set: skipping {} collectors without existing data",
+                skipped_count
             );
-            db.insert_collector(c).await.unwrap();
-            collector_updated = true;
         }
-    }
-    if collector_updated {
-        info!("collector list updated, reload collectors list into memory");
-        db.reload_collectors().await;
-    }
+        filtered
+    } else {
+        // Insert collector metadata for collectors without data (for bootstrapping)
+        let mut collector_updated = false;
+        for c in &collectors {
+            if !latest_ts_map.contains_key(&c.id) {
+                info!(
+                    "collector {} has no files in database, ensuring collector metadata exists...",
+                    &c.id
+                );
+                if let Err(e) = db.insert_collector(c).await {
+                    error!("Failed to insert collector {}: {}", &c.id, e);
+                    continue;
+                }
+                collector_updated = true;
+            }
+        }
+        if collector_updated {
+            info!("collector list updated, reload collectors list into memory");
+            let _ = db.reload_collectors().await;
+        }
+        collectors.iter().collect()
+    };
 
-    // crawl all collectors in parallel, 5 collectors in parallel by default, unordered.
-    // for bootstrapping (no data in db), we only crawl one collector at a time
-    const BUFFER_SIZE: usize = 5;
+    // Crawl collectors in parallel. Default to 2 for serverless databases to reduce
+    // connection pressure. Can be increased via BROKER_CRAWL_PARALLELISM for dedicated DBs.
+    let buffer_size: usize = std::env::var("BROKER_CRAWL_PARALLELISM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
 
-    debug!("unordered buffer size is {}", BUFFER_SIZE);
+    debug!("collector crawl parallelism: {}", buffer_size);
 
-    let mut stream = futures::stream::iter(&collectors)
+    let collectors_count = collectors_to_update.len();
+    let mut stream = futures::stream::iter(collectors_to_update)
         .map(|c| {
             let latest_date;
             if let Some(d) = days {
@@ -326,26 +358,36 @@ async fn update_database(
             }
             crawl_collector(c, latest_date)
         })
-        .buffer_unordered(BUFFER_SIZE);
+        .buffer_unordered(buffer_size);
 
     info!(
         "start updating broker database for {} collectors",
-        &collectors.len()
+        collectors_count
     );
     let mut total_inserted_count = 0;
+    let mut total_inserted = vec![];
     while let Some(res) = stream.next().await {
         let db = db.clone();
         match res {
             Ok(items) => {
-                let inserted = db.insert_items(&items, true).await.unwrap();
-                if !inserted.is_empty() {
-                    if let Some(n) = notifier {
-                        if let Err(e) = n.send(&inserted).await {
-                            error!("{}", e);
+                // Don't refresh latest view on each insert - we'll do it once at the end
+                match db.insert_items(&items, false).await {
+                    Ok(inserted) => {
+                        total_inserted_count += inserted.len();
+                        if !inserted.is_empty() {
+                            if let Some(n) = notifier {
+                                if let Err(e) = n.send(&inserted).await {
+                                    error!("{}", e);
+                                }
+                            }
+                            total_inserted.extend(inserted);
                         }
                     }
+                    Err(e) => {
+                        error!("Failed to insert items: {}", e);
+                        continue;
+                    }
                 }
-                total_inserted_count += inserted.len();
             }
             Err(e) => {
                 error!("{}", e);
@@ -354,10 +396,22 @@ async fn update_database(
         }
     }
 
+    // Refresh the latest view once after all collectors are updated
+    if total_inserted_count > 0 {
+        debug!(
+            "Refreshing latest view after inserting {} items",
+            total_inserted_count
+        );
+        db.update_latest_files(&total_inserted, false).await;
+    }
+
     let duration = Utc::now() - now;
-    db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
+    if let Err(e) = db
+        .insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
         .await
-        .unwrap();
+    {
+        error!("Failed to insert meta: {}", e);
+    }
 
     if send_heartbeat {
         if let Err(e) = try_send_heartbeat(None).await {
@@ -496,21 +550,32 @@ fn main() {
                 display_configuration_summary(do_update, do_api, update_interval, &host, port);
             }
 
-            if std::fs::metadata(&db_path).is_err() {
-                if bootstrap {
-                    // bootstrap the database
-                    let rt = get_tokio_runtime();
-                    let from = BOOTSTRAP_URL.to_string();
-                    rt.block_on(async {
-                        download_file(&from, &db_path, silent).await.unwrap();
-                        // The update thread will handle the first update
-                    });
-                } else {
-                    error!(
-                    "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
-                );
-                    exit(1);
+            // Determine if we're using SQLite or PostgreSQL
+            let use_postgres = db_path.is_none() && PostgresConfig::is_configured();
+
+            if let Some(ref path) = db_path {
+                // SQLite mode: check if file exists
+                if std::fs::metadata(path).is_err() {
+                    if bootstrap {
+                        // bootstrap the database
+                        let rt = get_tokio_runtime();
+                        let from = BOOTSTRAP_URL.to_string();
+                        let db_path_clone = path.clone();
+                        rt.block_on(async {
+                            download_file(&from, &db_path_clone, silent).await.unwrap();
+                        });
+                    } else {
+                        error!(
+                            "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
+                        );
+                        exit(1);
+                    }
                 }
+            } else if !use_postgres {
+                error!(
+                    "No database configured. Provide a SQLite path or set BROKER_DATABASE_* environment variables for PostgreSQL."
+                );
+                exit(1);
             }
 
             // set global panic hook so that child threads (updater or api) will crash the process should it encounter a panic
@@ -528,7 +593,7 @@ fn main() {
 
             if do_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
-                let path = db_path.clone();
+                let db_path_clone = db_path.clone();
                 let backup_to = std::env::var("BGPKIT_BROKER_BACKUP_TO").ok();
                 let backup_to_clone = backup_to.clone();
                 std::thread::spawn(move || {
@@ -544,7 +609,17 @@ fn main() {
                             }
                         };
 
-                        let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
+                        let mut db = match DatabaseBackend::from_config(db_path_clone.clone()).await
+                        {
+                            Ok(db) => db,
+                            Err(e) => {
+                                error!("Failed to connect to database: {}", e);
+                                ready_tx.send(()).ok();
+                                return;
+                            }
+                        };
+                        info!("using {} backend for updates", db.backend_name());
+
                         let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
 
@@ -556,15 +631,19 @@ fn main() {
 
                         // first execution
                         update_database(&mut db, collectors.clone(), None, &notifier, true).await;
-                        db.analyze().await.unwrap();
+                        if let Err(e) = db.analyze().await {
+                            error!("Failed to analyze database: {}", e);
+                        }
 
                         // sending readiness signal; API can start now
-                        ready_tx.send(()).unwrap();
+                        ready_tx.send(()).ok();
 
-                        // perform initial backup if configured
-                        if let Some(ref backup_destination) = backup_to_clone {
+                        // perform initial backup if configured (only for SQLite)
+                        if let (Some(ref backup_destination), Some(ref path)) =
+                            (&backup_to_clone, &db_path_clone)
+                        {
                             info!("performing initial backup after first update...");
-                            match perform_periodic_backup(&path, backup_destination, None).await {
+                            match perform_periodic_backup(path, backup_destination, None).await {
                                 Ok(_) => {
                                     info!("initial backup completed successfully");
                                     last_backup_time = std::time::Instant::now();
@@ -587,14 +666,16 @@ fn main() {
                             update_database(&mut db, collectors.clone(), None, &notifier, true)
                                 .await;
 
-                            // check if backup is needed
-                            if let Some(ref backup_destination) = backup_to_clone {
+                            // check if backup is needed (only for SQLite)
+                            if let (Some(ref backup_destination), Some(ref path)) =
+                                (&backup_to_clone, &db_path_clone)
+                            {
                                 let now = std::time::Instant::now();
                                 let backup_interval = get_backup_interval();
 
                                 if now.duration_since(last_backup_time) >= backup_interval {
                                     info!("starting daily backup procedure...");
-                                    match perform_periodic_backup(&path, backup_destination, None)
+                                    match perform_periodic_backup(path, backup_destination, None)
                                         .await
                                     {
                                         Ok(_) => {
@@ -618,11 +699,13 @@ fn main() {
                     });
                 });
 
-                if backup_to.is_some() {
+                if backup_to.is_some() && db_path.is_some() {
                     info!(
                         "periodic backup enabled, backing up to: {}",
                         backup_to.as_ref().unwrap()
                     );
+                } else if backup_to.is_some() && db_path.is_none() {
+                    info!("BGPKIT_BROKER_BACKUP_TO set but backup is only supported for SQLite");
                 } else {
                     info!("BGPKIT_BROKER_BACKUP_TO not set, periodic backup disabled");
                 }
@@ -634,12 +717,22 @@ fn main() {
                     if do_update {
                         // if update is enabled,
                         // we wait for the first update to complete before proceeding
-                        ready_rx.await.unwrap();
+                        if let Err(e) = ready_rx.await {
+                            error!("Failed to receive ready signal: {}", e);
+                            return;
+                        }
                     }
-                    let database = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
-                    start_api_service(database.clone(), host, port, root)
-                        .await
-                        .unwrap();
+                    let database = match DatabaseBackend::from_config(db_path).await {
+                        Ok(db) => db,
+                        Err(e) => {
+                            error!("Failed to connect to database for API: {}", e);
+                            return;
+                        }
+                    };
+                    info!("using {} backend for API", database.backend_name());
+                    if let Err(e) = start_api_service(database, host, port, root).await {
+                        error!("API service failed: {}", e);
+                    }
                 });
             }
         }
@@ -693,7 +786,7 @@ fn main() {
                 let collectors = load_collectors().unwrap();
                 get_tokio_runtime().block_on(async {
                     download_file(&bootstrap_url, &from, true).await.unwrap();
-                    let mut db = LocalBrokerDb::new(&from).await.unwrap();
+                    let mut db = SqliteDb::new(&from).await.unwrap();
                     update_database(&mut db, collectors, None, &None, false).await;
                     db.analyze().await.unwrap();
                 });
@@ -745,8 +838,16 @@ fn main() {
             });
         }
         Commands::Update { db_path, days } => {
-            if std::fs::metadata(&db_path).is_err() {
-                error!("The specified database file does not exist.");
+            // Check if SQLite path provided and file exists
+            if let Some(ref path) = db_path {
+                if std::fs::metadata(path).is_err() {
+                    error!("The specified database file does not exist.");
+                    exit(1);
+                }
+            } else if !PostgresConfig::is_configured() {
+                error!(
+                    "No database configured. Provide a SQLite path or set BROKER_DATABASE_* environment variables."
+                );
                 exit(1);
             }
 
@@ -760,7 +861,8 @@ fn main() {
             let collectors = load_collectors().unwrap();
 
             rt.block_on(async {
-                let mut db = LocalBrokerDb::new(&db_path).await.unwrap();
+                let mut db = DatabaseBackend::from_config(db_path).await.unwrap();
+                info!("using {} backend for update", db.backend_name());
                 let notifier = match NatsNotifier::new(None).await {
                     Ok(n) => Some(n),
                     Err(_e) => {
