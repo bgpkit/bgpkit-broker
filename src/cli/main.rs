@@ -359,6 +359,11 @@ async fn update_database(
         .await
         .unwrap();
 
+    // Cleanup old meta entries
+    if let Err(e) = db.cleanup_old_meta_entries().await {
+        error!("failed to cleanup old meta entries: {}", e);
+    }
+
     if send_heartbeat {
         if let Err(e) = try_send_heartbeat(None).await {
             error!("{}", e);

@@ -3,10 +3,29 @@ use chrono::{Datelike, NaiveDate, Utc};
 use regex::{Captures, Regex};
 use scraper::{Html, Selector};
 use std::time::Duration;
+use tracing::{debug, warn};
 
 const SIZE_KB: u64 = u64::pow(1024, 1);
 const SIZE_MB: u64 = u64::pow(1024, 2);
 const SIZE_GB: u64 = u64::pow(1024, 3);
+
+/// Get the maximum number of retry attempts for crawling.
+/// Default is 3 attempts. Can be configured via BGPKIT_BROKER_CRAWLER_MAX_RETRIES.
+fn get_max_retries() -> u32 {
+    std::env::var("BGPKIT_BROKER_CRAWLER_MAX_RETRIES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3)
+}
+
+/// Get the initial backoff duration in milliseconds.
+/// Default is 1000ms (1 second). Can be configured via BGPKIT_BROKER_CRAWLER_BACKOFF_MS.
+fn get_initial_backoff_ms() -> u64 {
+    std::env::var("BGPKIT_BROKER_CRAWLER_BACKOFF_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1000)
+}
 
 fn size_str_to_bytes(size_str: &str, size_pattern: &Regex) -> Option<i64> {
     let cap: Captures = size_pattern.captures(size_str)?;
@@ -81,14 +100,68 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
     res
 }
 
+/// Fetch the body of a URL with retry logic and exponential backoff.
+///
+/// # Arguments
+/// * `url` - The URL to fetch
+///
+/// # Environment Variables
+/// * `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum number of retry attempts (default: 3)
+/// * `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff duration in milliseconds (default: 1000)
+///
+/// # Returns
+/// The body of the response as a string, or an error if all retries failed.
 pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
+    let max_retries = get_max_retries();
+    let initial_backoff_ms = get_initial_backoff_ms();
+
     let client = reqwest::ClientBuilder::new()
         .user_agent("bgpkit-broker/3")
         .pool_max_idle_per_host(0)
         .timeout(Duration::from_secs(30))
         .build()?;
-    let body = client.get(url).send().await?.text().await?;
-    Ok(body)
+
+    let mut last_error: Option<BrokerError> = None;
+
+    for attempt in 0..max_retries {
+        match client.get(url).send().await {
+            Ok(response) => match response.text().await {
+                Ok(body) => return Ok(body),
+                Err(e) => {
+                    last_error = Some(e.into());
+                }
+            },
+            Err(e) => {
+                last_error = Some(e.into());
+            }
+        }
+
+        // If not the last attempt, wait with exponential backoff
+        if attempt < max_retries - 1 {
+            let backoff_ms = initial_backoff_ms * (1 << attempt); // 2^attempt * initial
+            warn!(
+                "fetch_body failed for {} (attempt {}/{}), retrying in {}ms: {:?}",
+                url,
+                attempt + 1,
+                max_retries,
+                backoff_ms,
+                last_error
+            );
+            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+        }
+    }
+
+    // All retries exhausted
+    debug!(
+        "fetch_body failed for {} after {} attempts",
+        url, max_retries
+    );
+    Err(last_error.unwrap_or_else(|| {
+        BrokerError::BrokerError(format!(
+            "fetch_body failed for {} after {} attempts",
+            url, max_retries
+        ))
+    }))
 }
 
 /// Remove trailing slash from a string.

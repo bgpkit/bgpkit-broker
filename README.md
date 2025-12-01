@@ -229,6 +229,13 @@ Additional peer filters:
 - `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password
 - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` - NATS root subject (default: `public.broker`)
 
+**Crawler Configuration:**
+- `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum retry attempts for failed HTTP requests (default: 3)
+- `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff duration in milliseconds (default: 1000)
+
+**Database Maintenance:**
+- `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
+
 ### Data Structures
 
 **BrokerItem** - BGP archive file metadata:
