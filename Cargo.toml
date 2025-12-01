@@ -69,10 +69,7 @@ http = { version = "1.0", optional = true }
 axum-prometheus = { version = "0.9.0", optional = true }
 
 # database dependencies
-sqlx = { version = "0.8", features = [
-    "runtime-tokio",
-    "sqlite",
-], optional = true }
+libsql = { version = "0.9", optional = true }
 async-nats = { version = "0.42.0", optional = true }
 
 [features]
@@ -108,7 +105,7 @@ cli = [
     "http",
     "tower-http",
 ]
-backend = ["tokio", "sqlx"]
+backend = ["tokio", "libsql"]
 
 # notification features
 nats = ["async-nats"]

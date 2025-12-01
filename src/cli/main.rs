@@ -21,7 +21,7 @@ use std::process::exit;
 use tabled::settings::Style;
 use tabled::Table;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -43,15 +43,18 @@ const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqli
 #[derive(Subcommand)]
 enum Commands {
     /// Serve the Broker content via RESTful API
+    ///
+    /// Database can be specified either via a local file path or via environment variables
+    /// for remote Turso database (TURSO_DATABASE_URL and TURSO_AUTH_TOKEN).
     Serve {
-        /// broker db file location
-        db_path: String,
+        /// broker db file location (optional, uses TURSO_DATABASE_URL if not provided)
+        db_path: Option<String>,
 
         /// update interval in seconds
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
         update_interval: u64,
 
-        /// bootstrap the database if it does not exist
+        /// bootstrap the database if it does not exist (only for local databases)
         #[clap(short, long)]
         bootstrap: bool,
 
@@ -81,10 +84,13 @@ enum Commands {
     },
 
     /// Update the Broker database
+    ///
+    /// Database can be specified either via a local file path or via environment variables
+    /// for remote Turso database (TURSO_DATABASE_URL and TURSO_AUTH_TOKEN).
     Update {
-        /// broker db file location
+        /// broker db file location (optional, uses TURSO_DATABASE_URL if not provided)
         #[clap()]
-        db_path: String,
+        db_path: Option<String>,
 
         /// force number of days to look back.
         /// by default resume from the latest available data time.
@@ -92,7 +98,7 @@ enum Commands {
         days: Option<u32>,
     },
 
-    /// Bootstrap the broker database
+    /// Bootstrap the broker database (local databases only)
     Bootstrap {
         /// Bootstrap from location (remote or local)
         #[clap(
@@ -111,7 +117,10 @@ enum Commands {
         silent: bool,
     },
 
-    /// Backup Broker database
+    /// Backup Broker database (local databases only)
+    ///
+    /// Note: Backup is not supported for remote Turso databases.
+    /// Use Turso's built-in backup features for remote databases.
     Backup {
         /// source database location
         from: String,
@@ -232,7 +241,7 @@ fn get_tokio_runtime() -> Runtime {
         .enable_all()
         .max_blocking_threads(blocking_cpus)
         .build()
-        .unwrap();
+        .expect("failed to create tokio runtime");
     rt
 }
 
@@ -279,7 +288,7 @@ async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
 
 /// update the database with data crawled from the given collectors
 async fn update_database(
-    db: &mut LocalBrokerDb,
+    db: &LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
     notifier: &Option<NatsNotifier>,
@@ -301,7 +310,10 @@ async fn update_database(
                 "collector {} not found in database, inserting collector meta information first...",
                 &c.id
             );
-            db.insert_collector(c).await.unwrap();
+            if let Err(e) = db.insert_collector(c).await {
+                error!("failed to insert collector {}: {}", c.id, e);
+                continue;
+            }
             collector_updated = true;
         }
     }
@@ -336,17 +348,21 @@ async fn update_database(
     while let Some(res) = stream.next().await {
         let db = db.clone();
         match res {
-            Ok(items) => {
-                let inserted = db.insert_items(&items, true).await.unwrap();
-                if !inserted.is_empty() {
-                    if let Some(n) = notifier {
-                        if let Err(e) = n.send(&inserted).await {
-                            error!("{}", e);
+            Ok(items) => match db.insert_items(&items, true).await {
+                Ok(inserted) => {
+                    if !inserted.is_empty() {
+                        if let Some(n) = notifier {
+                            if let Err(e) = n.send(&inserted).await {
+                                error!("{}", e);
+                            }
                         }
                     }
+                    total_inserted_count += inserted.len();
                 }
-                total_inserted_count += inserted.len();
-            }
+                Err(e) => {
+                    error!("failed to insert items: {}", e);
+                }
+            },
             Err(e) => {
                 error!("{}", e);
                 continue;
@@ -355,9 +371,12 @@ async fn update_database(
     }
 
     let duration = Utc::now() - now;
-    db.insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
+    if let Err(e) = db
+        .insert_meta(duration.num_seconds() as i32, total_inserted_count as i32)
         .await
-        .unwrap();
+    {
+        error!("failed to insert meta: {}", e);
+    }
 
     if send_heartbeat {
         if let Err(e) = try_send_heartbeat(None).await {
@@ -382,8 +401,16 @@ fn display_configuration_summary(
     update_interval: u64,
     host: &str,
     port: u16,
+    is_remote_mode: bool,
 ) {
     info!("=== BGPKIT Broker Configuration ===");
+
+    // Database mode
+    if is_remote_mode {
+        info!("Database mode: REMOTE (Turso Cloud)");
+    } else {
+        info!("Database mode: LOCAL (SQLite file)");
+    }
 
     // Update service status
     if do_update {
@@ -402,31 +429,35 @@ fn display_configuration_summary(
         info!("API service: DISABLED");
     }
 
-    // Backup configuration
-    match std::env::var("BGPKIT_BROKER_BACKUP_TO") {
-        Ok(backup_to) => {
-            let interval_hours = get_backup_interval().as_secs() / 3600;
-            if oneio::s3_url_parse(&backup_to).is_ok() {
-                // S3 backup
-                if oneio::s3_env_check().is_err() {
-                    error!("Backup: CONFIGURED to S3 ({}) every {} hours - WARNING: S3 environment variables not properly set", backup_to, interval_hours);
+    // Backup configuration (only for local mode)
+    if !is_remote_mode {
+        match std::env::var("BGPKIT_BROKER_BACKUP_TO") {
+            Ok(backup_to) => {
+                let interval_hours = get_backup_interval().as_secs() / 3600;
+                if oneio::s3_url_parse(&backup_to).is_ok() {
+                    // S3 backup
+                    if oneio::s3_env_check().is_err() {
+                        error!("Backup: CONFIGURED to S3 ({}) every {} hours - WARNING: S3 environment variables not properly set", backup_to, interval_hours);
+                    } else {
+                        info!(
+                            "Backup: CONFIGURED to S3 ({}) every {} hours",
+                            backup_to, interval_hours
+                        );
+                    }
                 } else {
+                    // Local backup
                     info!(
-                        "Backup: CONFIGURED to S3 ({}) every {} hours",
+                        "Backup: CONFIGURED to local path ({}) every {} hours",
                         backup_to, interval_hours
                     );
                 }
-            } else {
-                // Local backup
-                info!(
-                    "Backup: CONFIGURED to local path ({}) every {} hours",
-                    backup_to, interval_hours
-                );
+            }
+            Err(_) => {
+                info!("Backup: DISABLED");
             }
         }
-        Err(_) => {
-            info!("Backup: DISABLED");
-        }
+    } else {
+        info!("Backup: N/A (use Turso built-in backup for remote databases)");
     }
 
     // Heartbeat configuration
@@ -491,25 +522,67 @@ fn main() {
                 enable_logging();
             }
 
-            // Display configuration summary
-            if do_log {
-                display_configuration_summary(do_update, do_api, update_interval, &host, port);
+            // Determine if we're in local or remote mode
+            let is_remote_mode = db_path.is_none();
+            let turso_url = std::env::var("TURSO_DATABASE_URL").ok();
+            let turso_token = std::env::var("TURSO_AUTH_TOKEN").ok();
+
+            if is_remote_mode {
+                if turso_url.is_none() {
+                    error!(
+                        "No database path provided and TURSO_DATABASE_URL not set.\n\
+                         Either provide a local file path or set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN."
+                    );
+                    exit(1);
+                }
+                info!("Running in remote Turso mode");
+
+                // Warn about backup not being supported in remote mode
+                if std::env::var("BGPKIT_BROKER_BACKUP_TO").is_ok() {
+                    warn!(
+                        "BGPKIT_BROKER_BACKUP_TO is set, but backup is not supported for remote Turso databases.\n\
+                         Use Turso's built-in backup features instead. Ignoring backup configuration."
+                    );
+                }
+
+                if bootstrap {
+                    warn!("--bootstrap flag is ignored for remote Turso databases");
+                }
             }
 
-            if std::fs::metadata(&db_path).is_err() {
-                if bootstrap {
-                    // bootstrap the database
-                    let rt = get_tokio_runtime();
-                    let from = BOOTSTRAP_URL.to_string();
-                    rt.block_on(async {
-                        download_file(&from, &db_path, silent).await.unwrap();
-                        // The update thread will handle the first update
-                    });
-                } else {
-                    error!(
-                    "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
+            // Display configuration summary
+            if do_log {
+                display_configuration_summary(
+                    do_update,
+                    do_api,
+                    update_interval,
+                    &host,
+                    port,
+                    is_remote_mode,
                 );
-                    exit(1);
+            }
+
+            // For local mode, check if file exists and handle bootstrap
+            if let Some(ref path) = db_path {
+                if std::fs::metadata(path).is_err() {
+                    if bootstrap {
+                        // bootstrap the database
+                        let rt = get_tokio_runtime();
+                        let from = BOOTSTRAP_URL.to_string();
+                        let path_clone = path.clone();
+                        rt.block_on(async {
+                            if let Err(e) = download_file(&from, &path_clone, silent).await {
+                                error!("failed to download bootstrap file: {}", e);
+                                exit(1);
+                            }
+                            // The update thread will handle the first update
+                        });
+                    } else {
+                        error!(
+                            "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
+                        );
+                        exit(1);
+                    }
                 }
             }
 
@@ -528,13 +601,25 @@ fn main() {
 
             if do_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
-                let path = db_path.clone();
-                let backup_to = std::env::var("BGPKIT_BROKER_BACKUP_TO").ok();
+                let db_path_clone = db_path.clone();
+                let turso_url_clone = turso_url.clone();
+                let turso_token_clone = turso_token.clone();
+                let backup_to = if is_remote_mode {
+                    None // Disable backup for remote mode
+                } else {
+                    std::env::var("BGPKIT_BROKER_BACKUP_TO").ok()
+                };
                 let backup_to_clone = backup_to.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
-                    let collectors = load_collectors().unwrap();
+                    let collectors = match load_collectors() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            error!("failed to load collectors: {}", e);
+                            exit(1);
+                        }
+                    };
                     rt.block_on(async {
                         let notifier = match NatsNotifier::new(None).await {
                             Ok(n) => Some(n),
@@ -544,7 +629,30 @@ fn main() {
                             }
                         };
 
-                        let mut db = LocalBrokerDb::new(path.as_str()).await.unwrap();
+                        let db = if let Some(path) = db_path_clone {
+                            match LocalBrokerDb::new_local(&path).await {
+                                Ok(db) => db,
+                                Err(e) => {
+                                    error!("failed to open local database: {}", e);
+                                    exit(1);
+                                }
+                            }
+                        } else {
+                            match LocalBrokerDb::new_remote(
+                                turso_url_clone
+                                    .as_ref()
+                                    .expect("TURSO_DATABASE_URL required"),
+                                turso_token_clone.as_deref().unwrap_or(""),
+                            )
+                            .await
+                            {
+                                Ok(db) => db,
+                                Err(e) => {
+                                    error!("failed to connect to remote database: {}", e);
+                                    exit(1);
+                                }
+                            }
+                        };
                         let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
 
@@ -555,16 +663,22 @@ fn main() {
                         update_interval_timer.tick().await;
 
                         // first execution
-                        update_database(&mut db, collectors.clone(), None, &notifier, true).await;
-                        db.analyze().await.unwrap();
+                        update_database(&db, collectors.clone(), None, &notifier, true).await;
+                        if let Err(e) = db.analyze().await {
+                            error!("failed to analyze database: {}", e);
+                        }
 
                         // sending readiness signal; API can start now
-                        ready_tx.send(()).unwrap();
+                        if ready_tx.send(()).is_err() {
+                            error!("failed to send ready signal");
+                        }
 
-                        // perform initial backup if configured
-                        if let Some(ref backup_destination) = backup_to_clone {
+                        // perform initial backup if configured (local mode only)
+                        if let (Some(ref backup_destination), Some(path)) =
+                            (&backup_to_clone, db.mode().path())
+                        {
                             info!("performing initial backup after first update...");
-                            match perform_periodic_backup(&path, backup_destination, None).await {
+                            match perform_periodic_backup(path, backup_destination, None).await {
                                 Ok(_) => {
                                     info!("initial backup completed successfully");
                                     last_backup_time = std::time::Instant::now();
@@ -584,17 +698,18 @@ fn main() {
                             update_interval_timer.tick().await;
 
                             // updating from the latest data available
-                            update_database(&mut db, collectors.clone(), None, &notifier, true)
-                                .await;
+                            update_database(&db, collectors.clone(), None, &notifier, true).await;
 
-                            // check if backup is needed
-                            if let Some(ref backup_destination) = backup_to_clone {
+                            // check if backup is needed (local mode only)
+                            if let (Some(ref backup_destination), Some(path)) =
+                                (&backup_to_clone, db.mode().path())
+                            {
                                 let now = std::time::Instant::now();
                                 let backup_interval = get_backup_interval();
 
                                 if now.duration_since(last_backup_time) >= backup_interval {
                                     info!("starting daily backup procedure...");
-                                    match perform_periodic_backup(&path, backup_destination, None)
+                                    match perform_periodic_backup(path, backup_destination, None)
                                         .await
                                     {
                                         Ok(_) => {
@@ -618,12 +733,12 @@ fn main() {
                     });
                 });
 
-                if backup_to.is_some() {
+                if let Some(ref backup_destination) = backup_to {
                     info!(
                         "periodic backup enabled, backing up to: {}",
-                        backup_to.as_ref().unwrap()
+                        backup_destination
                     );
-                } else {
+                } else if !is_remote_mode {
                     info!("BGPKIT_BROKER_BACKUP_TO not set, periodic backup disabled");
                 }
             }
@@ -634,12 +749,37 @@ fn main() {
                     if do_update {
                         // if update is enabled,
                         // we wait for the first update to complete before proceeding
-                        ready_rx.await.unwrap();
+                        if let Err(e) = ready_rx.await {
+                            error!("failed to receive ready signal: {}", e);
+                            exit(1);
+                        }
                     }
-                    let database = LocalBrokerDb::new(db_path.as_str()).await.unwrap();
-                    start_api_service(database.clone(), host, port, root)
+                    let database = if let Some(path) = db_path {
+                        match LocalBrokerDb::new_local(&path).await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                error!("failed to open local database for API: {}", e);
+                                exit(1);
+                            }
+                        }
+                    } else {
+                        match LocalBrokerDb::new_remote(
+                            turso_url.as_ref().expect("TURSO_DATABASE_URL required"),
+                            turso_token.as_deref().unwrap_or(""),
+                        )
                         .await
-                        .unwrap();
+                        {
+                            Ok(db) => db,
+                            Err(e) => {
+                                error!("failed to connect to remote database for API: {}", e);
+                                exit(1);
+                            }
+                        }
+                    };
+                    if let Err(e) = start_api_service(database.clone(), host, port, root).await {
+                        error!("API service failed: {}", e);
+                        exit(1);
+                    }
                 });
             }
         }
@@ -661,7 +801,10 @@ fn main() {
             // download the database file
             let rt = get_tokio_runtime();
             rt.block_on(async {
-                download_file(&from, &db_path, silent).await.unwrap();
+                if let Err(e) = download_file(&from, &db_path, silent).await {
+                    error!("failed to download bootstrap file: {}", e);
+                    exit(1);
+                }
             });
         }
         Commands::Backup {
@@ -690,30 +833,57 @@ fn main() {
                 }
 
                 // download the database file
-                let collectors = load_collectors().unwrap();
+                let collectors = match load_collectors() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!("failed to load collectors: {}", e);
+                        exit(1);
+                    }
+                };
                 get_tokio_runtime().block_on(async {
-                    download_file(&bootstrap_url, &from, true).await.unwrap();
-                    let mut db = LocalBrokerDb::new(&from).await.unwrap();
-                    update_database(&mut db, collectors, None, &None, false).await;
-                    db.analyze().await.unwrap();
+                    if let Err(e) = download_file(&bootstrap_url, &from, true).await {
+                        error!("failed to download bootstrap file: {}", e);
+                        exit(1);
+                    }
+                    let db = match LocalBrokerDb::new(&from).await {
+                        Ok(db) => db,
+                        Err(e) => {
+                            error!("failed to open database: {}", e);
+                            exit(1);
+                        }
+                    };
+                    update_database(&db, collectors, None, &None, false).await;
+                    if let Err(e) = db.analyze().await {
+                        error!("failed to analyze database: {}", e);
+                    }
                 });
             }
 
             if is_local_path(&to) {
                 // back up to the local directory
-                backup_database(&from, &to, force, sqlite_cmd_path).unwrap();
+                if let Err(e) = backup_database(&from, &to, force, sqlite_cmd_path) {
+                    error!("failed to backup database: {}", e);
+                    exit(1);
+                }
                 return;
             }
 
             if let Some((bucket, s3_path)) = parse_s3_path(&to) {
                 // back up to S3
-                let temp_dir = tempfile::tempdir().unwrap();
-                let temp_file_path = temp_dir
-                    .path()
-                    .join("temp.db")
-                    .to_str()
-                    .unwrap()
-                    .to_string();
+                let temp_dir = match tempfile::tempdir() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        error!("failed to create temp directory: {}", e);
+                        exit(1);
+                    }
+                };
+                let temp_file_path = match temp_dir.path().join("temp.db").to_str() {
+                    Some(p) => p.to_string(),
+                    None => {
+                        error!("failed to create temp file path");
+                        exit(1);
+                    }
+                };
 
                 match backup_database(&from, &temp_file_path, force, sqlite_cmd_path) {
                     Ok(_) => {
@@ -745,22 +915,66 @@ fn main() {
             });
         }
         Commands::Update { db_path, days } => {
-            if std::fs::metadata(&db_path).is_err() {
-                error!("The specified database file does not exist.");
-                exit(1);
-            }
-
             if do_log {
                 enable_logging();
             }
+
+            // Determine if we're in local or remote mode
+            let is_remote_mode = db_path.is_none();
+            let turso_url = std::env::var("TURSO_DATABASE_URL").ok();
+            let turso_token = std::env::var("TURSO_AUTH_TOKEN").ok();
+
+            if is_remote_mode && turso_url.is_none() {
+                error!(
+                    "No database path provided and TURSO_DATABASE_URL not set.\n\
+                     Either provide a local file path or set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN."
+                );
+                exit(1);
+            }
+
+            // For local mode, check if file exists
+            if let Some(ref path) = db_path {
+                if std::fs::metadata(path).is_err() {
+                    error!("The specified database file does not exist.");
+                    exit(1);
+                }
+            }
+
             // create a tokio runtime
             let rt = get_tokio_runtime();
 
             // load all collectors from configuration file
-            let collectors = load_collectors().unwrap();
+            let collectors = match load_collectors() {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("failed to load collectors: {}", e);
+                    exit(1);
+                }
+            };
 
             rt.block_on(async {
-                let mut db = LocalBrokerDb::new(&db_path).await.unwrap();
+                let db = if let Some(path) = db_path {
+                    match LocalBrokerDb::new_local(&path).await {
+                        Ok(db) => db,
+                        Err(e) => {
+                            error!("failed to open local database: {}", e);
+                            exit(1);
+                        }
+                    }
+                } else {
+                    match LocalBrokerDb::new_remote(
+                        turso_url.as_ref().expect("TURSO_DATABASE_URL required"),
+                        turso_token.as_deref().unwrap_or(""),
+                    )
+                    .await
+                    {
+                        Ok(db) => db,
+                        Err(e) => {
+                            error!("failed to connect to remote database: {}", e);
+                            exit(1);
+                        }
+                    }
+                };
                 let notifier = match NatsNotifier::new(None).await {
                     Ok(n) => Some(n),
                     Err(_e) => {
@@ -768,7 +982,7 @@ fn main() {
                         None
                     }
                 };
-                update_database(&mut db, collectors, days, &notifier, false).await;
+                update_database(&db, collectors, days, &notifier, false).await;
             });
         }
         Commands::Search { query, json, url } => {
@@ -804,10 +1018,19 @@ fn main() {
             );
             broker = broker.page(page as i64);
             broker = broker.page_size(page_size as i64);
-            let items = broker.query_single_page().unwrap();
+            let items = match broker.query_single_page() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query broker: {}", e);
+                    return;
+                }
+            };
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                match serde_json::to_string_pretty(&items) {
+                    Ok(s) => println!("{}", s),
+                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                }
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
@@ -831,7 +1054,13 @@ fn main() {
                 broker = broker.collector_id(collector_id);
             }
 
-            let mut items = broker.latest().unwrap();
+            let mut items = match broker.latest() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query latest files: {}", e);
+                    return;
+                }
+            };
             if outdated {
                 const DEPRECATED_COLLECTORS: [&str; 6] = [
                     "rrc02",
@@ -854,7 +1083,10 @@ fn main() {
                 });
             }
             if json {
-                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                match serde_json::to_string_pretty(&items) {
+                    Ok(s) => println!("{}", s),
+                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                }
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
@@ -885,10 +1117,19 @@ fn main() {
             if full_feed_only {
                 broker = broker.peers_only_full_feed(true);
             }
-            let items = broker.get_peers().unwrap();
+            let items = match broker.get_peers() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query peers: {}", e);
+                    return;
+                }
+            };
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                match serde_json::to_string_pretty(&items) {
+                    Ok(s) => println!("{}", s),
+                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                }
             } else {
                 println!("{}", Table::new(items).with(Style::markdown()));
             }
@@ -918,7 +1159,10 @@ fn main() {
                 }
                 while let Some(item) = notifier.next().await {
                     if pretty {
-                        println!("{}", serde_json::to_string_pretty(&item).unwrap());
+                        match serde_json::to_string_pretty(&item) {
+                            Ok(s) => println!("{}", s),
+                            Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                        }
                     } else {
                         println!("{}", item);
                     }
@@ -945,7 +1189,13 @@ fn main() {
             println!();
 
             println!("checking for missing collectors...");
-            let latest_items = broker.latest().unwrap();
+            let latest_items = match broker.latest() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("failed to query latest files: {}", e);
+                    return;
+                }
+            };
 
             let missing_collectors = get_missing_collectors(&latest_items);
 

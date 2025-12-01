@@ -2,32 +2,39 @@ use crate::db::utils::infer_url;
 use crate::query::BrokerCollector;
 use crate::{BrokerError, BrokerItem};
 use chrono::{DateTime, NaiveDateTime};
-use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
 use std::collections::HashMap;
+use tracing::warn;
 
 use super::LocalBrokerDb;
 
 impl LocalBrokerDb {
     /// get the latest timestamp (ts_start) of data entries in broker database
     pub async fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
-        // FIXME: handle empty database case
-        let timestamp = sqlx::query(
-            r#"
-            SELECT MAX(timestamp) FROM files
-            "#,
-        )
-        .map(|row: SqliteRow| row.get::<i64, _>(0))
-        .fetch_one(&self.conn_pool)
-        .await?;
+        let conn = self.connect()?;
+        let mut rows = conn.query("SELECT MAX(timestamp) FROM files", ()).await?;
 
-        let datetime = DateTime::from_timestamp(timestamp, 0).map(|dt| dt.naive_utc());
-        Ok(datetime)
+        if let Ok(Some(row)) = rows.next().await {
+            let timestamp: Option<i64> = row.get(0).ok();
+            if let Some(ts) = timestamp {
+                let datetime = DateTime::from_timestamp(ts, 0).map(|dt| dt.naive_utc());
+                return Ok(datetime);
+            }
+        }
+        Ok(None)
     }
 
     pub async fn bootstrap_latest_table(&self) {
-        sqlx::query(
-            r#"
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to connect for bootstrap_latest_table: {}", e);
+                return;
+            }
+        };
+
+        let _ = conn
+            .execute(
+                r#"
                 INSERT INTO "latest" ("timestamp", "collector_name", "type", "rough_size", "exact_size")
                 SELECT
                     MAX("timestamp") AS timestamp,
@@ -53,8 +60,10 @@ impl LocalBrokerDb {
                         WHEN excluded."timestamp" > "latest"."timestamp" THEN excluded."exact_size"
                         ELSE "latest"."exact_size"
                     END;
-            "#
-        ).execute(&self.conn_pool).await.unwrap();
+            "#,
+                (),
+            )
+            .await;
     }
 
     pub async fn update_latest_files(&self, files: &[BrokerItem], bootstrap: bool) {
@@ -115,33 +124,61 @@ impl LocalBrokerDb {
                     "#,
             value_str
         );
-        sqlx::query(query_str.as_str())
-            .execute(&self.conn_pool)
-            .await
-            .unwrap();
+
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to connect for update_latest_files: {}", e);
+                return;
+            }
+        };
+        let _ = conn.execute(&query_str, ()).await;
     }
 
     pub async fn get_latest_files(&self) -> Vec<BrokerItem> {
-        let collector_name_to_info = self
-            .collectors
+        let collectors_guard = self.collectors.read().await;
+        let collector_name_to_info: HashMap<String, BrokerCollector> = collectors_guard
             .iter()
             .map(|c| (c.name.clone(), c.clone()))
-            .collect::<HashMap<String, BrokerCollector>>();
-        sqlx::query("select timestamp, collector_name, type, rough_size, exact_size from latest")
-            .map(|row: SqliteRow| {
-                let timestamp = row.get::<i64, _>(0);
-                let collector_name = row.get::<String, _>(1);
-                let type_name = row.get::<String, _>(2);
-                let rough_size = row.get::<i64, _>(3);
-                let exact_size = row.get::<i64, _>(4);
-                let collector = collector_name_to_info.get(&collector_name).unwrap();
+            .collect();
+        drop(collectors_guard);
 
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to connect for get_latest_files: {}", e);
+                return vec![];
+            }
+        };
+
+        let mut rows = match conn
+            .query(
+                "SELECT timestamp, collector_name, type, rough_size, exact_size FROM latest",
+                (),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to query latest files: {}", e);
+                return vec![];
+            }
+        };
+
+        let mut items = vec![];
+        while let Ok(Some(row)) = rows.next().await {
+            let timestamp: i64 = row.get(0).unwrap_or(0);
+            let collector_name: String = row.get(1).unwrap_or_default();
+            let type_name: String = row.get(2).unwrap_or_default();
+            let rough_size: i64 = row.get(3).unwrap_or(0);
+            let exact_size: i64 = row.get(4).unwrap_or(0);
+
+            if let Some(collector) = collector_name_to_info.get(&collector_name) {
                 let is_rib = type_name.as_str() == "rib";
-
                 let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
                 let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
 
-                BrokerItem {
+                items.push(BrokerItem {
                     ts_start,
                     ts_end,
                     collector_id: collector_name,
@@ -149,10 +186,10 @@ impl LocalBrokerDb {
                     url,
                     rough_size,
                     exact_size,
-                }
-            })
-            .fetch_all(&self.conn_pool)
-            .await
-            .unwrap()
+                });
+            }
+        }
+
+        items
     }
 }

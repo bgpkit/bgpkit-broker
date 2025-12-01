@@ -174,6 +174,43 @@ for peer in peers.iter().take(3) {
              peer.asn, peer.ip, peer.num_v4_pfxs, peer.num_v6_pfxs);
 }
 ```
+
+# Backend Database (CLI Feature)
+
+When using the `cli` feature, the broker supports two database modes:
+
+## Local SQLite Mode
+
+```rust,ignore
+use bgpkit_broker::LocalBrokerDb;
+
+// Open or create a local SQLite database
+let db = LocalBrokerDb::new_local("./broker.db").await?;
+```
+
+## Remote Turso Mode
+
+For cloud-native deployments, you can use [Turso](https://turso.tech/) as your database backend:
+
+```rust,ignore
+use bgpkit_broker::LocalBrokerDb;
+
+// Connect to remote Turso database
+let db = LocalBrokerDb::new_remote(
+    "libsql://your-database.turso.io",
+    "your-auth-token"
+).await?;
+```
+
+Or use environment variables (`TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`):
+
+```rust,ignore
+use bgpkit_broker::LocalBrokerDb;
+
+// Auto-detect from environment (local path or remote Turso)
+let db = LocalBrokerDb::from_env(None).await?;  // Remote mode
+let db = LocalBrokerDb::from_env(Some("./broker.db")).await?;  // Local mode
+```
 */
 
 #![doc(
@@ -204,7 +241,7 @@ pub use collector::{load_collectors, Collector};
 #[cfg(feature = "cli")]
 pub use crawler::crawl_collector;
 #[cfg(feature = "backend")]
-pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
+pub use db::{DbMode, LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
 pub use item::BrokerItem;
 pub use peer::BrokerPeer;

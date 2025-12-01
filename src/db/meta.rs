@@ -1,7 +1,5 @@
 use crate::{BrokerError, LocalBrokerDb};
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
 use tracing::debug;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,66 +20,67 @@ impl LocalBrokerDb {
     ) -> Result<Vec<UpdatesMeta>, BrokerError> {
         debug!("Inserting meta information...");
         let now_ts = chrono::Utc::now().timestamp();
-        let inserted: Vec<UpdatesMeta> = sqlx::query(&format!(
+        let conn = self.connect()?;
+
+        let query = format!(
             r#"
             INSERT INTO meta (update_ts, update_duration, insert_count) 
             VALUES ('{}', {}, {})
             RETURNING update_ts, update_duration, insert_count
             "#,
             now_ts, crawl_duration, item_inserted
-        ))
-        .map(|row: SqliteRow| {
-            let update_ts = row.get::<i64, _>(0);
-            let update_duration = row.get::<i32, _>(1);
-            let insert_count = row.get::<i32, _>(2);
-            UpdatesMeta {
+        );
+
+        let mut rows = conn.query(&query, ()).await?;
+        let mut inserted = vec![];
+
+        while let Ok(Some(row)) = rows.next().await {
+            let update_ts: i64 = row.get(0).unwrap_or(0);
+            let update_duration: i32 = row.get::<i64>(1).unwrap_or(0) as i32;
+            let insert_count: i32 = row.get::<i64>(2).unwrap_or(0) as i32;
+            inserted.push(UpdatesMeta {
                 update_ts,
                 update_duration,
                 insert_count,
-            }
-        })
-        .fetch_all(&self.conn_pool)
-        .await?;
+            });
+        }
+
         Ok(inserted)
     }
 
     pub async fn get_latest_updates_meta(&self) -> Result<Option<UpdatesMeta>, BrokerError> {
-        let entries = sqlx::query(
-            r#"
-            SELECT update_ts, update_duration, insert_count FROM meta ORDER BY update_ts DESC LIMIT 1;
-            "#,
-        ).map(|row: SqliteRow| {
-            let update_ts = row.get::<i64, _>(0);
-            let update_duration = row.get::<i32, _>(1);
-            let insert_count = row.get::<i32, _>(2);
-            UpdatesMeta {
+        let conn = self.connect()?;
+        let mut rows = conn
+            .query(
+                "SELECT update_ts, update_duration, insert_count FROM meta ORDER BY update_ts DESC LIMIT 1",
+                (),
+            )
+            .await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            let update_ts: i64 = row.get(0).unwrap_or(0);
+            let update_duration: i32 = row.get::<i64>(1).unwrap_or(0) as i32;
+            let insert_count: i32 = row.get::<i64>(2).unwrap_or(0) as i32;
+            Ok(Some(UpdatesMeta {
                 update_ts,
                 update_duration,
                 insert_count,
-            }
-        }).fetch_all(&self.conn_pool).await?;
-        if entries.is_empty() {
-            Ok(None)
+            }))
         } else {
-            Ok(Some(entries[0].clone()))
+            Ok(None)
         }
     }
 
     /// Retrieves the total number of entries in the `files` table.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(i64)` - If the query is successful, this contains the count of entries in the `files` table.
-    /// * `Err(BrokerError)` - If there is an issue executing the query or fetching the result.
     pub async fn get_entry_count(&self) -> Result<i64, BrokerError> {
-        let count = sqlx::query(
-            r#"
-            SELECT count(*) FROM files
-            "#,
-        )
-        .map(|row: SqliteRow| row.get::<i64, _>(0))
-        .fetch_one(&self.conn_pool)
-        .await?;
-        Ok(count)
+        let conn = self.connect()?;
+        let mut rows = conn.query("SELECT count(*) FROM files", ()).await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            let count: i64 = row.get(0).unwrap_or(0);
+            Ok(count)
+        } else {
+            Ok(0)
+        }
     }
 }

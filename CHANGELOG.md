@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased changes
+
+### Backend database changes
+
+* Migrated from SQLx to libSQL/Turso SDK for database operations
+    * Now supports both local SQLite files and remote Turso cloud databases
+    * Local mode: Use file path as before (e.g., `bgpkit-broker serve ./broker.db`)
+    * Remote mode: Set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` environment variables
+* Database path is now optional in CLI commands (`serve`, `update`)
+    * If no path provided, uses Turso environment variables for remote mode
+
+### CLI changes
+
+* `bgpkit-broker serve` and `bgpkit-broker update` now support remote Turso databases
+    * When using remote mode, backup functionality is automatically disabled
+    * Warns users if backup configuration is set but database is remote
+* `bgpkit-broker backup` remains local-only (use Turso's built-in backup for remote)
+* `bgpkit-broker bootstrap` remains local-only
+
+### Environment variables
+
+* New: `TURSO_DATABASE_URL` - Remote Turso database URL (optional)
+* New: `TURSO_AUTH_TOKEN` - Remote Turso authentication token (optional)
+
 ## v0.9.2 - 2025-11-18
 
 ### New collector

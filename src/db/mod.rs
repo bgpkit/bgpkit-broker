@@ -6,23 +6,48 @@ use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem, Collector};
 use chrono::{DateTime, Duration, NaiveDateTime};
-use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
-use sqlx::SqlitePool;
-use sqlx::{migrate::MigrateDatabase, Sqlite};
+use libsql::{Builder, Connection, Database};
 use std::collections::HashMap;
-use tracing::{debug, info};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 
 pub use meta::UpdatesMeta;
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
 
+/// Database mode: local file or remote Turso cloud
+#[derive(Clone, Debug)]
+pub enum DbMode {
+    /// Local SQLite file
+    Local { path: String },
+    /// Remote Turso database
+    Remote { url: String },
+}
+
+impl DbMode {
+    pub fn is_local(&self) -> bool {
+        matches!(self, DbMode::Local { .. })
+    }
+
+    pub fn is_remote(&self) -> bool {
+        matches!(self, DbMode::Remote { .. })
+    }
+
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            DbMode::Local { path } => Some(path),
+            DbMode::Remote { .. } => None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct LocalBrokerDb {
-    /// shared connection pool for reading and writing
-    conn_pool: SqlitePool,
-    collectors: Vec<BrokerCollector>,
-    types: Vec<BrokerItemType>,
+    db: Arc<Database>,
+    mode: DbMode,
+    collectors: Arc<RwLock<Vec<BrokerCollector>>>,
+    types: Arc<RwLock<Vec<BrokerItemType>>>,
 }
 
 pub struct DbSearchResult {
@@ -54,50 +79,134 @@ fn get_ts_end_clause(ts: i64) -> String {
 }
 
 impl LocalBrokerDb {
+    /// Create a new LocalBrokerDb from a local file path
     pub async fn new(path: &str) -> Result<Self, BrokerError> {
-        info!("open local broker db at {}", path);
+        info!("opening local broker db at {}", path);
+        Self::new_local(path).await
+    }
 
-        if !Sqlite::database_exists(path).await? {
-            match Sqlite::create_database(path).await {
-                Ok(_) => info!("Created db at {}", path),
-                Err(error) => panic!("error: {}", error),
-            }
-        }
-        let conn_pool = SqlitePool::connect(path).await?;
+    /// Create a new LocalBrokerDb from a local file path
+    pub async fn new_local(path: &str) -> Result<Self, BrokerError> {
+        let db = Builder::new_local(path).build().await?;
 
-        let mut db = LocalBrokerDb {
-            conn_pool,
-            collectors: vec![],
-            types: vec![],
+        let mut broker_db = LocalBrokerDb {
+            db: Arc::new(db),
+            mode: DbMode::Local {
+                path: path.to_string(),
+            },
+            collectors: Arc::new(RwLock::new(vec![])),
+            types: Arc::new(RwLock::new(vec![])),
         };
-        db.initialize().await?;
+        broker_db.initialize().await?;
 
-        Ok(db)
+        Ok(broker_db)
+    }
+
+    /// Create a new LocalBrokerDb from a remote Turso database
+    ///
+    /// Uses TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables
+    pub async fn new_remote(url: &str, auth_token: &str) -> Result<Self, BrokerError> {
+        info!("connecting to remote Turso database at {}", url);
+        let db = Builder::new_remote(url.to_string(), auth_token.to_string())
+            .build()
+            .await?;
+
+        let mut broker_db = LocalBrokerDb {
+            db: Arc::new(db),
+            mode: DbMode::Remote {
+                url: url.to_string(),
+            },
+            collectors: Arc::new(RwLock::new(vec![])),
+            types: Arc::new(RwLock::new(vec![])),
+        };
+        broker_db.initialize().await?;
+
+        Ok(broker_db)
+    }
+
+    /// Create a new LocalBrokerDb from environment variables
+    ///
+    /// If db_path is provided, uses local file mode.
+    /// Otherwise, uses TURSO_DATABASE_URL and TURSO_AUTH_TOKEN for remote mode.
+    pub async fn from_env(db_path: Option<&str>) -> Result<Self, BrokerError> {
+        if let Some(path) = db_path {
+            return Self::new_local(path).await;
+        }
+
+        // Try remote mode from environment variables
+        let url = std::env::var("TURSO_DATABASE_URL").map_err(|_| {
+            BrokerError::ConfigurationError(
+                "No database path provided and TURSO_DATABASE_URL not set. \
+                 Either provide a local file path or set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN."
+                    .to_string(),
+            )
+        })?;
+
+        let auth_token = std::env::var("TURSO_AUTH_TOKEN").unwrap_or_else(|_| {
+            warn!("TURSO_AUTH_TOKEN not set, using empty token");
+            String::new()
+        });
+
+        Self::new_remote(&url, &auth_token).await
+    }
+
+    /// Get the database mode
+    pub fn mode(&self) -> &DbMode {
+        &self.mode
+    }
+
+    /// Check if this is a local database
+    pub fn is_local(&self) -> bool {
+        self.mode.is_local()
+    }
+
+    /// Check if this is a remote database
+    pub fn is_remote(&self) -> bool {
+        self.mode.is_remote()
+    }
+
+    /// Get a connection to the database
+    fn connect(&self) -> Result<Connection, BrokerError> {
+        self.db.connect().map_err(|e| e.into())
     }
 
     async fn initialize(&mut self) -> Result<(), BrokerError> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS meta(
+        let conn = self.connect()?;
+
+        // Create tables one by one to avoid execute_batch issues
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS meta(
                 update_ts INTEGER,
                 update_duration INTEGER,
                 insert_count INTEGER
-            );
+            )",
+            (),
+        )
+        .await?;
 
-            CREATE TABLE IF NOT EXISTS collectors (
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS collectors (
                 id INTEGER PRIMARY KEY,
                 name TEXT,
                 url TEXT,
                 project TEXT,
                 updates_interval INTEGER
-                );
+            )",
+            (),
+        )
+        .await?;
 
-            CREATE TABLE IF NOT EXISTS types (
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS types (
                 id INTEGER PRIMARY KEY,
                 name TEXT
-            );
+            )",
+            (),
+        )
+        .await?;
 
-            CREATE TABLE IF NOT EXISTS files(
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS files(
                 timestamp INTEGER,
                 collector_id INTEGER,
                 type_id INTEGER,
@@ -105,9 +214,13 @@ impl LocalBrokerDb {
                 exact_size INTEGER,
                 constraint files_unique_pk
                     unique (timestamp, collector_id, type_id)
-            );
+            )",
+            (),
+        )
+        .await?;
 
-            CREATE TABLE IF NOT EXISTS latest(
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS latest(
                 timestamp INTEGER,
                 collector_name TEXT,
                 type TEXT,
@@ -115,12 +228,22 @@ impl LocalBrokerDb {
                 exact_size INTEGER,
                 constraint latest_unique_pk
                     unique (collector_name, type)
-            );
+            )",
+            (),
+        )
+        .await?;
 
-            CREATE INDEX IF NOT EXISTS idx_files_timestamp
-                ON files(timestamp);
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_files_timestamp ON files(timestamp)",
+            (),
+        )
+        .await?;
 
-            CREATE VIEW IF NOT EXISTS files_view AS
+        // Drop and recreate view to handle schema changes
+        let _ = conn.execute("DROP VIEW IF EXISTS files_view", ()).await;
+
+        conn.execute(
+            "CREATE VIEW IF NOT EXISTS files_view AS
             SELECT
                 i.timestamp, i.rough_size, i.exact_size,
                 t.name AS type,
@@ -130,46 +253,106 @@ impl LocalBrokerDb {
                 c.updates_interval AS updates_interval
             FROM collectors c
             JOIN files i ON c.id = i.collector_id
-            JOIN types t ON t.id = i.type_id;
-
-            PRAGMA journal_mode=WAL;
-        "#,
+            JOIN types t ON t.id = i.type_id",
+            (),
         )
-        .execute(&self.conn_pool)
         .await?;
 
+        // Only set WAL mode for local databases
+        if self.is_local() {
+            // Use query instead of execute for PRAGMA since it may return rows
+            let _ = conn.query("PRAGMA journal_mode=WAL", ()).await;
+        }
+
         self.reload_collectors().await;
-        self.types = sqlx::query("select id, name from types")
-            .map(|row: SqliteRow| BrokerItemType {
-                id: row.get::<i64, _>("id"),
-                name: row.get::<String, _>("name"),
-            })
-            .fetch_all(&self.conn_pool)
-            .await?;
+        self.reload_types().await;
 
         Ok(())
     }
 
-    pub async fn reload_collectors(&mut self) {
-        self.collectors =
-            sqlx::query("select id, name, url, project, updates_interval from collectors")
-                .map(|row: SqliteRow| BrokerCollector {
-                    id: row.get::<i64, _>("id"),
-                    name: row.get::<String, _>("name"),
-                    url: row.get::<String, _>("url"),
-                    project: row.get::<String, _>("project"),
-                    updates_interval: row.get::<i64, _>("updates_interval"),
-                })
-                .fetch_all(&self.conn_pool)
-                .await
-                .unwrap();
+    pub async fn reload_collectors(&self) {
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to connect for reload_collectors: {}", e);
+                return;
+            }
+        };
+
+        let mut rows = match conn
+            .query(
+                "SELECT id, name, url, project, updates_interval FROM collectors",
+                (),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to query collectors: {}", e);
+                return;
+            }
+        };
+
+        let mut collectors = vec![];
+        while let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0).unwrap_or(0);
+            let name: String = row.get(1).unwrap_or_default();
+            let url: String = row.get(2).unwrap_or_default();
+            let project: String = row.get(3).unwrap_or_default();
+            let updates_interval: i64 = row.get(4).unwrap_or(0);
+
+            collectors.push(BrokerCollector {
+                id,
+                name,
+                url,
+                project,
+                updates_interval,
+            });
+        }
+
+        let mut guard = self.collectors.write().await;
+        *guard = collectors;
+    }
+
+    async fn reload_types(&self) {
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to connect for reload_types: {}", e);
+                return;
+            }
+        };
+
+        let mut rows = match conn.query("SELECT id, name FROM types", ()).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to query types: {}", e);
+                return;
+            }
+        };
+
+        let mut types = vec![];
+        while let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0).unwrap_or(0);
+            let name: String = row.get(1).unwrap_or_default();
+            types.push(BrokerItemType { id, name });
+        }
+
+        let mut guard = self.types.write().await;
+        *guard = types;
     }
 
     async fn force_checkpoint(&self) {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
-            .execute(&self.conn_pool)
-            .await
-            .unwrap();
+        // Only applicable for local databases
+        if self.is_remote() {
+            return;
+        }
+
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE);", ()).await;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -268,6 +451,8 @@ impl LocalBrokerDb {
             _ => format!("WHERE {}", where_clauses.join(" AND ")),
         };
 
+        let conn = self.connect()?;
+
         // First query: Get total count
         let count_query = format!(
             "SELECT COUNT(*) as total FROM files_view {}",
@@ -275,10 +460,12 @@ impl LocalBrokerDb {
         );
         debug!("Count query: {}", count_query.as_str());
 
-        let total_count = sqlx::query(count_query.as_str())
-            .map(|row: SqliteRow| row.get::<i64, _>("total") as usize)
-            .fetch_one(&self.conn_pool)
-            .await?;
+        let mut count_rows = conn.query(&count_query, ()).await?;
+        let total_count: usize = if let Ok(Some(row)) = count_rows.next().await {
+            row.get::<i64>(0).unwrap_or(0) as usize
+        } else {
+            0
+        };
 
         // Second query: Get paginated results
         let query_string = format!(
@@ -293,29 +480,27 @@ impl LocalBrokerDb {
         );
         debug!("Data query: {}", query_string.as_str());
 
-        let collector_name_to_info = self
-            .collectors
+        let collectors_guard = self.collectors.read().await;
+        let collector_name_to_info: HashMap<String, BrokerCollector> = collectors_guard
             .iter()
             .map(|c| (c.name.clone(), c.clone()))
-            .collect::<HashMap<String, BrokerCollector>>();
+            .collect();
+        drop(collectors_guard);
 
-        let items = sqlx::query(query_string.as_str())
-            .map(|row: SqliteRow| {
-                let collector_name = row.get::<String, _>("collector_name");
-                let _collector_url = row.get::<String, _>("collector_url");
-                let _project_name = row.get::<String, _>("project_name");
-                let timestamp = row.get::<i64, _>("timestamp");
-                let type_name = row.get::<String, _>("type");
-                let rough_size = row.get::<i64, _>("rough_size");
-                let exact_size = row.get::<i64, _>("exact_size");
-                let _updates_interval = row.get::<i64, _>("updates_interval");
+        let mut data_rows = conn.query(&query_string, ()).await?;
+        let mut items = vec![];
 
-                let collector = collector_name_to_info.get(collector_name.as_str()).unwrap();
+        while let Ok(Some(row)) = data_rows.next().await {
+            let collector_name: String = row.get(0).unwrap_or_default();
+            let timestamp: i64 = row.get(3).unwrap_or(0);
+            let type_name: String = row.get(4).unwrap_or_default();
+            let rough_size: i64 = row.get(5).unwrap_or(0);
+            let exact_size: i64 = row.get(6).unwrap_or(0);
 
+            if let Some(collector) = collector_name_to_info.get(&collector_name) {
                 let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
-
                 let (url, ts_end) = infer_url(collector, &ts_start, type_name.as_str() == "rib");
-                BrokerItem {
+                items.push(BrokerItem {
                     ts_start,
                     ts_end,
                     collector_id: collector_name,
@@ -323,10 +508,9 @@ impl LocalBrokerDb {
                     url,
                     rough_size,
                     exact_size,
-                }
-            })
-            .fetch_all(&self.conn_pool)
-            .await?;
+                });
+            }
+        }
 
         Ok(DbSearchResult {
             items,
@@ -336,125 +520,107 @@ impl LocalBrokerDb {
         })
     }
 
-    /// Runs the SQLite `ANALYZE` command on the database connection pool.
-    ///
-    /// This method updates SQLite's internal statistics used for query planning,
-    /// helping to optimize database query performance.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - If the analysis operation executed successfully.
-    /// * `Err(BrokerError)` - If an error occurred during the execution of the analysis command.
+    /// Runs the SQLite `ANALYZE` command on the database connection.
+    /// Note: ANALYZE is only supported for local databases. For remote Turso databases,
+    /// this is a no-op since ANALYZE is not supported over the Turso protocol.
     pub async fn analyze(&self) -> Result<(), BrokerError> {
+        // ANALYZE is not supported for remote Turso databases
+        if self.is_remote() {
+            debug!("skipping ANALYZE for remote database");
+            return Ok(());
+        }
+
         info!("doing sqlite3 analyze...");
-        sqlx::query("ANALYZE").execute(&self.conn_pool).await?;
+        let conn = self.connect()?;
+        conn.execute("ANALYZE", ()).await?;
         info!("doing sqlite3 analyze...done");
         Ok(())
     }
 
     /// Inserts a batch of items into the "files" table.
-    ///
-    /// # Arguments
-    ///
-    /// * `items` - A reference to a vector of `BrokerItem` structs to be inserted.
-    /// * `update_latest` - A boolean value indicating whether to update the latest files.
-    ///
-    /// # Returns
-    ///
-    /// Returns a `Result` containing a vector of inserted `BrokerItem` structs or a `BrokerError`.
     pub async fn insert_items(
         &self,
         items: &[BrokerItem],
         update_latest: bool,
     ) -> Result<Vec<BrokerItem>, BrokerError> {
-        // 1. fetch all collectors, get collector name-to-id mapping
-        let collector_name_to_id = self
-            .collectors
+        let collectors_guard = self.collectors.read().await;
+        let collector_name_to_id: HashMap<String, i64> = collectors_guard
             .iter()
             .map(|c| (c.name.clone(), c.id))
-            .collect::<HashMap<String, i64>>();
-        let collector_id_to_info = self
-            .collectors
-            .iter()
-            .map(|c| (c.id, c.clone()))
-            .collect::<HashMap<i64, BrokerCollector>>();
+            .collect();
+        let collector_id_to_info: HashMap<i64, BrokerCollector> =
+            collectors_guard.iter().map(|c| (c.id, c.clone())).collect();
+        drop(collectors_guard);
 
-        // 2. fetch all types, get file type name-to-id mapping
-        let type_name_to_id = self
-            .types
-            .iter()
-            .map(|t| (t.name.clone(), t.id))
-            .collect::<HashMap<String, i64>>();
-        let type_id_to_name = self
-            .types
-            .iter()
-            .map(|t| (t.id, t.name.clone()))
-            .collect::<HashMap<i64, String>>();
+        let types_guard = self.types.read().await;
+        let type_name_to_id: HashMap<String, i64> =
+            types_guard.iter().map(|t| (t.name.clone(), t.id)).collect();
+        let type_id_to_name: HashMap<i64, String> =
+            types_guard.iter().map(|t| (t.id, t.name.clone())).collect();
+        drop(types_guard);
 
-        // 3. batch insert into "files" table
         debug!("Inserting {} items...", items.len());
+        let conn = self.connect()?;
         let mut inserted: Vec<BrokerItem> = vec![];
+
         for batch in items.chunks(1000) {
             let values_str = batch
                 .iter()
-                .map(|item| {
-                    let collector_id = match collector_name_to_id.get(item.collector_id.as_str()) {
-                        Some(id) => *id,
-                        None => {
-                            panic!(
-                                "Collector name to id mapping {} not found",
-                                item.collector_id
-                            );
-                        }
-                    };
-                    format!(
+                .filter_map(|item| {
+                    let collector_id = collector_name_to_id.get(item.collector_id.as_str())?;
+                    let type_id = type_name_to_id.get(item.data_type.as_str())?;
+                    Some(format!(
                         "({}, {}, {}, {}, {})",
                         item.ts_start.and_utc().timestamp(),
                         collector_id,
-                        type_name_to_id.get(item.data_type.as_str()).unwrap(),
+                        type_id,
                         item.rough_size,
                         item.exact_size,
-                    )
+                    ))
                 })
                 .collect::<Vec<String>>()
                 .join(", ");
-            let inserted_rows = sqlx::query(
-                format!(
+
+            if values_str.is_empty() {
+                continue;
+            }
+
+            let insert_query = format!(
                 r#"INSERT OR IGNORE INTO files (timestamp, collector_id, type_id, rough_size, exact_size) VALUES {}
-                    RETURNING timestamp, collector_id, type_id, rough_size, exact_size
-                    "#,
-                    values_str
-                ).as_str()
-            ).map(|row: SqliteRow|{
-                let timestamp = row.get::<i64,_>(0);
-                let collector_id = row.get::<i64,_>(1);
-                let type_id = row.get::<i64,_>(2);
-                let rough_size = row.get::<i64,_>(3);
-                let exact_size = row.get::<i64,_>(4);
+                    RETURNING timestamp, collector_id, type_id, rough_size, exact_size"#,
+                values_str
+            );
 
-                let collector = collector_id_to_info.get(&collector_id).unwrap();
-                let type_name = type_id_to_name.get(&type_id).unwrap().to_owned();
-                let is_rib = type_name.as_str() == "rib";
+            let mut rows = conn.query(&insert_query, ()).await?;
 
-                let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
-                let (url, ts_end) = infer_url(
-                    collector,
-                    &ts_start,
-                    is_rib,
-                );
+            while let Ok(Some(row)) = rows.next().await {
+                let timestamp: i64 = row.get(0).unwrap_or(0);
+                let collector_id: i64 = row.get(1).unwrap_or(0);
+                let type_id: i64 = row.get(2).unwrap_or(0);
+                let rough_size: i64 = row.get(3).unwrap_or(0);
+                let exact_size: i64 = row.get(4).unwrap_or(0);
 
-                BrokerItem{
-                    ts_start,
-                    ts_end,
-                    collector_id: collector.name.clone(),
-                    data_type: type_name,
-                    url,
-                    rough_size,
-                    exact_size,
+                if let (Some(collector), Some(type_name)) = (
+                    collector_id_to_info.get(&collector_id),
+                    type_id_to_name.get(&type_id),
+                ) {
+                    let is_rib = type_name.as_str() == "rib";
+                    let ts_start = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
+                    let (url, ts_end) = infer_url(collector, &ts_start, is_rib);
+
+                    inserted.push(BrokerItem {
+                        ts_start,
+                        ts_end,
+                        collector_id: collector.name.clone(),
+                        data_type: type_name.clone(),
+                        url,
+                        rough_size,
+                        exact_size,
+                    });
                 }
-            }).fetch_all(&self.conn_pool).await?;
-            inserted.extend(inserted_rows);
+            }
         }
+
         debug!("Inserted {} items", inserted.len());
         if update_latest {
             self.update_latest_files(&inserted, false).await;
@@ -465,17 +631,22 @@ impl LocalBrokerDb {
     }
 
     pub async fn insert_collector(&self, collector: &Collector) -> Result<(), BrokerError> {
-        let count = sqlx::query(
-            r#"
-            SELECT count(*) FROM collectors where name = ?
-            "#,
-        )
-        .bind(collector.id.as_str())
-        .map(|row: SqliteRow| row.get::<i64, _>(0))
-        .fetch_one(&self.conn_pool)
-        .await?;
+        let conn = self.connect()?;
+
+        let mut rows = conn
+            .query(
+                "SELECT count(*) FROM collectors where name = ?1",
+                [collector.id.as_str()],
+            )
+            .await?;
+
+        let count: i64 = if let Ok(Some(row)) = rows.next().await {
+            row.get(0).unwrap_or(0)
+        } else {
+            0
+        };
+
         if count > 0 {
-            // the collector already exists
             return Ok(());
         }
 
@@ -485,18 +656,17 @@ impl LocalBrokerDb {
             _ => panic!("Unknown project: {}", collector.project),
         };
 
-        sqlx::query(
-            r#"
-            INSERT INTO collectors (name, url, project, updates_interval)
-            VALUES (?, ?, ?, ?)
-            "#,
+        conn.execute(
+            "INSERT INTO collectors (name, url, project, updates_interval) VALUES (?1, ?2, ?3, ?4)",
+            libsql::params![
+                collector.id.as_str(),
+                collector.url.as_str(),
+                project,
+                interval
+            ],
         )
-        .bind(collector.id.as_str())
-        .bind(collector.url.as_str())
-        .bind(project)
-        .bind(interval)
-        .execute(&self.conn_pool)
         .await?;
+
         Ok(())
     }
 }
@@ -582,8 +752,13 @@ mod tests {
         let db = LocalBrokerDb::new(db_path_str).await.unwrap();
 
         // Verify collectors and types are loaded (should be empty in fresh database)
-        assert!(db.collectors.is_empty());
-        assert!(db.types.is_empty());
+        let collectors = db.collectors.read().await;
+        assert!(collectors.is_empty());
+        drop(collectors);
+
+        let types = db.types.read().await;
+        assert!(types.is_empty());
+        drop(types);
 
         // Cleanup
         drop(db);
@@ -624,22 +799,14 @@ mod tests {
         }
 
         // Insert test data types
-        sqlx::query("INSERT INTO types (name) VALUES ('updates'), ('rib')")
-            .execute(&db.conn_pool)
+        let conn = db.connect().unwrap();
+        conn.execute("INSERT INTO types (name) VALUES ('updates'), ('rib')", ())
             .await
             .unwrap();
 
         // Reload mappings after insertions
-        let mut db = db; // Take ownership to call mutable method
         db.reload_collectors().await;
-        db.types = sqlx::query("select id, name from types")
-            .map(|row: SqliteRow| BrokerItemType {
-                id: row.get::<i64, _>("id"),
-                name: row.get::<String, _>("name"),
-            })
-            .fetch_all(&db.conn_pool)
-            .await
-            .unwrap();
+        db.reload_types().await;
 
         // Now test item insertion
         let items = vec![

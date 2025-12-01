@@ -229,6 +229,10 @@ Additional peer filters:
 - `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password
 - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` - NATS root subject (default: `public.broker`)
 
+**Turso Database Configuration (for remote database mode):**
+- `TURSO_DATABASE_URL` - Turso database URL (e.g., `libsql://your-database.turso.io`)
+- `TURSO_AUTH_TOKEN` - Turso authentication token
+
 ### Data Structures
 
 **BrokerItem** - BGP archive file metadata:
@@ -329,18 +333,22 @@ Options:
 `bgpkit-broker serve` is the main command to start the BGPKIT Broker service. It will start a web server that serves the
 API endpoints. It will also periodically update the local database unless the `--no-update` flag is set.
 
+The `serve` command supports two database modes:
+- **Local mode**: Provide a file path to use a local SQLite database
+- **Remote mode**: Omit the file path and set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` environment variables
+
 ```text
   Serve the Broker content via RESTful API
 
-Usage: bgpkit-broker serve [OPTIONS] <DB_PATH>
+Usage: bgpkit-broker serve [OPTIONS] [DB_PATH]
 
 Arguments:
-  <DB_PATH>  broker db file location
+  [DB_PATH]  broker db file location (optional, uses TURSO_DATABASE_URL if not provided)
 
 Options:
   -i, --update-interval <UPDATE_INTERVAL>  update interval in seconds [default: 300]
       --no-log                             disable logging
-  -b, --bootstrap                          bootstrap the database if it does not exist
+  -b, --bootstrap                          bootstrap the database if it does not exist (only for local databases)
       --env <ENV>
   -s, --silent                             disable bootstrap progress bar
   -H, --host <HOST>                        host address [default: 0.0.0.0]
@@ -351,6 +359,21 @@ Options:
   -h, --help                               Print help
   -V, --version                            Print version
 ```
+
+**Local Mode Example:**
+```bash
+bgpkit-broker serve database.db --bootstrap --silent
+```
+
+**Remote Turso Mode Example:**
+```bash
+export TURSO_DATABASE_URL="libsql://your-database.turso.io"
+export TURSO_AUTH_TOKEN="your-auth-token"
+bgpkit-broker serve
+```
+
+> **Note:** When using remote Turso mode, backup functionality is automatically disabled.
+> Use Turso's built-in backup features for remote databases.
 
 **Periodic Backup Configuration:**
 
@@ -381,13 +404,15 @@ For sending NATS notifications, set these environment variables:
 `bgpkit-broker update` triggers a local database update manually. This command **cannot** be run at the same time
 as `serve` because the active API will lock the database file.
 
+Like `serve`, this command supports both local and remote Turso database modes.
+
 ```text
 Update the Broker database
 
-Usage: bgpkit-broker update [OPTIONS] <DB_PATH>
+Usage: bgpkit-broker update [OPTIONS] [DB_PATH]
 
 Arguments:
-  <DB_PATH>  broker db file location
+  [DB_PATH]  broker db file location (optional, uses TURSO_DATABASE_URL if not provided)
 
 Options:
   -d, --days <DAYS>  force number of days to look back. by default resume from the latest available data time
@@ -397,13 +422,28 @@ Options:
   -V, --version      Print version
 ```
 
+**Local Mode Example:**
+```bash
+bgpkit-broker update database.db --days 7
+```
+
+**Remote Turso Mode Example:**
+```bash
+export TURSO_DATABASE_URL="libsql://your-database.turso.io"
+export TURSO_AUTH_TOKEN="your-auth-token"
+bgpkit-broker update --days 7
+```
+
 #### `backup`
 
-`bgpkit-broker update` runs a database backup and export the database to a duckdb file and a parquet file. This *can* be
+`bgpkit-broker backup` runs a database backup and exports the database to a duckdb file and a parquet file. This *can* be
 run while `serve` is running.
 
+> **Note:** This command is only available for local SQLite databases. For remote Turso databases,
+> use Turso's built-in backup and point-in-time recovery features.
+
 ```text
-  Backup Broker database
+  Backup Broker database (local databases only)
 
 Usage: bgpkit-broker backup [OPTIONS] <FROM> <TO>
 
@@ -563,6 +603,11 @@ missing the following collectors:
 
 ## Deployment
 
+The BGPKIT Broker can be deployed in three modes:
+1. **Local SQLite mode** - Traditional local file-based database
+2. **Remote Turso mode** - Cloud-hosted database using Turso (libSQL)
+3. **Docker** - Containerized deployment
+
 ### Docker
 
 You can deploy the BGPKIT Broker service using the provided Docker image. The image is available on Docker Hub
@@ -586,9 +631,9 @@ You can also build the Docker image from the source code:
 docker build -t bgpkit/bgpkit-broker:latest .
 ```
 
-### On-premises CLI
+### On-premises CLI (Local SQLite)
 
-You can also start a BGPKIT Broker instance on your own server using the `bgpkit-broker` CLI tool with the following
+You can start a BGPKIT Broker instance on your own server using the `bgpkit-broker` CLI tool with the following
 command:
 
 ```bash
@@ -598,6 +643,61 @@ bgpkit-broker serve YOUR_SQLITE_3_FILE_PATH.sqlite3 --bootstrap --silent
 * `YOUR_SQLITE_3_FILE_PATH.sqlite3` is the path to the SQLite3 database file.
 * `--bootstrap` flag is used to bootstrap the database content from the provided daily backup database.
 * `--silent` flag is used to disable the bootstrap download progress bar.
+
+### Turso Cloud Deployment
+
+For a cloud-native deployment, you can use [Turso](https://turso.tech/) as your database backend. This allows you to:
+- Run the broker without managing local database files
+- Leverage Turso's global edge network for lower latency
+- Use Turso's built-in backup and point-in-time recovery
+- Scale horizontally with read replicas
+
+#### Setting up Turso
+
+1. **Create a Turso account and database:**
+   ```bash
+   # Install Turso CLI
+   curl -sSfL https://get.tur.so/install.sh | bash
+   
+   # Login and create database
+   turso auth login
+   turso db create bgpkit-broker
+   ```
+
+2. **Get your database credentials:**
+   ```bash
+   # Get database URL
+   turso db show bgpkit-broker --url
+   
+   # Create auth token
+   turso db tokens create bgpkit-broker
+   ```
+
+3. **Configure environment variables:**
+   ```bash
+   export TURSO_DATABASE_URL="libsql://bgpkit-broker-your-org.turso.io"
+   export TURSO_AUTH_TOKEN="your-auth-token"
+   ```
+
+4. **Start the broker in remote mode:**
+   ```bash
+   bgpkit-broker serve
+   ```
+
+#### Turso with Docker
+
+```bash
+docker run -d -p 40064:40064 \
+  -e TURSO_DATABASE_URL="libsql://your-database.turso.io" \
+  -e TURSO_AUTH_TOKEN="your-auth-token" \
+  bgpkit/bgpkit-broker:latest serve
+```
+
+#### Turso Notes
+
+- **Backup**: Automatic backup via `BGPKIT_BROKER_BACKUP_TO` is disabled for remote databases. Use Turso's built-in backup features instead.
+- **Bootstrap**: The `--bootstrap` flag is ignored for remote databases. Initialize your Turso database by first running with a local SQLite file, then migrating the data.
+- **WAL mode**: WAL journal mode is only set for local databases; remote databases use Turso's native replication.
 
 On a systemd managed OS like Debian or Ubuntu, you can also use the following service file to manage the BGPKIT Broker
 service:
