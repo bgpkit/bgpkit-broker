@@ -127,6 +127,29 @@ println!("Got {} updates from {} collectors",
          comprehensive_updates.len(), rv_collectors.len());
 ```
 
+### Routing Table Snapshot Reconstruction
+
+```no_run
+use bgpkit_broker::BgpkitBroker;
+
+// Get the MRT files needed to construct a routing table snapshot
+let broker = BgpkitBroker::new();
+let snapshots = broker.get_snapshot_files(
+    &["route-views2", "rrc00"],
+    "2024-01-01T12:00:00Z"
+).unwrap();
+
+for snapshot in snapshots {
+    println!("Collector: {}", snapshot.collector_id);
+    println!("RIB dump: {}", snapshot.rib_url);
+    println!("Updates to apply: {}", snapshot.updates_urls.len());
+
+    // Use with bgpkit-parser to reconstruct routing table:
+    // 1. Parse RIB dump for initial state
+    // 2. Apply updates in order to reach target timestamp
+}
+```
+
 ## Manual Page Queries
 
 For fine-grained control over pagination or custom iteration patterns:
@@ -209,6 +232,7 @@ pub use error::BrokerError;
 pub use item::BrokerItem;
 pub use peer::BrokerPeer;
 pub use query::{QueryParams, SortOrder};
+pub use shortcuts::SnapshotFiles;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::IpAddr;
