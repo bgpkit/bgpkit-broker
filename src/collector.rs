@@ -399,6 +399,10 @@ lazy_static! {
         {
           "id":"netnod.mmx",
           "url": "http://archive.routeviews.org/netnod.mmx/bgpdata"
+        },
+        {
+          "id":"crix.sjo",
+          "url": "http://archive.routeviews.org/crix.sjo/bgpdata"
         }
       ]
     }
