@@ -2,7 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased changes
+## v0.10.0 - 2025-12-02
+
+### New collector
+
+* Added RouteViews `crix.sjo` collector to the supported collectors list
 
 ### SDK improvements
 
