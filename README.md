@@ -56,7 +56,7 @@ and [route leak detection][route-leak].
 Add the following dependency to your `Cargo.toml`:
 
 ```toml
-bgpkit-broker = "0.8"
+bgpkit-broker = "0.9"
 ```
 
 ### Overview
@@ -66,24 +66,28 @@ The BGPKIT Broker Rust SDK provides access to BGP archive files from RouteViews 
 - 🔄 Built-in pagination with automatic streaming through iterator
 - 📊 Access to collector peers information
 - ⏰ Query latest available files for each collector
-- ✅ Configuration validation with early error detection
+- 📸 Get MRT files needed for routing table snapshot reconstruction
+- ✅ Configuration validation with helpful error messages
 
 ### Configuration API
 
-All configuration methods return `Result<Self, BrokerError>` for proper error handling:
+All configuration methods use a builder pattern and validation occurs at query time:
 
 ```rust
-use bgpkit_broker::{BgpkitBroker, BrokerError};
+use bgpkit_broker::BgpkitBroker;
 
-// Configure broker with error handling
+// Configure broker with builder pattern
 let broker = BgpkitBroker::new()
-    .ts_start("2022-01-01")?        // timestamps: RFC3339, Unix epoch, or pure dates
-    .ts_end("2022-01-02T00:00:00Z")?
-    .collector_id("rrc00,route-views2")?  // comma-separated collectors
-    .project("riperis")?             // "riperis" or "routeviews"
-    .data_type("rib")?               // "rib" or "updates"
-    .page_size(100)?                 // 1-100000
-    .page(1)?;                       // page number >= 1
+    .ts_start("2022-01-01")              // timestamps: RFC3339, Unix epoch, or pure dates
+    .ts_end("2022-01-02T00:00:00Z")
+    .collector_id("rrc00,route-views2")  // comma-separated collectors
+    .project("riperis")                   // "riperis" or "routeviews"
+    .data_type("rib")                     // "rib" or "updates"
+    .page_size(100)                       // 1-100000
+    .page(1);                             // page number >= 1
+
+// Validation happens when you query
+let items = broker.query()?;  // Returns Result<Vec<BrokerItem>, BrokerError>
 ```
 
 #### Timestamp Formats
@@ -100,8 +104,8 @@ Automatically handles pagination to stream all matching items:
 
 ```rust
 let broker = BgpkitBroker::new()
-    .ts_start("2022-01-01").unwrap()
-    .ts_end("2022-01-02").unwrap();
+    .ts_start("2022-01-01")
+    .ts_end("2022-01-02");
 
 // Iterate by reference (reusable broker)
 for item in &broker {
@@ -117,9 +121,9 @@ For specific page access or custom iteration:
 
 ```rust
 let mut broker = BgpkitBroker::new()
-    .ts_start("2022-01-01").unwrap()
-    .page(3).unwrap()
-    .page_size(20).unwrap();
+    .ts_start("2022-01-01")
+    .page(3)
+    .page_size(20);
 
 // Query single page
 let items = broker.query_single_page()?;
@@ -139,14 +143,14 @@ Get RIB files captured at midnight for daily snapshots:
 ```rust
 // Get daily RIBs from diverse collectors for comprehensive analysis
 let broker = BgpkitBroker::new()
-    .ts_start("2024-01-01").unwrap()
-    .ts_end("2024-01-31").unwrap();
+    .ts_start("2024-01-01")
+    .ts_end("2024-01-31");
 
-let diverse_collectors = broker.most_diverse_collectors(5, None).unwrap();
+let diverse_collectors = broker.most_diverse_collectors(5, None)?;
 let daily_ribs = broker
     .clone()
-    .collector_id(&diverse_collectors.join(",")).unwrap()
-    .daily_ribs().unwrap();
+    .collector_id(&diverse_collectors.join(","))
+    .daily_ribs()?;
 
 println!("Found {} daily snapshots from {} collectors", 
          daily_ribs.len(), diverse_collectors.len());
@@ -158,8 +162,8 @@ Monitor recent BGP changes:
 ```rust
 // Get updates from last 6 hours from specific collectors
 let recent_updates = BgpkitBroker::new()
-    .collector_id("route-views2,rrc00").unwrap()
-    .recent_updates(6).unwrap();
+    .collector_id("route-views2,rrc00")
+    .recent_updates(6)?;
 
 println!("Found {} recent update files", recent_updates.len());
 ```
@@ -170,13 +174,36 @@ Find collectors with maximum ASN diversity:
 ```rust
 // Get most diverse RouteViews collectors
 let broker = BgpkitBroker::new();
-let rv_collectors = broker.most_diverse_collectors(3, Some("routeviews")).unwrap();
+let rv_collectors = broker.most_diverse_collectors(3, Some("routeviews"))?;
 
 // Use for comprehensive update analysis
 let comprehensive_updates = broker
     .clone()
-    .collector_id(&rv_collectors.join(",")).unwrap()
-    .recent_updates(12).unwrap();
+    .collector_id(&rv_collectors.join(","))
+    .recent_updates(12)?;
+```
+
+#### Routing Table Snapshot Reconstruction
+Get MRT files needed to reconstruct routing table state at a specific point in time:
+
+```rust
+use bgpkit_broker::{BgpkitBroker, SnapshotFiles};
+
+let broker = BgpkitBroker::new();
+let snapshots = broker.get_snapshot_files(
+    &["route-views2", "rrc00"],
+    "2024-01-01T12:00:00Z"
+)?;
+
+for snapshot in snapshots {
+    println!("Collector: {}", snapshot.collector_id);
+    println!("RIB dump: {}", snapshot.rib_url);
+    println!("Updates to apply: {}", snapshot.updates_urls.len());
+    
+    // Use with bgpkit-parser:
+    // 1. Parse RIB dump for initial routing table state
+    // 2. Apply updates in chronological order to reach target timestamp
+}
 ```
 
 ### Advanced Features
@@ -190,7 +217,7 @@ let latest_files = broker.latest()?;
 
 // Filter by specific collector
 let broker = BgpkitBroker::new()
-    .collector_id("rrc00").unwrap();
+    .collector_id("rrc00");
 let latest = broker.latest()?;
 ```
 
@@ -199,7 +226,7 @@ Access BGP peer information with filtering options:
 
 ```rust
 let broker = BgpkitBroker::new()
-    .collector_id("route-views2").unwrap()
+    .collector_id("route-views2")
     .peers_only_full_feed(true);
 
 let peers = broker.get_peers()?;
@@ -251,39 +278,45 @@ Additional peer filters:
 - `num_v4_pfxs`, `num_v6_pfxs` - Prefix counts
 - `num_connected_asns` - Connected AS count
 
+**SnapshotFiles** - MRT files for routing table reconstruction:
+- `collector_id` - Collector identifier
+- `rib_url` - URL of the RIB dump file
+- `updates_urls` - Chronologically ordered URLs of updates files to apply
+
 ### Error Handling
 
-The SDK provides early validation with helpful error messages:
+The SDK validates configuration at query time and provides helpful error messages:
 
 ```rust
-// Using ? operator for clean error propagation
-fn process_data() -> Result<(), BrokerError> {
-    let broker = BgpkitBroker::new()
-        .ts_start("invalid-date")?;  // Returns ConfigurationError
-    Ok(())
-}
+use bgpkit_broker::{BgpkitBroker, BrokerError};
 
-// Or handle errors explicitly
-match BgpkitBroker::new().collector_id("invalid-collector") {
-    Ok(broker) => { /* use broker */ },
-    Err(e) => eprintln!("Configuration error: {}", e),
+// Errors are returned when querying, not during configuration
+let broker = BgpkitBroker::new()
+    .ts_start("invalid-date");
+
+match broker.query() {
+    Ok(items) => { /* process items */ },
+    Err(BrokerError::ConfigurationError(msg)) => eprintln!("Config error: {}", msg),
+    Err(e) => eprintln!("Other error: {}", e),
 }
 ```
 
 ### Migration from v0.7 or earlier
 
-Add `.unwrap()` or proper error handling to configuration methods:
+Configuration methods no longer return `Result` - they return `Self` directly. Validation now happens at query time:
 
 ```rust
-// Before: methods returned Self
+// Before (v0.7): methods returned Result, required unwrap/? at each step
+let broker = BgpkitBroker::new()
+    .ts_start("2022-01-01")?
+    .ts_end("2022-01-02")?;
+
+// After (v0.8+): methods return Self, validation at query time
 let broker = BgpkitBroker::new()
     .ts_start("2022-01-01")
     .ts_end("2022-01-02");
 
-// After: methods return Result<Self, BrokerError>
-let broker = BgpkitBroker::new()
-    .ts_start("2022-01-01").unwrap()
-    .ts_end("2022-01-02").unwrap();
+let items = broker.query()?;  // Validation happens here
 ```
 
 ## `bgpkit-broker` CLI Tool
@@ -293,7 +326,7 @@ Broker instance with ease.
 
 ### Install
 
-Install with `cargo install bgpkit-broker@^0.7 --features cli` or check out the main branch and
+Install with `cargo install bgpkit-broker@^0.9 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
 
 If you are in a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
