@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased changes
 
+### SDK improvements
+
+* Added `get_snapshot_files()` method to get MRT files needed to construct routing table snapshots
+    * Takes an array of collector IDs and a target timestamp
+    * Returns `Vec<SnapshotFiles>` with RIB URL and ordered updates URLs for each collector
+    * Finds the closest RIB dump before the target timestamp and all updates files between RIB and target
+    * Useful for applications that need to reconstruct exact routing table state at a specific point in time
+
 ### Crawler improvements
 
 * Added retry logic with exponential backoff for failed HTTP requests during crawling

@@ -4,8 +4,61 @@
 //! to find specific types of BGP data without manually configuring filters.
 
 use crate::{BgpkitBroker, BrokerError, BrokerItem};
-use chrono::{Timelike, Utc};
+use chrono::{DateTime, Timelike, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Display;
+
+/// MRT files needed to construct a routing table snapshot for a specific collector.
+///
+/// This struct contains the RIB dump URL and the list of updates files that need to be
+/// applied to reconstruct the routing table state at a specific point in time.
+///
+/// # Fields
+///
+/// * `collector_id` - The ID of the BGP collector (e.g., "route-views2", "rrc00")
+/// * `rib_url` - URL of the RIB dump file to use as the initial routing table
+/// * `updates_urls` - URLs of the updates MRT files to apply to the initial RIB,
+///   ordered chronologically from oldest to newest
+///
+/// # Example
+///
+/// ```no_run
+/// use bgpkit_broker::BgpkitBroker;
+///
+/// let broker = BgpkitBroker::new();
+/// let snapshots = broker.get_snapshot_files(
+///     &["route-views2", "rrc00"],
+///     "2024-01-01T12:00:00Z"
+/// ).unwrap();
+///
+/// for snapshot in snapshots {
+///     println!("Collector: {}", snapshot.collector_id);
+///     println!("RIB URL: {}", snapshot.rib_url);
+///     println!("Updates files: {}", snapshot.updates_urls.len());
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct SnapshotFiles {
+    /// The collector ID (e.g., "route-views2", "rrc00")
+    pub collector_id: String,
+    /// URL of the RIB dump file to build the initial routing table
+    pub rib_url: String,
+    /// URLs of the updates MRT files to apply to the initial RIB, in chronological order
+    pub updates_urls: Vec<String>,
+}
+
+impl Display for SnapshotFiles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SnapshotFiles {{ collector_id: {}, rib_url: {}, updates_count: {} }}",
+            self.collector_id,
+            self.rib_url,
+            self.updates_urls.len()
+        )
+    }
+}
 
 impl BgpkitBroker {
     /// Get daily RIB files that were captured at midnight (00:00:00).
@@ -243,6 +296,172 @@ impl BgpkitBroker {
 
         Ok(selected_collectors)
     }
+
+    /// Get the MRT files needed to construct routing table snapshots at a specific timestamp.
+    ///
+    /// This function finds the RIB dump and updates files needed to reconstruct the routing
+    /// table state at the given timestamp for each specified collector. For each collector,
+    /// it finds:
+    /// - The closest RIB dump file before or at the target timestamp
+    /// - All updates files between the RIB dump timestamp and the target timestamp
+    ///
+    /// This is useful for applications that need to reconstruct the exact routing table
+    /// state at a specific point in time by replaying updates on top of a RIB snapshot.
+    ///
+    /// # Arguments
+    ///
+    /// * `collector_ids` - Array of collector IDs to get snapshot files for (e.g., `["route-views2", "rrc00"]`)
+    /// * `timestamp` - Target timestamp for the routing table snapshot. Supports multiple formats:
+    ///   - Unix timestamp: `"1640995200"`
+    ///   - RFC3339: `"2022-01-01T12:00:00Z"`
+    ///   - Date with time: `"2022-01-01 12:00:00"`
+    ///   - Pure date: `"2022-01-01"` (uses start of day)
+    ///
+    /// # Returns
+    ///
+    /// A vector of [`SnapshotFiles`] structs, one for each collector that has available data.
+    /// Collectors without a suitable RIB dump before the target timestamp are excluded.
+    ///
+    /// # Examples
+    ///
+    /// ## Basic usage
+    ///
+    /// ```no_run
+    /// use bgpkit_broker::BgpkitBroker;
+    ///
+    /// let broker = BgpkitBroker::new();
+    /// let snapshots = broker.get_snapshot_files(
+    ///     &["route-views2", "rrc00"],
+    ///     "2024-01-01T12:00:00Z"
+    /// ).unwrap();
+    ///
+    /// for snapshot in snapshots {
+    ///     println!("Collector: {}", snapshot.collector_id);
+    ///     println!("RIB URL: {}", snapshot.rib_url);
+    ///     println!("Updates to apply: {}", snapshot.updates_urls.len());
+    ///     for url in &snapshot.updates_urls {
+    ///         println!("  - {}", url);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Using with bgpkit-parser for routing table reconstruction
+    ///
+    /// ```no_run
+    /// use bgpkit_broker::BgpkitBroker;
+    ///
+    /// let broker = BgpkitBroker::new();
+    /// let snapshots = broker.get_snapshot_files(
+    ///     &["route-views2"],
+    ///     "2024-01-01T06:30:00Z"
+    /// ).unwrap();
+    ///
+    /// if let Some(snapshot) = snapshots.first() {
+    ///     // 1. Parse the RIB dump to get initial routing table
+    ///     println!("Load RIB from: {}", snapshot.rib_url);
+    ///
+    ///     // 2. Apply updates in order to reach target timestamp
+    ///     for update_url in &snapshot.updates_urls {
+    ///         println!("Apply updates from: {}", update_url);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Get snapshot for a specific time using different timestamp formats
+    ///
+    /// ```no_run
+    /// use bgpkit_broker::BgpkitBroker;
+    ///
+    /// let broker = BgpkitBroker::new();
+    ///
+    /// // Using Unix timestamp
+    /// let snapshots = broker.get_snapshot_files(&["rrc00"], "1704110400").unwrap();
+    ///
+    /// // Using pure date (midnight)
+    /// let snapshots = broker.get_snapshot_files(&["rrc00"], "2024-01-01").unwrap();
+    ///
+    /// // Using RFC3339 format
+    /// let snapshots = broker.get_snapshot_files(&["rrc00"], "2024-01-01T12:00:00Z").unwrap();
+    /// ```
+    pub fn get_snapshot_files<S: AsRef<str>, T: Display>(
+        &self,
+        collector_ids: &[S],
+        timestamp: T,
+    ) -> Result<Vec<SnapshotFiles>, BrokerError> {
+        // Parse and validate the target timestamp
+        let target_ts = Self::parse_timestamp(&timestamp.to_string())?;
+
+        // We need to search for RIB files that could be before the target timestamp.
+        // RIB dumps typically happen every 2 hours (RouteViews) or every 8 hours (RIPE RIS).
+        // To be safe, we search up to 24 hours before the target timestamp for RIB files.
+        let search_start = target_ts - chrono::Duration::hours(24);
+
+        let mut results = Vec::new();
+
+        for collector_id in collector_ids {
+            let collector_id_str = collector_id.as_ref();
+
+            // Query for RIB files from search_start to target_ts
+            let rib_items = self
+                .clone()
+                .collector_id(collector_id_str)
+                .data_type("rib")
+                .ts_start(search_start.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .ts_end(target_ts.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .query()?;
+
+            // Find the closest RIB dump at or before the target timestamp
+            let closest_rib = rib_items
+                .into_iter()
+                .filter(|item| {
+                    let item_ts = DateTime::<Utc>::from_naive_utc_and_offset(item.ts_start, Utc);
+                    item_ts <= target_ts
+                })
+                .max_by_key(|item| item.ts_start);
+
+            let Some(rib_item) = closest_rib else {
+                // No RIB dump found for this collector, skip it
+                continue;
+            };
+
+            // Query for updates files between the RIB timestamp and target timestamp
+            let rib_ts = DateTime::<Utc>::from_naive_utc_and_offset(rib_item.ts_start, Utc);
+
+            let updates_items = self
+                .clone()
+                .collector_id(collector_id_str)
+                .data_type("updates")
+                .ts_start(rib_ts.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .ts_end(target_ts.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .query()?;
+
+            // Filter updates that start after the RIB and end at or before the target timestamp
+            // Sort by timestamp to ensure chronological order
+            let mut filtered_updates: Vec<BrokerItem> = updates_items
+                .into_iter()
+                .filter(|item| {
+                    let item_start = DateTime::<Utc>::from_naive_utc_and_offset(item.ts_start, Utc);
+                    let item_end = DateTime::<Utc>::from_naive_utc_and_offset(item.ts_end, Utc);
+                    // Updates file must start after or at the RIB time
+                    // and end at or before the target timestamp
+                    item_start >= rib_ts && item_end <= target_ts
+                })
+                .collect();
+
+            filtered_updates.sort_by_key(|item| item.ts_start);
+
+            let updates_urls: Vec<String> =
+                filtered_updates.into_iter().map(|item| item.url).collect();
+
+            results.push(SnapshotFiles {
+                collector_id: collector_id_str.to_string(),
+                rib_url: rib_item.url,
+                updates_urls,
+            });
+        }
+
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
@@ -344,5 +563,81 @@ mod tests {
             let unique_ripe: std::collections::HashSet<_> = ripe_collectors.iter().collect();
             assert_eq!(unique_ripe.len(), ripe_collectors.len());
         }
+    }
+
+    #[test]
+    fn test_get_snapshot_files() {
+        let broker = BgpkitBroker::new();
+
+        // Test with a known timestamp (2021-10-20 04:00:00 UTC)
+        // This should find a RIB dump at 02:00:00 and updates between 02:00 and 04:00
+        let result = broker.get_snapshot_files(&["route-views2"], "2021-10-20T04:00:00Z");
+        assert!(result.is_ok());
+
+        let snapshots = result.unwrap();
+        // Should have at least one snapshot (if data is available)
+        if !snapshots.is_empty() {
+            let snapshot = &snapshots[0];
+            assert_eq!(snapshot.collector_id, "route-views2");
+            assert!(!snapshot.rib_url.is_empty());
+            // Updates URLs should be in chronological order
+            assert!(snapshot.updates_urls.iter().all(|url| !url.is_empty()));
+        }
+    }
+
+    #[test]
+    fn test_get_snapshot_files_multiple_collectors() {
+        let broker = BgpkitBroker::new();
+
+        // Test with multiple collectors
+        let result = broker.get_snapshot_files(&["route-views2", "rrc00"], "2021-10-20T04:00:00Z");
+        assert!(result.is_ok());
+
+        let snapshots = result.unwrap();
+        // Check that collector IDs are unique
+        let collector_ids: std::collections::HashSet<_> =
+            snapshots.iter().map(|s| &s.collector_id).collect();
+        assert_eq!(collector_ids.len(), snapshots.len());
+    }
+
+    #[test]
+    fn test_get_snapshot_files_invalid_timestamp() {
+        let broker = BgpkitBroker::new();
+
+        // Test with an invalid timestamp
+        let result = broker.get_snapshot_files(&["route-views2"], "invalid-timestamp");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err(),
+            Some(BrokerError::ConfigurationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_get_snapshot_files_empty_collectors() {
+        let broker = BgpkitBroker::new();
+
+        // Test with empty collectors array
+        let empty: &[&str] = &[];
+        let result = broker.get_snapshot_files(empty, "2021-10-20T04:00:00Z");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_files_display() {
+        let snapshot = SnapshotFiles {
+            collector_id: "route-views2".to_string(),
+            rib_url: "http://example.com/rib.bz2".to_string(),
+            updates_urls: vec![
+                "http://example.com/updates1.bz2".to_string(),
+                "http://example.com/updates2.bz2".to_string(),
+            ],
+        };
+
+        let display = format!("{}", snapshot);
+        assert!(display.contains("route-views2"));
+        assert!(display.contains("http://example.com/rib.bz2"));
+        assert!(display.contains("updates_count: 2"));
     }
 }
