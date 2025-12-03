@@ -439,11 +439,12 @@ Options:
 
 #### `backup`
 
-`bgpkit-broker update` runs a database backup and export the database to a duckdb file and a parquet file. This *can* be
-run while `serve` is running.
+`bgpkit-broker backup` runs a database backup. This *can* be run while `serve` is running. The backup command also
+supports a `--bootstrap` flag that will download the latest database from the bootstrap URL, update it with the latest
+data from collectors, and then perform the backup. This is useful for running backups as a standalone cronjob.
 
 ```text
-  Backup Broker database
+Backup Broker database
 
 Usage: bgpkit-broker backup [OPTIONS] <FROM> <TO>
 
@@ -452,9 +453,11 @@ Arguments:
   <TO>    remote database location
 
 Options:
-  -f, --force                              force writing backup file to existing file if specified
+      --bootstrap                          bootstrap the database and update if a source database does not exist
       --no-log                             disable logging
+      --bootstrap-url <BOOTSTRAP_URL>      bootstrap location (remote or local) [default: https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3]
       --env <ENV>
+  -f, --force                              force writing backup file to existing file if specified
   -s, --sqlite-cmd-path <SQLITE_CMD_PATH>  specify sqlite3 command path
   -h, --help                               Print help
   -V, --version                            Print version
@@ -625,6 +628,120 @@ You can also build the Docker image from the source code:
 ```bash
 docker build -t bgpkit/bgpkit-broker:latest .
 ```
+
+#### Backup-Only Cronjob Container
+
+You can run a Docker container that performs only the backup operation (bootstrap → update → backup to remote). This is
+useful for running as a Kubernetes CronJob or any scheduled container orchestration system.
+
+The `backup` command supports a `--bootstrap` flag that will:
+1. Download the latest database from the bootstrap URL if no local database exists
+2. Update the database with the latest data from collectors
+3. Backup the updated database to the specified destination (local path or S3)
+
+**Basic usage:**
+
+```bash
+docker run --rm \
+  bgpkit/bgpkit-broker:latest \
+  backup --bootstrap /tmp/broker.sqlite3 /backup/broker.sqlite3
+```
+
+**Backup to S3:**
+
+```bash
+docker run --rm \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ENDPOINT=https://s3.amazonaws.com \
+  -e AWS_ACCESS_KEY_ID=your-access-key \
+  -e AWS_SECRET_ACCESS_KEY=your-secret-key \
+  -e BGPKIT_BROKER_BACKUP_HEARTBEAT_URL=https://your-heartbeat-url \
+  bgpkit/bgpkit-broker:latest \
+  backup --bootstrap /tmp/broker.sqlite3 s3://your-bucket/path/broker.sqlite3
+```
+
+**With custom bootstrap URL:**
+
+```bash
+docker run --rm \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ENDPOINT=https://your-s3-endpoint \
+  -e AWS_ACCESS_KEY_ID=your-access-key \
+  -e AWS_SECRET_ACCESS_KEY=your-secret-key \
+  bgpkit/bgpkit-broker:latest \
+  backup --bootstrap \
+    --bootstrap-url https://your-bootstrap-url/broker.sqlite3 \
+    /tmp/broker.sqlite3 \
+    s3://your-bucket/path/broker.sqlite3
+```
+
+**Kubernetes CronJob example:**
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bgpkit-broker-backup
+spec:
+  schedule: "0 8 * * *"  # Daily at 8 AM UTC
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: bgpkit/bgpkit-broker:latest
+            args:
+            - backup
+            - --bootstrap
+            - /tmp/broker.sqlite3
+            - s3://your-bucket/broker/bgpkit_broker.sqlite3
+            env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: AWS_ENDPOINT
+              value: "https://s3.amazonaws.com"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: secret-access-key
+            - name: BGPKIT_BROKER_BACKUP_HEARTBEAT_URL
+              value: "https://your-uptime-monitoring/heartbeat"
+            resources:
+              requests:
+                memory: "4Gi"
+                cpu: "1"
+              limits:
+                memory: "8Gi"
+                cpu: "2"
+          restartPolicy: OnFailure
+```
+
+**Command options for `backup`:**
+
+| Option | Description |
+|--------|-------------|
+| `--bootstrap` | Download and update database if source doesn't exist |
+| `--bootstrap-url <URL>` | Custom bootstrap URL (default: `https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3`) |
+| `-f, --force` | Overwrite existing backup file |
+| `-s, --sqlite-cmd-path <PATH>` | Custom path to sqlite3 binary |
+
+**Environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_REGION` | AWS region for S3 backup |
+| `AWS_ENDPOINT` | S3 endpoint URL |
+| `AWS_ACCESS_KEY_ID` | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL` | HTTP endpoint to ping on successful backup |
 
 ### On-premises CLI
 
