@@ -225,7 +225,7 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 pub use collector::{load_collectors, Collector};
 
 #[cfg(feature = "cli")]
-pub use crawler::crawl_collector;
+pub use crawler::{crawl_collector, get_crawler_collector_concurrency};
 #[cfg(feature = "backend")]
 pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;

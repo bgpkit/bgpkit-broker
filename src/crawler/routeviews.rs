@@ -1,5 +1,6 @@
 use crate::crawler::common::{
-    crawl_months_list, extract_link_size, fetch_body, remove_trailing_slash,
+    crawl_months_list, extract_link_size, fetch_body, get_crawler_month_concurrency,
+    remove_trailing_slash,
 };
 use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
@@ -34,7 +35,7 @@ pub async fn crawl_routeviews(
         let url = format!("{}/{}", collector_url.as_str(), month.format("%Y.%m/"));
         crawl_month(url, collector.id.clone())
     }))
-    .buffer_unordered(10);
+    .buffer_unordered(get_crawler_month_concurrency());
 
     let mut res = vec![];
     while let Some(result) = stream.next().await {

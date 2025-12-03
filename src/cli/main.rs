@@ -9,8 +9,8 @@ use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
-    crawl_collector, load_collectors, BgpkitBroker, BrokerError, Collector, LocalBrokerDb,
-    DEFAULT_PAGE_SIZE,
+    crawl_collector, get_crawler_collector_concurrency, load_collectors, BgpkitBroker, BrokerError,
+    Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
@@ -313,11 +313,11 @@ async fn update_database(
         db.reload_collectors().await;
     }
 
-    // crawl all collectors in parallel, 5 collectors in parallel by default, unordered.
-    // for bootstrapping (no data in db), we only crawl one collector at a time
-    const BUFFER_SIZE: usize = 5;
+    // crawl all collectors in parallel, configurable via BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY
+    // default is 2 collectors in parallel
+    let collector_concurrency = get_crawler_collector_concurrency();
 
-    debug!("unordered buffer size is {}", BUFFER_SIZE);
+    debug!("collector concurrency is {}", collector_concurrency);
 
     let mut stream = futures::stream::iter(&collectors)
         .map(|c| {
@@ -329,7 +329,7 @@ async fn update_database(
             }
             crawl_collector(c, latest_date)
         })
-        .buffer_unordered(BUFFER_SIZE);
+        .buffer_unordered(collector_concurrency);
 
     info!(
         "start updating broker database for {} collectors",

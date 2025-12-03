@@ -27,6 +27,45 @@ fn get_initial_backoff_ms() -> u64 {
         .unwrap_or(1000)
 }
 
+/// Get the number of concurrent month crawls per collector.
+///
+/// This controls how many months are crawled in parallel for each collector.
+/// Each month crawl involves fetching the month's directory listing and parsing
+/// all MRT file entries. Lower values reduce load on archive servers but increase
+/// total crawl time.
+///
+/// Default is 2 concurrent months. Can be configured via BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY.
+///
+/// Recommended values:
+/// - 1-2: Conservative, suitable for avoiding rate limits
+/// - 3-5: Balanced performance and server load
+/// - 10+: Aggressive, may trigger rate limiting on some servers
+pub(crate) fn get_crawler_month_concurrency() -> usize {
+    std::env::var("BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2)
+}
+
+/// Get the number of collectors to crawl simultaneously.
+///
+/// This controls how many BGP collectors are crawled in parallel during an update.
+/// Each collector crawl may generate multiple HTTP requests to fetch month directories.
+/// Lower values reduce overall network load and help avoid rate limiting from archive servers.
+///
+/// Default is 2 collectors. Can be configured via BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY.
+///
+/// Recommended values:
+/// - 1-2: Conservative, suitable for resource-constrained environments or avoiding rate limits
+/// - 3-5: Balanced performance for regular updates
+/// - 5-10: Faster updates but higher server load
+pub fn get_crawler_collector_concurrency() -> usize {
+    std::env::var("BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2)
+}
+
 fn size_str_to_bytes(size_str: &str, size_pattern: &Regex) -> Option<i64> {
     let cap: Captures = size_pattern.captures(size_str)?;
     let mut size = match cap[1].to_string().parse::<f64>() {

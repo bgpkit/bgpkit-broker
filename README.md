@@ -259,6 +259,8 @@ Additional peer filters:
 **Crawler Configuration:**
 - `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum retry attempts for failed HTTP requests (default: 3)
 - `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff duration in milliseconds (default: 1000)
+- `BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY` - Number of collectors to crawl simultaneously (default: 2). Lower values reduce overall network load.
+- `BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY` - Number of months to crawl in parallel per collector (default: 2). Lower values reduce load on individual archive servers.
 
 **Database Maintenance:**
 - `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
