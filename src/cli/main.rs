@@ -9,9 +9,8 @@ use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
-    crawl_collector, get_crawler_backoff_ms, get_crawler_collector_concurrency,
-    get_crawler_max_retries, get_crawler_month_concurrency, load_collectors, BgpkitBroker,
-    BrokerError, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, Collector,
+    LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
@@ -254,17 +253,6 @@ async fn try_send_heartbeat(url: Option<String>) -> Result<(), BrokerError> {
     Ok(())
 }
 
-fn get_backup_interval() -> std::time::Duration {
-    const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 24;
-
-    let hours = std::env::var("BGPKIT_BROKER_BACKUP_INTERVAL_HOURS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_BACKUP_INTERVAL_HOURS);
-
-    std::time::Duration::from_secs(hours * 60 * 60)
-}
-
 async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
     match dotenvy::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL") {
         Ok(url) => {
@@ -287,6 +275,7 @@ async fn update_database(
     notifier: &Option<NatsNotifier>,
     send_heartbeat: bool,
     update_interval_secs: Option<u64>,
+    config: &BrokerConfig,
 ) {
     let start_time = Instant::now();
     let now = Utc::now();
@@ -317,10 +306,7 @@ async fn update_database(
         db.reload_collectors().await;
     }
 
-    // crawl all collectors in parallel, configurable via BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY
-    // default is 2 collectors in parallel
-    let collector_concurrency = get_crawler_collector_concurrency();
-
+    let collector_concurrency = config.crawler.collector_concurrency;
     debug!("collector concurrency is {}", collector_concurrency);
 
     let mut stream = futures::stream::iter(&collectors)
@@ -427,88 +413,16 @@ fn enable_logging() {
 }
 
 fn display_configuration_summary(
+    config: &BrokerConfig,
     do_update: bool,
     do_api: bool,
     update_interval: u64,
     host: &str,
     port: u16,
 ) {
-    info!("=== BGPKIT Broker Configuration ===");
-
-    // Update service status
-    if do_update {
-        info!(
-            "Periodic updates: ENABLED (interval: {} seconds)",
-            update_interval
-        );
-    } else {
-        info!("Periodic updates: DISABLED");
+    for line in config.display_summary(do_update, do_api, update_interval, host, port) {
+        info!("{}", line);
     }
-
-    // API service status
-    if do_api {
-        info!("API service: ENABLED ({}:{})", host, port);
-    } else {
-        info!("API service: DISABLED");
-    }
-
-    // Crawler configuration (only relevant if updates are enabled)
-    if do_update {
-        info!(
-            "Crawler config: collector_concurrency={}, month_concurrency={}, max_retries={}, backoff_ms={}",
-            get_crawler_collector_concurrency(),
-            get_crawler_month_concurrency(),
-            get_crawler_max_retries(),
-            get_crawler_backoff_ms()
-        );
-    }
-
-    // Backup configuration
-    match std::env::var("BGPKIT_BROKER_BACKUP_TO") {
-        Ok(backup_to) => {
-            let interval_hours = get_backup_interval().as_secs() / 3600;
-            if oneio::s3_url_parse(&backup_to).is_ok() {
-                // S3 backup
-                if oneio::s3_env_check().is_err() {
-                    error!("Backup: CONFIGURED to S3 ({}) every {} hours - WARNING: S3 environment variables not properly set", backup_to, interval_hours);
-                } else {
-                    info!(
-                        "Backup: CONFIGURED to S3 ({}) every {} hours",
-                        backup_to, interval_hours
-                    );
-                }
-            } else {
-                // Local backup
-                info!(
-                    "Backup: CONFIGURED to local path ({}) every {} hours",
-                    backup_to, interval_hours
-                );
-            }
-        }
-        Err(_) => {
-            info!("Backup: DISABLED");
-        }
-    }
-
-    // Heartbeat configuration
-    let general_heartbeat = std::env::var("BGPKIT_BROKER_HEARTBEAT_URL").is_ok();
-    let backup_heartbeat = std::env::var("BGPKIT_BROKER_BACKUP_HEARTBEAT_URL").is_ok();
-
-    match (general_heartbeat, backup_heartbeat) {
-        (true, true) => info!("Heartbeats: CONFIGURED (both general and backup)"),
-        (true, false) => info!("Heartbeats: CONFIGURED (general only)"),
-        (false, true) => info!("Heartbeats: CONFIGURED (backup only)"),
-        (false, false) => info!("Heartbeats: DISABLED"),
-    }
-
-    // NATS configuration
-    if std::env::var("BGPKIT_BROKER_NATS_URL").is_ok() {
-        info!("NATS notifications: CONFIGURED");
-    } else {
-        info!("NATS notifications: DISABLED");
-    }
-
-    info!("=====================================");
 }
 
 fn main() {
@@ -552,9 +466,19 @@ fn main() {
                 enable_logging();
             }
 
+            // Load configuration from environment variables
+            let config = BrokerConfig::from_env();
+
             // Display configuration summary
             if do_log {
-                display_configuration_summary(do_update, do_api, update_interval, &host, port);
+                display_configuration_summary(
+                    &config,
+                    do_update,
+                    do_api,
+                    update_interval,
+                    &host,
+                    port,
+                );
             }
 
             if std::fs::metadata(&db_path).is_err() {
@@ -595,6 +519,7 @@ fn main() {
                 let path = db_path.clone();
                 let backup_to = std::env::var("BGPKIT_BROKER_BACKUP_TO").ok();
                 let backup_to_clone = backup_to.clone();
+                let config_clone = config.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
@@ -638,6 +563,7 @@ fn main() {
                             &notifier,
                             true,
                             Some(update_interval),
+                            &config_clone,
                         )
                         .await;
                         if let Err(e) = db.analyze().await {
@@ -679,13 +605,14 @@ fn main() {
                                 &notifier,
                                 true,
                                 Some(update_interval),
+                                &config_clone,
                             )
                             .await;
 
                             // check if backup is needed
                             if let Some(ref backup_destination) = backup_to_clone {
                                 let now = std::time::Instant::now();
-                                let backup_interval = get_backup_interval();
+                                let backup_interval = config_clone.backup.interval();
 
                                 if now.duration_since(last_backup_time) >= backup_interval {
                                     info!("starting daily backup procedure...");
@@ -805,6 +732,7 @@ fn main() {
                         exit(1);
                     }
                 };
+                let config = BrokerConfig::from_env();
                 get_tokio_runtime().block_on(async {
                     if let Err(e) = download_file(&bootstrap_url, &from, true).await {
                         error!("failed to download bootstrap file: {}", e);
@@ -817,7 +745,7 @@ fn main() {
                             exit(1);
                         }
                     };
-                    update_database(&mut db, collectors, None, &None, false, None).await;
+                    update_database(&mut db, collectors, None, &None, false, None, &config).await;
                     if let Err(e) = db.analyze().await {
                         error!("failed to analyze database: {}", e);
                     }
@@ -900,6 +828,8 @@ fn main() {
                 }
             };
 
+            let config = BrokerConfig::from_env();
+
             rt.block_on(async {
                 let mut db = match LocalBrokerDb::new(&db_path).await {
                     Ok(db) => db,
@@ -915,7 +845,7 @@ fn main() {
                         None
                     }
                 };
-                update_database(&mut db, collectors, days, &notifier, false, None).await;
+                update_database(&mut db, collectors, days, &notifier, false, None, &config).await;
             });
         }
         Commands::Search { query, json, url } => {

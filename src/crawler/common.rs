@@ -11,7 +11,7 @@ const SIZE_GB: u64 = u64::pow(1024, 3);
 
 /// Get the maximum number of retry attempts for crawling.
 /// Default is 3 attempts. Can be configured via BGPKIT_BROKER_CRAWLER_MAX_RETRIES.
-pub fn get_crawler_max_retries() -> u32 {
+pub(crate) fn get_crawler_max_retries() -> u32 {
     std::env::var("BGPKIT_BROKER_CRAWLER_MAX_RETRIES")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -20,7 +20,7 @@ pub fn get_crawler_max_retries() -> u32 {
 
 /// Get the initial backoff duration in milliseconds.
 /// Default is 1000ms (1 second). Can be configured via BGPKIT_BROKER_CRAWLER_BACKOFF_MS.
-pub fn get_crawler_backoff_ms() -> u64 {
+pub(crate) fn get_crawler_backoff_ms() -> u64 {
     std::env::var("BGPKIT_BROKER_CRAWLER_BACKOFF_MS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -44,27 +44,8 @@ pub fn get_crawler_backoff_ms() -> u64 {
 /// - 1-2: Conservative, suitable for avoiding rate limits
 /// - 3-5: Balanced performance and server load
 /// - 10+: Aggressive, may trigger rate limiting on some servers
-pub fn get_crawler_month_concurrency() -> usize {
+pub(crate) fn get_crawler_month_concurrency() -> usize {
     std::env::var("BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2)
-}
-
-/// Get the number of collectors to crawl simultaneously.
-///
-/// This controls how many BGP collectors are crawled in parallel during an update.
-/// Each collector crawl may generate multiple HTTP requests to fetch month directories.
-/// Lower values reduce overall network load and help avoid rate limiting from archive servers.
-///
-/// Default is 2 collectors. Can be configured via BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY.
-///
-/// Recommended values:
-/// - 1-2: Conservative, suitable for resource-constrained environments or avoiding rate limits
-/// - 3-5: Balanced performance for regular updates
-/// - 5-10: Faster updates but higher server load
-pub fn get_crawler_collector_concurrency() -> usize {
-    std::env::var("BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(2)
