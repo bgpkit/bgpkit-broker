@@ -120,6 +120,9 @@ impl LocalBrokerDb {
             CREATE INDEX IF NOT EXISTS idx_files_timestamp
                 ON files(timestamp);
 
+            CREATE INDEX IF NOT EXISTS idx_meta_update_ts
+                ON meta(update_ts);
+
             CREATE VIEW IF NOT EXISTS files_view AS
             SELECT
                 i.timestamp, i.rough_size, i.exact_size,

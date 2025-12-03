@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.10.1 - 2025-12-03
+
+### Configuration management
+
+* Added `BrokerConfig` struct for centralized configuration management
+    * Consolidates all environment variable configuration into a single struct
+    * Provides `from_env()` method for loading configuration at startup
+    * Includes `display_summary()` method for logging configuration state
+    * Sub-configs: `CrawlerConfig`, `BackupConfig`, `HeartbeatConfig`, `NatsConfig`, `DatabaseConfig`
+
+### Crawler improvements
+
+* Added configurable concurrency for crawler operations
+    * `BGPKIT_BROKER_CRAWLER_COLLECTOR_CONCURRENCY` - Number of collectors to crawl simultaneously (default: 2)
+    * `BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY` - Number of months to crawl in parallel per collector (default: 2, primarily affects bootstrap)
+* Reduced default concurrency from 5 collectors / 10 months to 2/2 to avoid rate limiting
+
+### CLI improvements
+
+* Added update timing and performance logging
+    * Logs completion time, items inserted, and percentage of update interval used
+    * Warns when update time exceeds 80% of interval or exceeds interval entirely
+* Enhanced startup logging to display all non-secret configuration values
+* Disabled ANSI color codes in log output for better compatibility with non-terminal environments
+
+### Database improvements
+
+* Added index on `meta.update_ts` column for faster meta table queries and cleanup operations
+
 ## v0.10.0 - 2025-12-02
 
 ### New collector
