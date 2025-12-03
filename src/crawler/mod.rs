@@ -7,7 +7,10 @@ use tracing::{debug, info};
 
 // public interface
 use crate::{BrokerError, BrokerItem};
-pub use common::get_crawler_collector_concurrency;
+pub use common::{
+    get_crawler_backoff_ms, get_crawler_collector_concurrency, get_crawler_max_retries,
+    get_crawler_month_concurrency,
+};
 use riperis::crawl_ripe_ris;
 use routeviews::crawl_routeviews;
 

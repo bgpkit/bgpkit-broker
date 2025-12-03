@@ -11,7 +11,7 @@ const SIZE_GB: u64 = u64::pow(1024, 3);
 
 /// Get the maximum number of retry attempts for crawling.
 /// Default is 3 attempts. Can be configured via BGPKIT_BROKER_CRAWLER_MAX_RETRIES.
-fn get_max_retries() -> u32 {
+pub fn get_crawler_max_retries() -> u32 {
     std::env::var("BGPKIT_BROKER_CRAWLER_MAX_RETRIES")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -20,7 +20,7 @@ fn get_max_retries() -> u32 {
 
 /// Get the initial backoff duration in milliseconds.
 /// Default is 1000ms (1 second). Can be configured via BGPKIT_BROKER_CRAWLER_BACKOFF_MS.
-fn get_initial_backoff_ms() -> u64 {
+pub fn get_crawler_backoff_ms() -> u64 {
     std::env::var("BGPKIT_BROKER_CRAWLER_BACKOFF_MS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -44,7 +44,7 @@ fn get_initial_backoff_ms() -> u64 {
 /// - 1-2: Conservative, suitable for avoiding rate limits
 /// - 3-5: Balanced performance and server load
 /// - 10+: Aggressive, may trigger rate limiting on some servers
-pub(crate) fn get_crawler_month_concurrency() -> usize {
+pub fn get_crawler_month_concurrency() -> usize {
     std::env::var("BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -161,8 +161,8 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
 /// # Returns
 /// The body of the response as a string, or an error if all retries failed.
 pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
-    let max_retries = get_max_retries();
-    let initial_backoff_ms = get_initial_backoff_ms();
+    let max_retries = get_crawler_max_retries();
+    let initial_backoff_ms = get_crawler_backoff_ms();
 
     let client = reqwest::ClientBuilder::new()
         .user_agent("bgpkit-broker/3")

@@ -9,8 +9,9 @@ use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
-    crawl_collector, get_crawler_collector_concurrency, load_collectors, BgpkitBroker, BrokerError,
-    Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    crawl_collector, get_crawler_backoff_ms, get_crawler_collector_concurrency,
+    get_crawler_max_retries, get_crawler_month_concurrency, load_collectors, BgpkitBroker,
+    BrokerError, Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
@@ -18,10 +19,11 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::process::exit;
+use std::time::Instant;
 use tabled::settings::Style;
 use tabled::Table;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -284,7 +286,9 @@ async fn update_database(
     days: Option<u32>,
     notifier: &Option<NatsNotifier>,
     send_heartbeat: bool,
+    update_interval_secs: Option<u64>,
 ) {
+    let start_time = Instant::now();
     let now = Utc::now();
 
     let latest_ts_map: HashMap<String, NaiveDateTime> = db
@@ -380,7 +384,38 @@ async fn update_database(
         }
     }
 
-    info!("finished updating broker database");
+    let elapsed = start_time.elapsed();
+    let elapsed_secs = elapsed.as_secs();
+
+    // Log timing summary with warning if update took too long
+    if let Some(interval) = update_interval_secs {
+        let usage_percent = (elapsed_secs as f64 / interval as f64) * 100.0;
+        if elapsed_secs > interval {
+            warn!(
+                "update completed in {}s ({} items inserted) - EXCEEDED interval of {}s by {}s ({:.1}% of interval)",
+                elapsed_secs,
+                total_inserted_count,
+                interval,
+                elapsed_secs - interval,
+                usage_percent
+            );
+        } else if usage_percent > 80.0 {
+            warn!(
+                "update completed in {}s ({} items inserted) - used {:.1}% of {}s interval, consider increasing concurrency",
+                elapsed_secs, total_inserted_count, usage_percent, interval
+            );
+        } else {
+            info!(
+                "update completed in {}s ({} items inserted) - used {:.1}% of {}s interval",
+                elapsed_secs, total_inserted_count, usage_percent, interval
+            );
+        }
+    } else {
+        info!(
+            "update completed in {}s ({} items inserted)",
+            elapsed_secs, total_inserted_count
+        );
+    }
 }
 
 fn enable_logging() {
@@ -415,6 +450,17 @@ fn display_configuration_summary(
         info!("API service: ENABLED ({}:{})", host, port);
     } else {
         info!("API service: DISABLED");
+    }
+
+    // Crawler configuration (only relevant if updates are enabled)
+    if do_update {
+        info!(
+            "Crawler config: collector_concurrency={}, month_concurrency={}, max_retries={}, backoff_ms={}",
+            get_crawler_collector_concurrency(),
+            get_crawler_month_concurrency(),
+            get_crawler_max_retries(),
+            get_crawler_backoff_ms()
+        );
     }
 
     // Backup configuration
@@ -585,7 +631,15 @@ fn main() {
                         update_interval_timer.tick().await;
 
                         // first execution
-                        update_database(&mut db, collectors.clone(), None, &notifier, true).await;
+                        update_database(
+                            &mut db,
+                            collectors.clone(),
+                            None,
+                            &notifier,
+                            true,
+                            Some(update_interval),
+                        )
+                        .await;
                         if let Err(e) = db.analyze().await {
                             error!("failed to analyze database: {}", e);
                         }
@@ -618,8 +672,15 @@ fn main() {
                             update_interval_timer.tick().await;
 
                             // updating from the latest data available
-                            update_database(&mut db, collectors.clone(), None, &notifier, true)
-                                .await;
+                            update_database(
+                                &mut db,
+                                collectors.clone(),
+                                None,
+                                &notifier,
+                                true,
+                                Some(update_interval),
+                            )
+                            .await;
 
                             // check if backup is needed
                             if let Some(ref backup_destination) = backup_to_clone {
@@ -756,7 +817,7 @@ fn main() {
                             exit(1);
                         }
                     };
-                    update_database(&mut db, collectors, None, &None, false).await;
+                    update_database(&mut db, collectors, None, &None, false, None).await;
                     if let Err(e) = db.analyze().await {
                         error!("failed to analyze database: {}", e);
                     }
@@ -854,7 +915,7 @@ fn main() {
                         None
                     }
                 };
-                update_database(&mut db, collectors, days, &notifier, false).await;
+                update_database(&mut db, collectors, days, &notifier, false, None).await;
             });
         }
         Commands::Search { query, json, url } => {
