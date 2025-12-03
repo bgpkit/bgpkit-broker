@@ -31,8 +31,12 @@ fn get_initial_backoff_ms() -> u64 {
 ///
 /// This controls how many months are crawled in parallel for each collector.
 /// Each month crawl involves fetching the month's directory listing and parsing
-/// all MRT file entries. Lower values reduce load on archive servers but increase
-/// total crawl time.
+/// all MRT file entries.
+///
+/// **Note:** This setting is primarily relevant during bootstrap crawls when all
+/// historical months need to be fetched. During regular updates, typically only
+/// 1-2 months (current and possibly previous) are crawled, so this setting has
+/// minimal impact.
 ///
 /// Default is 2 concurrent months. Can be configured via BGPKIT_BROKER_CRAWLER_MONTH_CONCURRENCY.
 ///
