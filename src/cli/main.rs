@@ -385,7 +385,7 @@ async fn update_database(
 
 fn enable_logging() {
     tracing_subscriber::fmt()
-        .with_ansi(true)
+        .with_ansi(false)
         .with_level(true)
         .with_target(false)
         .init();
