@@ -377,6 +377,10 @@ lazy_static! {
           "url": "https://archive.routeviews.org/iix.cgk/bgpdata"
         },
         {
+          "id": "ixpn.lagos",
+          "url": "https://archive.routeviews.org/ixpn.lagos/bgpdata"
+        },
+        {
           "id":"namex.fco",
           "url": "https://archive.routeviews.org/namex.fco/bgpdata"
         },
