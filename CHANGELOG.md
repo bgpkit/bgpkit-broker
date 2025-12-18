@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### New collector
+
+* Added RouteViews `ixpn.lagos` collector to the supported collectors list
+
 ## v0.10.1 - 2025-12-03
 
 ### Configuration management
