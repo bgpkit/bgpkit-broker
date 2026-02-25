@@ -381,8 +381,8 @@ lazy_static! {
           "url": "https://archive.routeviews.org/iix.cgk/bgpdata"
         },
         {
-          "id": "ixpn.lagos",
-          "url": "https://archive.routeviews.org/ixpn.lagos/bgpdata"
+          "id": "ixpn.los",
+          "url": "https://archive.routeviews.org/ixpn.los/bgpdata"
         },
         {
           "id":"namex.fco",
