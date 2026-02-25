@@ -189,6 +189,10 @@ lazy_static! {
           "url": "https://archive.routeviews.org/cix.atl/bgpdata"
         },
         {
+          "id": "decix.fra",
+          "url": "https://archive.routeviews.org/decix.fra/bgpdata"
+        },
+        {
           "id": "decix.jhb",
           "url": "https://archive.routeviews.org/decix.jhb/bgpdata"
         },
