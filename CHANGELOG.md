@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### New collector
 
 * Added RouteViews `ixpn.lagos` collector to the supported collectors list
+* Added RouteViews `decix.fra` collector to the supported collectors list
 
 ## v0.10.1 - 2025-12-03
 
