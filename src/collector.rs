@@ -245,6 +245,10 @@ lazy_static! {
           "url": "https://archive.routeviews.org/route-views.amsix/bgpdata"
         },
         {
+          "id":"locix.fra",
+          "url": "https://archive.routeviews.org/locix.fra/bgpdata"
+        },
+        {
           "id":"route-views.chicago",
           "url": "https://archive.routeviews.org/route-views.chicago/bgpdata"
         },
