@@ -3,14 +3,15 @@ mod backup;
 mod bootstrap;
 mod utils;
 
+use crate::api::LIVE_EVENT_BUFFER_SIZE;
 use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::{backup_database, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
-    crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, Collector,
-    LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, BrokerItem,
+    Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
@@ -22,6 +23,7 @@ use std::time::Instant;
 use tabled::settings::Style;
 use tabled::Table;
 use tokio::runtime::Runtime;
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 #[derive(Parser)]
@@ -267,15 +269,20 @@ async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
     }
 }
 
+struct UpdateContext<'a> {
+    notifier: &'a Option<NatsNotifier>,
+    live_events: &'a Option<broadcast::Sender<BrokerItem>>,
+    send_heartbeat: bool,
+    update_interval_secs: Option<u64>,
+    config: &'a BrokerConfig,
+}
+
 /// update the database with data crawled from the given collectors
 async fn update_database(
     db: &mut LocalBrokerDb,
     collectors: Vec<Collector>,
     days: Option<u32>,
-    notifier: &Option<NatsNotifier>,
-    send_heartbeat: bool,
-    update_interval_secs: Option<u64>,
-    config: &BrokerConfig,
+    context: UpdateContext<'_>,
 ) {
     let start_time = Instant::now();
     let now = Utc::now();
@@ -306,7 +313,7 @@ async fn update_database(
         db.reload_collectors().await;
     }
 
-    let collector_concurrency = config.crawler.collector_concurrency;
+    let collector_concurrency = context.config.crawler.collector_concurrency;
     debug!("collector concurrency is {}", collector_concurrency);
 
     let mut stream = futures::stream::iter(&collectors)
@@ -332,7 +339,12 @@ async fn update_database(
             Ok(items) => match db.insert_items(&items, true).await {
                 Ok(inserted) => {
                     if !inserted.is_empty() {
-                        if let Some(n) = notifier {
+                        if let Some(sender) = context.live_events {
+                            for item in &inserted {
+                                let _ = sender.send(item.clone());
+                            }
+                        }
+                        if let Some(n) = context.notifier {
                             if let Err(e) = n.send(&inserted).await {
                                 error!("{}", e);
                             }
@@ -364,7 +376,7 @@ async fn update_database(
         error!("failed to cleanup old meta entries: {}", e);
     }
 
-    if send_heartbeat {
+    if context.send_heartbeat {
         if let Err(e) = try_send_heartbeat(None).await {
             error!("{}", e);
         }
@@ -374,7 +386,7 @@ async fn update_database(
     let elapsed_secs = elapsed.as_secs();
 
     // Log timing summary with warning if update took too long
-    if let Some(interval) = update_interval_secs {
+    if let Some(interval) = context.update_interval_secs {
         let usage_percent = (elapsed_secs as f64 / interval as f64) * 100.0;
         if elapsed_secs > interval {
             warn!(
@@ -513,6 +525,7 @@ fn main() {
             }));
 
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+            let (live_events, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
 
             if do_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
@@ -520,6 +533,7 @@ fn main() {
                 let backup_to = std::env::var("BGPKIT_BROKER_BACKUP_TO").ok();
                 let backup_to_clone = backup_to.clone();
                 let config_clone = config.clone();
+                let live_events_clone = live_events.clone();
                 std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
@@ -560,10 +574,13 @@ fn main() {
                             &mut db,
                             collectors.clone(),
                             None,
-                            &notifier,
-                            true,
-                            Some(update_interval),
-                            &config_clone,
+                            UpdateContext {
+                                notifier: &notifier,
+                                live_events: &Some(live_events_clone.clone()),
+                                send_heartbeat: true,
+                                update_interval_secs: Some(update_interval),
+                                config: &config_clone,
+                            },
                         )
                         .await;
                         if let Err(e) = db.analyze().await {
@@ -602,10 +619,13 @@ fn main() {
                                 &mut db,
                                 collectors.clone(),
                                 None,
-                                &notifier,
-                                true,
-                                Some(update_interval),
-                                &config_clone,
+                                UpdateContext {
+                                    notifier: &notifier,
+                                    live_events: &Some(live_events_clone.clone()),
+                                    send_heartbeat: true,
+                                    update_interval_secs: Some(update_interval),
+                                    config: &config_clone,
+                                },
                             )
                             .await;
 
@@ -668,7 +688,16 @@ fn main() {
                             exit(1);
                         }
                     };
-                    if let Err(e) = start_api_service(database.clone(), host, port, root).await {
+                    if let Err(e) = start_api_service(
+                        database.clone(),
+                        live_events.clone(),
+                        do_update,
+                        host,
+                        port,
+                        root,
+                    )
+                    .await
+                    {
                         error!("API service failed: {}", e);
                         exit(1);
                     }
@@ -745,7 +774,19 @@ fn main() {
                             exit(1);
                         }
                     };
-                    update_database(&mut db, collectors, None, &None, false, None, &config).await;
+                    update_database(
+                        &mut db,
+                        collectors,
+                        None,
+                        UpdateContext {
+                            notifier: &None,
+                            live_events: &None,
+                            send_heartbeat: false,
+                            update_interval_secs: None,
+                            config: &config,
+                        },
+                    )
+                    .await;
                     if let Err(e) = db.analyze().await {
                         error!("failed to analyze database: {}", e);
                     }
@@ -845,7 +886,19 @@ fn main() {
                         None
                     }
                 };
-                update_database(&mut db, collectors, days, &notifier, false, None, &config).await;
+                update_database(
+                    &mut db,
+                    collectors,
+                    days,
+                    UpdateContext {
+                        notifier: &notifier,
+                        live_events: &None,
+                        send_heartbeat: false,
+                        update_interval_secs: None,
+                        config: &config,
+                    },
+                )
+                .await;
             });
         }
         Commands::Search { query, json, url } => {

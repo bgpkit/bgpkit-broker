@@ -39,4 +39,8 @@ pub enum BrokerError {
     #[cfg(feature = "nats")]
     #[error("NotifierError: {0}")]
     NotifierError(String),
+
+    #[cfg(feature = "sse")]
+    #[error("SseError: {0}")]
+    SseError(String),
 }

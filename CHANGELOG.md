@@ -10,6 +10,18 @@ All notable changes to this project will be documented in this file.
 * Added RouteViews `ixpn.lagos` collector to the supported collectors list
 * Added RouteViews `decix.fra` collector to the supported collectors list
 
+### API improvements
+
+* Added live SSE notifications at `GET {root}/events`
+    * Emits `new_file` events with `BrokerItem` JSON payloads
+    * Returns `503` when the updater service is disabled in the current process
+
+### SDK improvements
+
+* Added optional `sse` feature for subscribing to live broker notifications
+    * Added `BgpkitBroker::subscribe_new_files()` async subscription API
+    * Added `SseSubscriptionOptions` for client-side filtering by project, collector, and data type
+
 ## v0.10.1 - 2025-12-03
 
 ### Configuration management

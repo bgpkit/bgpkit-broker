@@ -1,5 +1,6 @@
 use crate::utils::get_missing_collectors;
 use axum::extract::{Query, State};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -7,16 +8,24 @@ use axum_prometheus::PrometheusMetricLayerBuilder;
 use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use clap::Args;
+use futures::stream;
 use http::{Method, StatusCode};
 use log::error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::broadcast;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
+use tracing::{info, warn};
+
+pub(crate) const LIVE_EVENT_BUFFER_SIZE: usize = 4096;
 
 struct AppState {
     database: LocalBrokerDb,
+    live_events: broadcast::Sender<BrokerItem>,
+    updater_enabled: bool,
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]
@@ -75,6 +84,7 @@ pub struct BrokerSearchResult {
 enum BrokerApiError {
     BrokerNotHealthy(String),
     SearchError(String),
+    LiveUpdatesUnavailable(String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -357,6 +367,48 @@ async fn missing_collectors(State(state): State<Arc<AppState>>) -> impl IntoResp
     }
 }
 
+async fn events(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    if !state.updater_enabled {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(BrokerApiError::LiveUpdatesUnavailable(
+                "live SSE notifications require the updater service in the same process"
+                    .to_string(),
+            )),
+        )
+            .into_response();
+    }
+
+    Sse::new(live_event_stream(state.live_events.subscribe()))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response()
+}
+
+fn live_event_stream(
+    receiver: broadcast::Receiver<BrokerItem>,
+) -> impl futures::Stream<Item = Result<Event, Infallible>> {
+    stream::unfold(receiver, |mut receiver| async move {
+        match receiver.recv().await {
+            Ok(item) => {
+                let event = Event::default()
+                    .event("new_file")
+                    .id(item.url.clone())
+                    .json_data(&item)
+                    .expect("BrokerItem should serialize into SSE event");
+                Some((Ok::<Event, Infallible>(event), receiver))
+            }
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                warn!(
+                    "closing SSE connection after lagging behind by {} events",
+                    skipped
+                );
+                None
+            }
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
+    })
+}
+
 /// Parse a timestamp string into NaiveDateTime
 ///
 /// The timestamp string can be either unix timestamp or RFC3339 format string (e.g. 2020-01-01T00:00:00Z).
@@ -400,6 +452,8 @@ fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
 
 pub async fn start_api_service(
     database: LocalBrokerDb,
+    live_events: broadcast::Sender<BrokerItem>,
+    updater_enabled: bool,
     host: String,
     port: u16,
     root: String,
@@ -409,29 +463,30 @@ pub async fn start_api_service(
         .with_prefix("bgpkit_broker")
         .with_default_metrics()
         .build_pair();
-    let cors_layer = CorsLayer::new()
-        // allow `GET` and `POST` when accessing the resource
-        .allow_methods([Method::GET, Method::POST])
-        // allow requests from any origin
-        .allow_origin(Any);
-
-    let database = Arc::new(AppState { database });
+    let state = Arc::new(AppState {
+        database,
+        live_events,
+        updater_enabled,
+    });
     let app = Router::new()
         .route("/search", get(search))
         .route("/latest", get(latest))
         .route("/health", get(health))
         .route("/missing_collectors", get(missing_collectors))
+        .route("/events", get(events))
         .route("/metrics", get(|| async move { metric_handle.render() }))
-        .with_state(database)
+        .with_state(state)
         .layer(metric_layer)
-        .layer(cors_layer);
+        .layer(
+            CorsLayer::new()
+                .allow_methods([Method::GET, Method::POST])
+                .allow_origin(Any),
+        );
     info!("Starting API service on {}:{}", host, port);
 
     let root_app = if root == "/" {
-        // If root is "/", just use the app router directly
         app
     } else {
-        // Otherwise, nest under the specified path
         Router::new().nest(root.as_str(), app)
     };
 
@@ -441,4 +496,144 @@ pub async fn start_api_service(
     axum::serve(listener, root_app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use chrono::DateTime;
+    use futures::StreamExt;
+    use http_body_util::BodyExt;
+    use tempfile::tempdir;
+    use tower::ServiceExt;
+
+    fn test_item(index: i64) -> BrokerItem {
+        BrokerItem {
+            ts_start: DateTime::from_timestamp(1_710_000_000 + index, 0)
+                .unwrap()
+                .naive_utc(),
+            ts_end: DateTime::from_timestamp(1_710_000_300 + index, 0)
+                .unwrap()
+                .naive_utc(),
+            collector_id: "route-views2".to_string(),
+            data_type: "updates".to_string(),
+            url: format!("https://example.com/{}", index),
+            rough_size: 100,
+            exact_size: 100,
+        }
+    }
+
+    async fn test_database() -> (tempfile::TempDir, LocalBrokerDb) {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.sqlite3");
+        let database = LocalBrokerDb::new(path.to_str().unwrap()).await.unwrap();
+        (dir, database)
+    }
+
+    fn test_router(
+        database: LocalBrokerDb,
+        live_events: broadcast::Sender<BrokerItem>,
+        updater_enabled: bool,
+        root: &str,
+    ) -> Router {
+        let state = Arc::new(AppState {
+            database,
+            live_events,
+            updater_enabled,
+        });
+        let app = Router::new()
+            .route("/events", get(events))
+            .with_state(state);
+        if root == "/" {
+            app
+        } else {
+            Router::new().nest(root, app)
+        }
+    }
+
+    async fn read_sse_frame(response: axum::response::Response) -> String {
+        let frame = response.into_body().frame().await.unwrap().unwrap();
+        let bytes = frame.into_data().unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_events_endpoint_streams_new_file_notifications() {
+        let (_dir, database) = test_database().await;
+        let (sender, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
+        let app = test_router(database, sender.clone(), true, "/");
+        let request = http::Request::builder()
+            .uri("/events")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(http::header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "text/event-stream"
+        );
+
+        let item = test_item(1);
+        sender.send(item.clone()).unwrap();
+
+        let frame = read_sse_frame(response).await;
+        assert!(frame.contains("event: new_file"));
+        assert!(frame.contains(&format!("id: {}", item.url)));
+        assert!(frame.contains("data: {"));
+        assert!(frame.contains("\"collector_id\":\"route-views2\""));
+        assert!(frame.contains(&format!("\"url\":\"{}\"", item.url)));
+    }
+
+    #[tokio::test]
+    async fn test_events_endpoint_honors_root_path() {
+        let (_dir, database) = test_database().await;
+        let (sender, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
+        let app = test_router(database, sender, true, "/v3/broker");
+        let request = http::Request::builder()
+            .uri("/v3/broker/events")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(http::header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "text/event-stream"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_events_endpoint_returns_503_without_updater() {
+        let (_dir, database) = test_database().await;
+        let (sender, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
+        let app = test_router(database, sender, false, "/");
+        let request = http::Request::builder()
+            .uri("/events")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_live_event_stream_closes_when_receiver_lags() {
+        let (sender, receiver) = broadcast::channel(1);
+        let event_stream = live_event_stream(receiver);
+        futures::pin_mut!(event_stream);
+
+        sender.send(test_item(1)).unwrap();
+        sender.send(test_item(2)).unwrap();
+
+        assert!(event_stream.next().await.is_none());
+    }
 }

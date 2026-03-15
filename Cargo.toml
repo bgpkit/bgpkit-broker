@@ -112,9 +112,12 @@ backend = ["tokio", "sqlx"]
 
 # notification features
 nats = ["async-nats"]
+sse = ["futures-util", "tokio"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"
+tower = "0.5"
+http-body-util = "0.1"
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
