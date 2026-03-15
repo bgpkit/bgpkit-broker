@@ -59,6 +59,12 @@ Add the following dependency to your `Cargo.toml`:
 bgpkit-broker = "0.10"
 ```
 
+To subscribe to live SSE notifications from the Rust SDK, enable the `sse` feature:
+
+```toml
+bgpkit-broker = { version = "0.10", features = ["sse"] }
+```
+
 ### Overview
 
 The BGPKIT Broker Rust SDK provides access to BGP archive files from RouteViews and RIPE RIS collectors. It features:
@@ -66,6 +72,7 @@ The BGPKIT Broker Rust SDK provides access to BGP archive files from RouteViews 
 - 🔄 Built-in pagination with automatic streaming through iterator
 - 📊 Access to collector peers information
 - ⏰ Query latest available files for each collector
+- 📡 Optional async SSE subscription for live new-file notifications
 - 📸 Get MRT files needed for routing table snapshot reconstruction
 - ✅ Configuration validation with helpful error messages
 
@@ -239,6 +246,33 @@ for peer in peers {
 Additional peer filters:
 - `.peers_asn(ASN)` - Filter by peer AS number
 - `.peers_ip(IP)` - Filter by peer IP address
+
+#### Subscribe to Live New Files
+Subscribe to the broker SSE endpoint with client-side filtering:
+
+```rust
+use bgpkit_broker::{BgpkitBroker, SseSubscriptionOptions};
+use futures_util::StreamExt;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let broker = BgpkitBroker::new()
+        .broker_url("http://127.0.0.1:40064/v3/broker");
+
+    let options = SseSubscriptionOptions::new()
+        .project("routeviews")
+        .collector_id("route-views2")
+        .data_type("updates");
+
+    let mut subscription = broker.subscribe_new_files(options).await?;
+
+    while let Some(item) = subscription.next().await {
+        println!("{}", item?.url);
+    }
+
+    Ok(())
+}
+```
 
 ### Environment Configuration
 
@@ -417,6 +451,23 @@ For sending NATS notifications, set these environment variables:
 * `BGPKIT_BROKER_NATS_USER`: NATS server username
 * `BGPKIT_BROKER_NATS_PASSWORD`: NATS server password
 * `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS root subject (e.g., `public.broker`)
+
+**SSE Notifications:**
+
+`bgpkit-broker serve` also exposes a live SSE stream at `{root}/events`. The stream emits one
+`new_file` event per newly indexed `BrokerItem`.
+
+Example:
+
+```bash
+curl -N http://127.0.0.1:40064/events
+```
+
+If the broker is served under a custom root, use that path instead:
+
+```bash
+curl -N http://127.0.0.1:40064/v3/broker/events
+```
 
 #### `update`
 

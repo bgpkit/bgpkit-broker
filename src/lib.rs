@@ -219,6 +219,8 @@ pub mod notifier;
 mod peer;
 mod query;
 mod shortcuts;
+#[cfg(feature = "sse")]
+mod sse;
 
 use crate::collector::DEFAULT_COLLECTORS_CONFIG;
 use crate::peer::BrokerPeersResult;
@@ -237,9 +239,13 @@ pub use item::BrokerItem;
 pub use peer::BrokerPeer;
 pub use query::{QueryParams, SortOrder};
 pub use shortcuts::SnapshotFiles;
+#[cfg(feature = "sse")]
+pub use sse::{BrokerItemSubscription, SseSubscriptionOptions};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::IpAddr;
+
+const SDK_USER_AGENT: &str = concat!("bgpkit-broker/", env!("CARGO_PKG_VERSION"));
 
 /// BgpkitBroker struct maintains the broker's URL and handles making API queries.
 ///
@@ -250,6 +256,7 @@ pub struct BgpkitBroker {
     pub query_params: QueryParams,
     client: reqwest::blocking::Client,
     collector_project_map: HashMap<String, String>,
+    accept_invalid_certs: bool,
 }
 
 impl Default for BgpkitBroker {
@@ -262,32 +269,51 @@ impl Default for BgpkitBroker {
 
         let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
 
-        let accept_invalid_certs = match std::env::var("ONEIO_ACCEPT_INVALID_CERTS") {
-            Ok(t) => {
-                let l = t.to_lowercase();
-                l.starts_with("true") || l.starts_with("y")
-            }
-            Err(_) => false,
-        };
-
-        let client = match reqwest::blocking::ClientBuilder::new()
-            .danger_accept_invalid_certs(accept_invalid_certs)
-            .user_agent(concat!("bgpkit-broker/", env!("CARGO_PKG_VERSION")))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                panic!("Failed to build HTTP client for broker requests: {}", e);
-            }
-        };
+        let accept_invalid_certs = read_accept_invalid_certs_from_env();
+        let client = build_blocking_client(accept_invalid_certs);
 
         Self {
             broker_url: url,
             query_params: Default::default(),
             client,
             collector_project_map,
+            accept_invalid_certs,
         }
     }
+}
+
+fn read_accept_invalid_certs_from_env() -> bool {
+    match std::env::var("ONEIO_ACCEPT_INVALID_CERTS") {
+        Ok(t) => {
+            let l = t.to_lowercase();
+            l.starts_with("true") || l.starts_with("y")
+        }
+        Err(_) => false,
+    }
+}
+
+fn build_blocking_client(accept_invalid_certs: bool) -> reqwest::blocking::Client {
+    match reqwest::blocking::ClientBuilder::new()
+        .danger_accept_invalid_certs(accept_invalid_certs)
+        .user_agent(SDK_USER_AGENT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            panic!("Failed to build HTTP client for broker requests: {}", e);
+        }
+    }
+}
+
+#[cfg(feature = "sse")]
+pub(crate) fn build_async_client(
+    accept_invalid_certs: bool,
+) -> Result<reqwest::Client, BrokerError> {
+    reqwest::ClientBuilder::new()
+        .danger_accept_invalid_certs(accept_invalid_certs)
+        .user_agent(SDK_USER_AGENT)
+        .build()
+        .map_err(BrokerError::NetworkError)
 }
 
 impl BgpkitBroker {
@@ -324,20 +350,18 @@ impl BgpkitBroker {
             query_params: self.query_params,
             client: self.client,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
     /// DANGER: Accept invalid SSL certificates.
     pub fn accept_invalid_certs(self) -> Self {
-        #[allow(clippy::unwrap_used)]
         Self {
             broker_url: self.broker_url,
             query_params: self.query_params,
-            client: reqwest::blocking::ClientBuilder::new()
-                .danger_accept_invalid_certs(true)
-                .build()
-                .unwrap(),
+            client: build_blocking_client(true),
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: true,
         }
     }
 
@@ -559,6 +583,7 @@ impl BgpkitBroker {
             query_params,
             client: self.client,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -594,6 +619,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -623,6 +649,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -647,6 +674,7 @@ impl BgpkitBroker {
             broker_url: self.broker_url,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -673,6 +701,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -695,6 +724,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -717,6 +747,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -736,6 +767,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -755,6 +787,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
@@ -774,6 +807,7 @@ impl BgpkitBroker {
             client: self.client,
             query_params,
             collector_project_map: self.collector_project_map,
+            accept_invalid_certs: self.accept_invalid_certs,
         }
     }
 
