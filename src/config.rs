@@ -166,38 +166,6 @@ impl HeartbeatConfig {
     }
 }
 
-/// NATS notification configuration.
-#[derive(Debug, Clone, Default)]
-pub struct NatsConfig {
-    /// NATS server URL.
-    /// Environment variable: `BGPKIT_BROKER_NATS_URL`
-    pub url: Option<String>,
-
-    /// NATS username.
-    /// Environment variable: `BGPKIT_BROKER_NATS_USER`
-    pub user: Option<String>,
-
-    /// NATS root subject for messages.
-    /// Environment variable: `BGPKIT_BROKER_NATS_ROOT_SUBJECT`
-    pub root_subject: Option<String>,
-}
-
-impl NatsConfig {
-    /// Load NATS configuration from environment variables.
-    pub fn from_env() -> Self {
-        Self {
-            url: std::env::var("BGPKIT_BROKER_NATS_URL").ok(),
-            user: std::env::var("BGPKIT_BROKER_NATS_USER").ok(),
-            root_subject: std::env::var("BGPKIT_BROKER_NATS_ROOT_SUBJECT").ok(),
-        }
-    }
-
-    /// Returns true if NATS is configured.
-    pub fn is_enabled(&self) -> bool {
-        self.url.is_some()
-    }
-}
-
 /// Database maintenance configuration.
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
@@ -241,9 +209,6 @@ pub struct BrokerConfig {
     /// Heartbeat settings
     pub heartbeat: HeartbeatConfig,
 
-    /// NATS notification settings
-    pub nats: NatsConfig,
-
     /// Database maintenance settings
     pub database: DatabaseConfig,
 }
@@ -260,7 +225,6 @@ impl BrokerConfig {
             crawler: CrawlerConfig::from_env(),
             backup: BackupConfig::from_env(),
             heartbeat: HeartbeatConfig::from_env(),
-            nats: NatsConfig::from_env(),
             database: DatabaseConfig::from_env(),
         }
     }
@@ -335,13 +299,6 @@ impl BrokerConfig {
             (false, false) => lines.push("Heartbeats: DISABLED".to_string()),
         }
 
-        // NATS configuration
-        if self.nats.is_enabled() {
-            lines.push("NATS notifications: CONFIGURED".to_string());
-        } else {
-            lines.push("NATS notifications: DISABLED".to_string());
-        }
-
         // Database maintenance
         lines.push(format!(
             "Database: meta_retention_days={}",
@@ -368,7 +325,6 @@ mod tests {
         assert_eq!(config.backup.interval_hours, 24);
         assert_eq!(config.database.meta_retention_days, 30);
         assert!(!config.backup.is_enabled());
-        assert!(!config.nats.is_enabled());
     }
 
     #[test]

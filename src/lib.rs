@@ -214,8 +214,6 @@ mod crawler;
 pub mod db;
 mod error;
 mod item;
-#[cfg(feature = "nats")]
-pub mod notifier;
 mod peer;
 mod query;
 mod shortcuts;

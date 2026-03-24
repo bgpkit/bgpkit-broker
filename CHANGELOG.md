@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 * Added optional `sse` feature for subscribing to live broker notifications
     * Added `BgpkitBroker::subscribe_new_files()` async subscription API
     * Added `SseSubscriptionOptions` for client-side filtering by project, collector, and data type
+    * Note: The `bgpkit-broker live` CLI command now uses SSE instead of NATS
 
 ### Code improvements
 
@@ -35,6 +36,15 @@ All notable changes to this project will be documented in this file.
 * Parameterized local database search and meta queries to avoid string interpolation in SQL
 * Centralized timestamp, collector, project, data type, and page validation shared by SDK, API, and SSE paths
 * Seeded default item types when initializing a local broker database
+* Removed NATS notification feature and `async-nats` dependency to reduce attack surface
+
+### Security
+
+* Removed NATS feature and `async-nats` dependency
+    * Eliminated 9 transitive dependency vulnerabilities (aws-lc-sys, quinn-proto, bytes, time)
+    * Updated `bgpkit-broker live` command to use SSE subscription instead of NATS
+    * Removed environment variables: `BGPKIT_BROKER_NATS_URL`, `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD`, `BGPKIT_BROKER_NATS_ROOT_SUBJECT`
+* Updated dependencies via `cargo update` to pull in security fixes
 
 ## v0.10.1 - 2025-12-03
 
@@ -44,7 +54,7 @@ All notable changes to this project will be documented in this file.
     * Consolidates all environment variable configuration into a single struct
     * Provides `from_env()` method for loading configuration at startup
     * Includes `display_summary()` method for logging configuration state
-    * Sub-configs: `CrawlerConfig`, `BackupConfig`, `HeartbeatConfig`, `NatsConfig`, `DatabaseConfig`
+    * Sub-configs: `CrawlerConfig`, `BackupConfig`, `HeartbeatConfig`, `DatabaseConfig`
 
 ### Crawler improvements
 

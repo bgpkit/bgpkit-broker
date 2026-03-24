@@ -8,7 +8,6 @@ use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::{backup_database, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
-use bgpkit_broker::notifier::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, BrokerItem,
     Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
@@ -198,16 +197,24 @@ enum Commands {
         json: bool,
     },
 
-    /// Streaming live from a broker NATS server
+    /// Streaming live from a broker SSE endpoint
     Live {
-        /// URL to NATS server, e.g. nats://localhost:4222.
-        /// If not specified, will try to read from BGPKIT_BROKER_NATS_URL env variable.
+        /// URL to broker endpoint, e.g. https://api.bgpkit.com/v3/broker.
+        /// If not specified, will use the default broker URL.
         #[clap(short, long)]
         url: Option<String>,
 
-        /// Subject to subscribe to, default to public.broker.>
+        /// Filter by project (routeviews/riperis)
         #[clap(short, long)]
-        subject: Option<String>,
+        project: Option<String>,
+
+        /// Filter by collector ID
+        #[clap(short, long)]
+        collector: Option<String>,
+
+        /// Filter by data type (rib/updates)
+        #[clap(short = 'D', long)]
+        data_type: Option<String>,
 
         /// Pretty print JSON output
         #[clap(short, long)]
@@ -270,7 +277,6 @@ async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
 }
 
 struct UpdateContext<'a> {
-    notifier: &'a Option<NatsNotifier>,
     live_events: &'a Option<broadcast::Sender<BrokerItem>>,
     send_heartbeat: bool,
     update_interval_secs: Option<u64>,
@@ -338,19 +344,14 @@ async fn update_database(
         match res {
             Ok(items) => match db.insert_items(&items, true).await {
                 Ok(inserted) => {
-                    if !inserted.is_empty() {
-                        if let Some(sender) = context.live_events {
-                            for item in &inserted {
-                                let _ = sender.send(item.clone());
+                        if !inserted.is_empty() {
+                            if let Some(sender) = context.live_events {
+                                for item in &inserted {
+                                    let _ = sender.send(item.clone());
+                                }
                             }
                         }
-                        if let Some(n) = context.notifier {
-                            if let Err(e) = n.send(&inserted).await {
-                                error!("{}", e);
-                            }
-                        }
-                    }
-                    total_inserted_count += inserted.len();
+                        total_inserted_count += inserted.len();
                 }
                 Err(e) => {
                     error!("failed to insert items: {}", e);
@@ -545,14 +546,6 @@ fn main() {
                         }
                     };
                     rt.block_on(async {
-                        let notifier = match NatsNotifier::new(None).await {
-                            Ok(n) => Some(n),
-                            Err(_e) => {
-                                info!("no nats notifier configured, skip pushing notification");
-                                None
-                            }
-                        };
-
                         let mut db = match LocalBrokerDb::new(path.as_str()).await {
                             Ok(db) => db,
                             Err(e) => {
@@ -575,7 +568,6 @@ fn main() {
                             collectors.clone(),
                             None,
                             UpdateContext {
-                                notifier: &notifier,
                                 live_events: &Some(live_events_clone.clone()),
                                 send_heartbeat: true,
                                 update_interval_secs: Some(update_interval),
@@ -620,7 +612,6 @@ fn main() {
                                 collectors.clone(),
                                 None,
                                 UpdateContext {
-                                    notifier: &notifier,
                                     live_events: &Some(live_events_clone.clone()),
                                     send_heartbeat: true,
                                     update_interval_secs: Some(update_interval),
@@ -779,7 +770,6 @@ fn main() {
                         collectors,
                         None,
                         UpdateContext {
-                            notifier: &None,
                             live_events: &None,
                             send_heartbeat: false,
                             update_interval_secs: None,
@@ -879,19 +869,11 @@ fn main() {
                         exit(1);
                     }
                 };
-                let notifier = match NatsNotifier::new(None).await {
-                    Ok(n) => Some(n),
-                    Err(_e) => {
-                        info!("no nats notifier configured, skip pushing notification");
-                        None
-                    }
-                };
                 update_database(
                     &mut db,
                     collectors,
                     days,
                     UpdateContext {
-                        notifier: &notifier,
                         live_events: &None,
                         send_heartbeat: false,
                         update_interval_secs: None,
@@ -1053,34 +1035,65 @@ fn main() {
 
         Commands::Live {
             url,
-            subject,
+            project,
+            collector,
+            data_type,
             pretty,
         } => {
             if do_log {
                 enable_logging();
             }
+            use bgpkit_broker::SseSubscriptionOptions;
+            use futures_util::StreamExt;
+            
             let rt = get_tokio_runtime();
             rt.block_on(async {
-                let mut notifier = match NatsNotifier::new(url).await {
-                    Ok(n) => n,
+                let mut broker = BgpkitBroker::new();
+                if let Some(url) = url {
+                    broker = broker.broker_url(url);
+                }
+                
+                let options = SseSubscriptionOptions::new();
+                let options = if let Some(p) = project {
+                    options.project(p)
+                } else {
+                    options
+                };
+                let options = if let Some(c) = collector {
+                    options.collector_id(c)
+                } else {
+                    options
+                };
+                let options = if let Some(dt) = data_type {
+                    options.data_type(dt)
+                } else {
+                    options
+                };
+                
+                let mut subscription = match broker.subscribe_new_files(options).await {
+                    Ok(sub) => sub,
                     Err(e) => {
                         error!("{}", e);
                         return;
                     }
                 };
-
-                if let Err(e) = notifier.start_subscription(subject).await {
-                    error!("{}", e);
-                    return;
-                }
-                while let Some(item) = notifier.next().await {
-                    if pretty {
-                        match serde_json::to_string_pretty(&item) {
-                            Ok(s) => println!("{}", s),
-                            Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                
+                while let Some(item) = subscription.next().await {
+                    match item {
+                        Ok(item) => {
+                            if pretty {
+                                match serde_json::to_string_pretty(&item) {
+                                    Ok(s) => println!("{}", s),
+                                    Err(e) => eprintln!("failed to serialize to JSON: {}", e),
+                                }
+                            } else {
+                                println!("{}", item);
+                            }
                         }
-                    } else {
-                        println!("{}", item);
+                        Err(e) => {
+                            error!("{}", e);
+                            return;
+                        }
                     }
                 }
             });

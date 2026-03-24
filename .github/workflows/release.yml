@@ -3,6 +3,10 @@ name: Release
 permissions:
   contents: write
 
+# Opt into Node.js 24 early to avoid deprecation warnings
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     tags:
