@@ -56,13 +56,13 @@ and [route leak detection][route-leak].
 Add the following dependency to your `Cargo.toml`:
 
 ```toml
-bgpkit-broker = "0.10"
+bgpkit-broker = "0.11"
 ```
 
 To subscribe to live SSE notifications from the Rust SDK, enable the `sse` feature:
 
 ```toml
-bgpkit-broker = { version = "0.10", features = ["sse"] }
+bgpkit-broker = { version = "0.11", features = ["sse"] }
 ```
 
 ### Overview
@@ -73,6 +73,7 @@ The BGPKIT Broker Rust SDK provides access to BGP archive files from RouteViews 
 - 📊 Access to collector peers information
 - ⏰ Query latest available files for each collector
 - 📡 Optional async SSE subscription for live new-file notifications
+- 💾 Optional disk caching for query results (useful for development and offline usage)
 - 📸 Get MRT files needed for routing table snapshot reconstruction
 - ✅ Configuration validation with helpful error messages
 
@@ -274,6 +275,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+#### Caching Query Results
+
+Cache API query results to disk for offline usage and reduced API calls during development:
+
+```rust
+use bgpkit_broker::BgpkitBroker;
+
+// Enable caching with a cache directory
+let broker = BgpkitBroker::new()
+    .ts_start("2024-01-01")
+    .ts_end("2024-01-02")
+    .collector_id("rrc00")
+    .cache_dir("/tmp/bgpkit-cache");
+
+// First call hits the API and saves to cache
+let items = broker.query_single_page()?;
+
+// Subsequent calls with same parameters load from cache
+let cached_items = broker.query_single_page()?; // Loads from cache
+```
+
+Cache files are stored as JSON in the specified directory. The cache key is generated from a SHA256 hash of the query parameters, so different broker instances share the same cache if the query parameters match.
+
 ### Environment Configuration
 
 **SDK Configuration:**
@@ -285,10 +309,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` - Backup interval in hours (default: 24)
 - `BGPKIT_BROKER_BACKUP_HEARTBEAT_URL` - Heartbeat URL for backup completion notifications
 - `BGPKIT_BROKER_HEARTBEAT_URL` - Heartbeat URL for general database update notifications
-- `BGPKIT_BROKER_NATS_URL` - NATS server URL for live notifications
-- `BGPKIT_BROKER_NATS_USER` - NATS server username
-- `BGPKIT_BROKER_NATS_PASSWORD` - NATS server password
-- `BGPKIT_BROKER_NATS_ROOT_SUBJECT` - NATS root subject (default: `public.broker`)
 
 **Crawler Configuration:**
 - `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum retry attempts for failed HTTP requests (default: 3)
@@ -362,7 +382,7 @@ Broker instance with ease.
 
 ### Install
 
-Install with `cargo install bgpkit-broker@^0.10 --features cli` or check out the main branch and
+Install with `cargo install bgpkit-broker@^0.11 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
 
 If you are in a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
@@ -389,7 +409,7 @@ Commands:
   search     Search MRT files in Broker db
   latest     Display latest MRT files indexed
   peers      List public BGP collector peers
-  live       Streaming live from a broker NATS server
+  live       Streaming live from a broker SSE endpoint
   doctor     Check broker instance health and missing collectors
   help       Print this message or the help of the given subcommand(s)
 
@@ -442,15 +462,6 @@ export BGPKIT_BROKER_BACKUP_TO="./daily-backup.db"
 export BGPKIT_BROKER_BACKUP_INTERVAL_HOURS="12"
 bgpkit-broker serve database.db
 ```
-
-**NATS Notifications:**
-
-For sending NATS notifications, set these environment variables:
-
-* `BGPKIT_BROKER_NATS_URL`: NATS server URL (e.g., `nats.broker.bgpkit.com`)
-* `BGPKIT_BROKER_NATS_USER`: NATS server username
-* `BGPKIT_BROKER_NATS_PASSWORD`: NATS server password
-* `BGPKIT_BROKER_NATS_ROOT_SUBJECT`: NATS root subject (e.g., `public.broker`)
 
 **SSE Notifications:**
 
@@ -568,18 +579,20 @@ Options:
 
 #### `live`
 
-Streaming live from a broker NATS server.
+Streaming live from a broker SSE endpoint.
 
 ```text
-Streaming live from a broker NATS server
+Streaming live from a broker SSE endpoint
 
 Usage: bgpkit-broker live [OPTIONS]
 
 Options:
       --no-log             disable logging
-  -u, --url <URL>          URL to NATS server, e.g. nats://localhost:4222. If not specified, will try to read from BGPKIT_BROKER_NATS_URL env variable
+  -u, --url <URL>          URL to broker endpoint, e.g. https://api.bgpkit.com/v3/broker
       --env <ENV>
-  -s, --subject <SUBJECT>  Subject to subscribe to, default to public.broker.>
+  -p, --project <PROJECT>  Filter by project (routeviews/riperis)
+  -c, --collector <COLLECTOR>  Filter by collector ID
+  -D, --data-type <DATA_TYPE>  Filter by data type (rib/updates)
   -p, --pretty             Pretty print JSON output
   -h, --help               Print help
   -V, --version            Print version
