@@ -28,6 +28,12 @@ All notable changes to this project will be documented in this file.
     * Added `BgpkitBroker::subscribe_new_files()` async subscription API
     * Added `SseSubscriptionOptions` for client-side filtering by project, collector, and data type
     * Note: The `bgpkit-broker live` CLI command now uses SSE instead of NATS
+* Added result caching for SDK queries
+    * Added `BgpkitBroker::cache_dir()` builder method to enable disk caching
+    * Cache key generated from SHA256 hash of query parameters
+    * Cache files stored as JSON in specified directory
+    * Allows offline usage and reduces API calls during development
+    * Different broker instances share cache if query parameters match
 
 ### Code improvements
 

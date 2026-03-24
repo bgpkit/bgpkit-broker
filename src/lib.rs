@@ -242,6 +242,7 @@ pub use sse::{BrokerItemSubscription, SseSubscriptionOptions};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::IpAddr;
+use std::path::PathBuf;
 
 const SDK_USER_AGENT: &str = concat!("bgpkit-broker/", env!("CARGO_PKG_VERSION"));
 
@@ -255,6 +256,7 @@ pub struct BgpkitBroker {
     client: reqwest::blocking::Client,
     collector_project_map: HashMap<String, String>,
     accept_invalid_certs: bool,
+    cache_dir: Option<PathBuf>,
 }
 
 impl Default for BgpkitBroker {
@@ -276,6 +278,7 @@ impl Default for BgpkitBroker {
             client,
             collector_project_map,
             accept_invalid_certs,
+            cache_dir: None,
         }
     }
 }
@@ -349,6 +352,7 @@ impl BgpkitBroker {
             client: self.client,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -360,6 +364,7 @@ impl BgpkitBroker {
             client: build_blocking_client(true),
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: true,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -367,6 +372,101 @@ impl BgpkitBroker {
     #[deprecated(since = "0.7.1", note = "Please use `accept_invalid_certs` instead.")]
     pub fn disable_ssl_check(self) -> Self {
         Self::accept_invalid_certs(self)
+    }
+
+    /// Set the cache directory for storing query results.
+    ///
+    /// When a cache directory is specified, query results will be cached to disk
+    /// and loaded from cache on subsequent queries with the same parameters.
+    /// This is useful for development and offline usage.
+    ///
+    /// The directory will be created if it doesn't exist. Panics if unable to create.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let broker = bgpkit_broker::BgpkitBroker::new()
+    ///     .cache_dir("/tmp/bgpkit-cache");
+    /// ```
+    pub fn cache_dir<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        let path = path.into();
+        if !path.exists() {
+            std::fs::create_dir_all(&path).expect("Failed to create cache directory");
+        }
+        self.cache_dir = Some(path);
+        self
+    }
+
+    /// Generate cache key from current query parameters.
+    fn cache_key(&self) -> String {
+        use sha2::{Digest, Sha256};
+        
+        let params_str = format!(
+            "{}:{}:{}:{}:{}:{}:{}:{}",
+            self.broker_url,
+            self.query_params.ts_start.as_deref().unwrap_or(""),
+            self.query_params.ts_end.as_deref().unwrap_or(""),
+            self.query_params.collector_id.as_deref().unwrap_or(""),
+            self.query_params.project.as_deref().unwrap_or(""),
+            self.query_params.data_type.as_deref().unwrap_or(""),
+            self.query_params.page,
+            self.query_params.page_size
+        );
+        
+        let mut hasher = Sha256::new();
+        hasher.update(params_str.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Try to load cached results for current query parameters.
+    fn load_cache(&self) -> Option<Vec<BrokerItem>> {
+        let cache_dir = self.cache_dir.as_ref()?;
+        let cache_file = cache_dir.join(self.cache_key()).with_extension("json");
+        
+        if !cache_file.exists() {
+            return None;
+        }
+        
+        match std::fs::read_to_string(&cache_file) {
+            Ok(contents) => {
+                match serde_json::from_str::<Vec<BrokerItem>>(&contents) {
+                    Ok(items) => {
+                        log::info!("Loaded {} items from cache", items.len());
+                        Some(items)
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to deserialize cache file: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to read cache file: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Save results to cache for current query parameters.
+    fn save_cache(&self, items: &[BrokerItem]) {
+        let Some(cache_dir) = self.cache_dir.as_ref() else {
+            return;
+        };
+        
+        let cache_file = cache_dir.join(self.cache_key()).with_extension("json");
+        
+        match serde_json::to_string(items) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&cache_file, json) {
+                    log::warn!("Failed to write cache file: {}", e);
+                } else {
+                    log::info!("Saved {} items to cache", items.len());
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to serialize items for cache: {}", e);
+            }
+        }
     }
 
     /// Parse and validate timestamp string with support for multiple formats.
@@ -582,6 +682,7 @@ impl BgpkitBroker {
             client: self.client,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -618,6 +719,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -648,6 +750,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -673,6 +776,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -700,6 +804,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -723,6 +828,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -746,6 +852,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -766,6 +873,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -786,6 +894,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -806,6 +915,7 @@ impl BgpkitBroker {
             query_params,
             collector_project_map: self.collector_project_map,
             accept_invalid_certs: self.accept_invalid_certs,
+            cache_dir: self.cache_dir,
         }
     }
 
@@ -837,11 +947,20 @@ impl BgpkitBroker {
     /// let items = broker.query_single_page().unwrap();
     /// ```
     pub fn query_single_page(&self) -> Result<Vec<BrokerItem>, BrokerError> {
+        // Try to load from cache first
+        if let Some(cached_items) = self.load_cache() {
+            return Ok(cached_items);
+        }
+        
         let validated_params = self.validate_configuration()?;
         let url = format!("{}/search{}", &self.broker_url, &validated_params);
         log::info!("sending broker query to {}", &url);
         match self.run_files_query(url.as_str()) {
-            Ok(res) => Ok(res.data),
+            Ok(res) => {
+                // Save to cache if cache_dir is set
+                self.save_cache(&res.data);
+                Ok(res.data)
+            }
             Err(e) => Err(e),
         }
     }
