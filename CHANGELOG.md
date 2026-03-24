@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.11.0 - 2025-03-23
+
 ### New collector
 
 * Added RouteViews `locix.fra` collector to the supported collectors list
@@ -15,12 +17,24 @@ All notable changes to this project will be documented in this file.
 * Added live SSE notifications at `GET {root}/events`
     * Emits `new_file` events with `BrokerItem` JSON payloads
     * Returns `503` when the updater service is disabled in the current process
+* Added Prometheus metrics endpoint at `GET {root}/metrics`
+    * Exposes `bgpkit_broker_http_requests_total` counter
+    * Exposes `bgpkit_broker_http_requests_duration_seconds` histogram
+    * Exposes `bgpkit_broker_http_requests_pending` gauge for active connections
 
 ### SDK improvements
 
 * Added optional `sse` feature for subscribing to live broker notifications
     * Added `BgpkitBroker::subscribe_new_files()` async subscription API
     * Added `SseSubscriptionOptions` for client-side filtering by project, collector, and data type
+
+### Code improvements
+
+* Started the local API before the first updater pass completes so existing databases remain queryable during startup
+* Stored canonical `url` and `ts_end` values in local database file metadata instead of reconstructing them on read
+* Parameterized local database search and meta queries to avoid string interpolation in SQL
+* Centralized timestamp, collector, project, data type, and page validation shared by SDK, API, and SSE paths
+* Seeded default item types when initializing a local broker database
 
 ## v0.10.1 - 2025-12-03
 
