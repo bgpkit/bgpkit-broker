@@ -1,9 +1,17 @@
 use crate::BrokerError;
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
 use regex::{Captures, Regex};
 use scraper::{Html, Selector};
 use std::time::Duration;
 use tracing::{debug, warn};
+
+/// Minimum valid timestamp for BGP data (1998-01-01).
+/// The earliest collector (rrc00) started on 1999-10-01. 1998 provides a clear buffer
+/// while distinguishing from Unix epoch (1970) and actual BGP data collection.
+pub const MIN_VALID_TIMESTAMP: NaiveDateTime = match DateTime::from_timestamp(883612800, 0) {
+    Some(dt) => dt.naive_utc(), // 1998-01-01 00:00:00 UTC
+    None => panic!("Invalid MIN_VALID_TIMESTAMP"),
+};
 
 const SIZE_KB: u64 = u64::pow(1024, 1);
 const SIZE_MB: u64 = u64::pow(1024, 2);
@@ -302,5 +310,31 @@ mod tests {
         assert_eq!(res.len(), 4);
         let res = extract_link_size(ROUTEVIEWS);
         assert_eq!(res.len(), 4);
+    }
+
+    #[test]
+    fn test_min_valid_timestamp() {
+        use chrono::NaiveDate;
+
+        // Verify MIN_VALID_TIMESTAMP is 1998-01-01
+        let expected = NaiveDate::from_ymd_opt(1998, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        assert_eq!(MIN_VALID_TIMESTAMP, expected);
+
+        // Verify it correctly rejects Unix epoch (1970-01-01)
+        let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        assert!(epoch < MIN_VALID_TIMESTAMP);
+
+        // Verify it accepts valid early dates (e.g., 1999-10-01 when rrc00 started)
+        let valid_early = NaiveDate::from_ymd_opt(1999, 10, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        assert!(valid_early >= MIN_VALID_TIMESTAMP);
     }
 }

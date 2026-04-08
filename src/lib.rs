@@ -400,7 +400,7 @@ impl BgpkitBroker {
     /// Generate cache key from current query parameters.
     fn cache_key(&self) -> String {
         use sha2::{Digest, Sha256};
-        
+
         let params_str = format!(
             "{}:{}:{}:{}:{}:{}:{}:{}",
             self.broker_url,
@@ -412,7 +412,7 @@ impl BgpkitBroker {
             self.query_params.page,
             self.query_params.page_size
         );
-        
+
         let mut hasher = Sha256::new();
         hasher.update(params_str.as_bytes());
         format!("{:x}", hasher.finalize())
@@ -422,24 +422,22 @@ impl BgpkitBroker {
     fn load_cache(&self) -> Option<Vec<BrokerItem>> {
         let cache_dir = self.cache_dir.as_ref()?;
         let cache_file = cache_dir.join(self.cache_key()).with_extension("json");
-        
+
         if !cache_file.exists() {
             return None;
         }
-        
+
         match std::fs::read_to_string(&cache_file) {
-            Ok(contents) => {
-                match serde_json::from_str::<Vec<BrokerItem>>(&contents) {
-                    Ok(items) => {
-                        log::info!("Loaded {} items from cache", items.len());
-                        Some(items)
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to deserialize cache file: {}", e);
-                        None
-                    }
+            Ok(contents) => match serde_json::from_str::<Vec<BrokerItem>>(&contents) {
+                Ok(items) => {
+                    log::info!("Loaded {} items from cache", items.len());
+                    Some(items)
                 }
-            }
+                Err(e) => {
+                    log::warn!("Failed to deserialize cache file: {}", e);
+                    None
+                }
+            },
             Err(e) => {
                 log::warn!("Failed to read cache file: {}", e);
                 None
@@ -452,9 +450,9 @@ impl BgpkitBroker {
         let Some(cache_dir) = self.cache_dir.as_ref() else {
             return;
         };
-        
+
         let cache_file = cache_dir.join(self.cache_key()).with_extension("json");
-        
+
         match serde_json::to_string(items) {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&cache_file, json) {
@@ -552,6 +550,16 @@ impl BgpkitBroker {
     fn validate_configuration(&self) -> Result<QueryParams, BrokerError> {
         // Validate timestamps and normalize them
         let mut normalized_params = self.query_params.clone();
+
+        // Apply default 30-day time window if no timestamps specified
+        // This prevents slow full-table scans and avoids returning phantom 1970 entries
+        if normalized_params.ts_start.is_none() && normalized_params.ts_end.is_none() {
+            let now = chrono::Utc::now();
+            let thirty_days_ago = now - chrono::Duration::days(30);
+            normalized_params.ts_start =
+                Some(thirty_days_ago.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+            normalized_params.ts_end = Some(now.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
 
         if let Some(ts) = &self.query_params.ts_start {
             let parsed_datetime = Self::parse_timestamp(ts)?;
@@ -951,7 +959,7 @@ impl BgpkitBroker {
         if let Some(cached_items) = self.load_cache() {
             return Ok(cached_items);
         }
-        
+
         let validated_params = self.validate_configuration()?;
         let url = format!("{}/search{}", &self.broker_url, &validated_params);
         log::info!("sending broker query to {}", &url);

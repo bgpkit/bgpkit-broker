@@ -344,14 +344,14 @@ async fn update_database(
         match res {
             Ok(items) => match db.insert_items(&items, true).await {
                 Ok(inserted) => {
-                        if !inserted.is_empty() {
-                            if let Some(sender) = context.live_events {
-                                for item in &inserted {
-                                    let _ = sender.send(item.clone());
-                                }
+                    if !inserted.is_empty() {
+                        if let Some(sender) = context.live_events {
+                            for item in &inserted {
+                                let _ = sender.send(item.clone());
                             }
                         }
-                        total_inserted_count += inserted.len();
+                    }
+                    total_inserted_count += inserted.len();
                 }
                 Err(e) => {
                     error!("failed to insert items: {}", e);
@@ -1045,14 +1045,14 @@ fn main() {
             }
             use bgpkit_broker::SseSubscriptionOptions;
             use futures_util::StreamExt;
-            
+
             let rt = get_tokio_runtime();
             rt.block_on(async {
                 let mut broker = BgpkitBroker::new();
                 if let Some(url) = url {
                     broker = broker.broker_url(url);
                 }
-                
+
                 let options = SseSubscriptionOptions::new();
                 let options = if let Some(p) = project {
                     options.project(p)
@@ -1069,7 +1069,7 @@ fn main() {
                 } else {
                     options
                 };
-                
+
                 let mut subscription = match broker.subscribe_new_files(options).await {
                     Ok(sub) => sub,
                     Err(e) => {
@@ -1077,7 +1077,7 @@ fn main() {
                         return;
                     }
                 };
-                
+
                 while let Some(item) = subscription.next().await {
                     match item {
                         Ok(item) => {
