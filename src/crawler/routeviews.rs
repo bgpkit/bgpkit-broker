@@ -1,6 +1,6 @@
 use crate::crawler::common::{
     crawl_months_list, extract_link_size, fetch_body, get_crawler_month_concurrency,
-    remove_trailing_slash,
+    remove_trailing_slash, MIN_VALID_TIMESTAMP,
 };
 use crate::crawler::Collector;
 use crate::{BrokerError, BrokerItem};
@@ -67,6 +67,10 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
                         Regex::new(r".*(........\.....)\.bz2.*").expect("invalid regex pattern");
                     let time_str = link_time_pattern.captures(&url)?.get(1)?.as_str();
                     let unix_time = NaiveDateTime::parse_from_str(time_str, "%Y%m%d.%H%M").ok()?;
+                    // Filter out entries with timestamps before the minimum valid date
+                    if unix_time < MIN_VALID_TIMESTAMP {
+                        return None;
+                    }
                     match link.contains("update") {
                         true => Some(BrokerItem {
                             ts_start: unix_time,

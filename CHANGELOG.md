@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Bug fixes
+
+* Prevent storing entries with Unix epoch timestamp (1970-01-01) (fixes #97)
+    * Added `MIN_VALID_TIMESTAMP` constant (1998-01-01) in `crawler/common.rs`
+    * Crawlers filter out entries with timestamps before 1998-01-01 during parsing
+* Fixed slow queries when no timestamp filters are provided
+    * Added default 30-day time window when neither `ts_start` nor `ts_end` is specified
+    * Prevents full table scans that caused timeouts on large databases
+    * Returns recent data by default instead of starting from 1970
+
 ## v0.11.0 - 2025-03-23
 
 ### New collector
