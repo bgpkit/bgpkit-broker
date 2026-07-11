@@ -284,7 +284,7 @@ impl LocalBrokerDb {
         );
         debug!("Count query: {}", count_query.as_str());
 
-        let total_count = sqlx::query(count_query.as_str())
+        let total_count = sqlx::query(sqlx::AssertSqlSafe(count_query.as_str()))
             .map(|row: SqliteRow| row.get::<i64, _>("total") as usize)
             .fetch_one(&self.conn_pool)
             .await?;
@@ -308,7 +308,7 @@ impl LocalBrokerDb {
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
 
-        let items: Vec<Option<BrokerItem>> = sqlx::query(query_string.as_str())
+        let items: Vec<Option<BrokerItem>> = sqlx::query(sqlx::AssertSqlSafe(query_string.as_str()))
             .map(|row: SqliteRow| {
                 let collector_name = row.get::<String, _>("collector_name");
                 let _collector_url = row.get::<String, _>("collector_url");
@@ -439,12 +439,13 @@ impl LocalBrokerDb {
                 continue;
             }
             let inserted_rows: Vec<Option<BrokerItem>> = sqlx::query(
+                sqlx::AssertSqlSafe(
                 format!(
                 r#"INSERT OR IGNORE INTO files (timestamp, collector_id, type_id, rough_size, exact_size) VALUES {}
                     RETURNING timestamp, collector_id, type_id, rough_size, exact_size
                     "#,
                     values_str
-                ).as_str()
+                ).as_str())
             ).map(|row: SqliteRow|{
                 let timestamp = row.get::<i64,_>(0);
                 let collector_id = row.get::<i64,_>(1);

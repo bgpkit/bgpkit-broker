@@ -118,7 +118,7 @@ impl LocalBrokerDb {
                     "#,
             value_str
         );
-        if let Err(e) = sqlx::query(query_str.as_str())
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(query_str.as_str()))
             .execute(&self.conn_pool)
             .await
         {

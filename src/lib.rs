@@ -415,7 +415,7 @@ impl BgpkitBroker {
 
         let mut hasher = Sha256::new();
         hasher.update(params_str.as_bytes());
-        format!("{:x}", hasher.finalize())
+        hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>()
     }
 
     /// Try to load cached results for current query parameters.
@@ -961,8 +961,8 @@ impl BgpkitBroker {
         }
 
         let validated_params = self.validate_configuration()?;
-        let url = format!("{}/search{}", &self.broker_url, &validated_params);
-        log::info!("sending broker query to {}", &url);
+        let url = format!("{}/search{}", self.broker_url, validated_params);
+        log::info!("sending broker query to {}", url);
         match self.run_files_query(url.as_str()) {
             Ok(res) => {
                 // Save to cache if cache_dir is set
@@ -998,7 +998,7 @@ impl BgpkitBroker {
     /// ```
     pub fn query_total_count(&self) -> Result<i64, BrokerError> {
         let validated_params = self.validate_configuration()?;
-        let url = format!("{}/search{}", &self.broker_url, &validated_params);
+        let url = format!("{}/search{}", self.broker_url, validated_params);
         match self.run_files_query(url.as_str()) {
             Ok(res) => res.total.ok_or(BrokerError::BrokerError(
                 "count not found in response".to_string(),
@@ -1016,7 +1016,7 @@ impl BgpkitBroker {
     /// assert!(broker.health_check().is_ok())
     /// ```
     pub fn health_check(&self) -> Result<(), BrokerError> {
-        let url = format!("{}/health", &self.broker_url.trim_end_matches('/'));
+        let url = format!("{}/health", self.broker_url.trim_end_matches('/'));
         match self.client.get(url.as_str()).send() {
             Ok(response) => {
                 if response.status() == reqwest::StatusCode::OK {
@@ -1058,7 +1058,7 @@ impl BgpkitBroker {
 
         let mut items = vec![];
         loop {
-            let url = format!("{}/search{}", &self.broker_url, &p);
+            let url = format!("{}/search{}", self.broker_url, p);
 
             let res_items = self.run_files_query(url.as_str())?.data;
 
@@ -1280,7 +1280,7 @@ impl BgpkitBroker {
     }
 
     fn run_files_query(&self, url: &str) -> Result<BrokerQueryResult, BrokerError> {
-        log::info!("sending broker query to {}", &url);
+        log::info!("sending broker query to {}", url);
         match self.client.get(url).send() {
             Ok(res) => match res.json::<BrokerQueryResult>() {
                 Ok(res) => {
