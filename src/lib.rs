@@ -1140,17 +1140,13 @@ impl BgpkitBroker {
 
             if let Some(data_type) = &self.query_params.data_type {
                 match data_type.to_lowercase().as_str() {
-                    "rib" | "ribs" | "r" => {
-                        if !item.is_rib() {
-                            // if not RIB file, not match
-                            matches = false
-                        }
+                    "rib" | "ribs" | "r" if !item.is_rib() => {
+                        // if not RIB file, not match
+                        matches = false
                     }
-                    "update" | "updates" => {
-                        if item.is_rib() {
-                            // if is RIB file, not match
-                            matches = false
-                        }
+                    "update" | "updates" if item.is_rib() => {
+                        // if is RIB file, not match
+                        matches = false
                     }
                     _ => {}
                 }
