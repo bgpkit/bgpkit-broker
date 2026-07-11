@@ -21,10 +21,10 @@ pub async fn download_file(url: &str, path: &str, silent: bool) -> Result<(), St
         .get(url)
         .send()
         .await
-        .or(Err(format!("Failed to GET from '{}'", &url)))?;
+        .or(Err(format!("Failed to GET from '{}'", url)))?;
     let total_size = res
         .content_length()
-        .ok_or(format!("Failed to get content length from '{}'", &url))?;
+        .ok_or(format!("Failed to get content length from '{}'", url))?;
 
     // Indicatif setup
     let pb = ProgressBar::new(total_size);

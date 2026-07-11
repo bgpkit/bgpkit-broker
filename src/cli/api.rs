@@ -126,8 +126,8 @@ async fn search(
             Ok(ts) => Some(ts),
             Err(e) => {
                 let err_msg = format!("cannot parse ts_start {}: {}", s, e);
-                error!("{}", &err_msg);
-                error!("{:?}", &query);
+                error!("{}", err_msg);
+                error!("{:?}", query);
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(BrokerApiError::SearchError(err_msg)),
@@ -143,8 +143,8 @@ async fn search(
             Ok(ts) => Some(ts),
             Err(e) => {
                 let err_msg = format!("cannot parse ts_end {}: {}", s, e);
-                error!("{}", &err_msg);
-                error!("{:?}", &query);
+                error!("{}", err_msg);
+                error!("{:?}", query);
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(BrokerApiError::SearchError(err_msg)),

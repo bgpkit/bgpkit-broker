@@ -34,14 +34,14 @@ impl LocalBrokerDb {
     ) -> Result<Vec<UpdatesMeta>, BrokerError> {
         debug!("Inserting meta information...");
         let now_ts = chrono::Utc::now().timestamp();
-        let inserted: Vec<UpdatesMeta> = sqlx::query(&format!(
+        let inserted: Vec<UpdatesMeta> = sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
             INSERT INTO meta (update_ts, update_duration, insert_count) 
             VALUES ('{}', {}, {})
             RETURNING update_ts, update_duration, insert_count
             "#,
             now_ts, crawl_duration, item_inserted
-        ))
+        )))
         .map(|row: SqliteRow| {
             let update_ts = row.get::<i64, _>(0);
             let update_duration = row.get::<i32, _>(1);
@@ -114,7 +114,7 @@ impl LocalBrokerDb {
             retention_days, cutoff_ts
         );
 
-        let result = sqlx::query(&format!("DELETE FROM meta WHERE update_ts < {}", cutoff_ts))
+        let result = sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM meta WHERE update_ts < {}", cutoff_ts)))
             .execute(&self.conn_pool)
             .await?;
 

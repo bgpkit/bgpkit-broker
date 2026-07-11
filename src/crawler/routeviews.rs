@@ -53,7 +53,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
 
     // RIBS
     for subdir in ["RIBS", "UPDATES"] {
-        let url = format!("{}/{}", &root_url, subdir);
+        let url = format!("{}/{}", root_url, subdir);
         let body = fetch_body(url.as_str()).await?;
         let collector_id_clone = collector_id.clone();
         let data_items: Vec<BrokerItem> = tokio::task::spawn_blocking(move || {
@@ -61,7 +61,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
             items
                 .iter()
                 .filter_map(|(link, size)| {
-                    let url = format!("{}/{}", &url, link);
+                    let url = format!("{}/{}", url, link);
                     #[allow(clippy::regex_creation_in_loops)]
                     let link_time_pattern: Regex =
                         Regex::new(r".*(........\.....)\.bz2.*").expect("invalid regex pattern");
