@@ -214,7 +214,7 @@ lazy_static! {
         },
         {
           "id": "route-views2",
-          "url": "https://archive.routeviews.org/bgpdata"
+          "url": "https://archive.routeviews.org/route-views2/bgpdata"
         },
         {
           "id": "route-views3",

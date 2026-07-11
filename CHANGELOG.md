@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Updates
+
+* Updated `route-views2` collector URL from `https://archive.routeviews.org/bgpdata` to `https://archive.routeviews.org/route-views2/bgpdata` to match RouteViews' directory rename ([announcement](https://www.routeviews.org/routeviews/2026/07/09/name-change-for-mrt-file-access/))
+    * The old `/bgpdata` path remains available via HTTP symlink, but rsync users must use the new path
+    * Existing databases need a manual `UPDATE collectors SET url = 'https://archive.routeviews.org/route-views2/bgpdata' WHERE name = 'route-views2'`
+
 ### Bug fixes
 
 * Prevent storing entries with Unix epoch timestamp (1970-01-01) (fixes #97)
