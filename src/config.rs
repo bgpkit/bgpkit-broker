@@ -233,8 +233,9 @@ fn postgres_url_from_path(path: &str) -> Option<String> {
 }
 
 fn normalize_postgres_url(url: &str) -> String {
-    url.strip_prefix("pg://")
-        .map(|rest| format!("postgresql://{rest}"))
+    url.get(..5)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("pg://"))
+        .map(|_| format!("postgresql://{}", &url[5..]))
         .unwrap_or_else(|| url.to_string())
 }
 
