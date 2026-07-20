@@ -1,6 +1,5 @@
 # flyctl launch added from .gitignore
 target
-**/Cargo.lock
 **/.idea
 
 **/*.sqlite3*

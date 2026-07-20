@@ -7,7 +7,7 @@ WORKDIR /my_project
 
 # copy your source tree
 COPY ./src ./src
-COPY ./Cargo.toml .
+COPY ./Cargo.toml ./Cargo.lock ./
 
 # build for release
 RUN cargo build --release --all-features
@@ -21,6 +21,8 @@ COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit
 RUN apt update && apt install -y curl tini sqlite3
 WORKDIR /bgpkit-broker
 
+# Runtime configuration, including BGPKIT_BROKER_POSTGRES_URL, is supplied with
+# `docker run -e` or Compose. Do not bake connection URLs or credentials into the image.
 EXPOSE 40064
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/bgpkit-broker"]
 CMD ["serve", "bgpkit-broker.sqlite3", "--bootstrap", "--silent"]
