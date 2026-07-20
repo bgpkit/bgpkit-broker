@@ -50,10 +50,6 @@ enum Commands {
         /// or postgresql:// selects PostgreSQL; other values select a SQLite file.
         db_path: Option<String>,
 
-        /// Explicit PostgreSQL connection URL. Takes precedence over SQLite and can also be set with BGPKIT_BROKER_POSTGRES_URL.
-        #[clap(long)]
-        postgres_url: Option<String>,
-
         /// update interval in seconds
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
         update_interval: u64,
@@ -448,14 +444,9 @@ fn display_configuration_summary(
     }
 }
 
-fn resolve_database_target(
-    database_path: Option<&str>,
-    postgres_url: Option<&str>,
-    config: &BrokerConfig,
-) -> DatabaseTarget {
+fn resolve_database_target(database_path: Option<&str>, config: &BrokerConfig) -> DatabaseTarget {
     DatabaseTarget::resolve(
         database_path,
-        postgres_url,
         config.database.postgres_url.as_deref(),
         config.database.sqlite_path.as_deref(),
     )
@@ -487,7 +478,6 @@ fn main() {
     match cli.command {
         Commands::Serve {
             db_path,
-            postgres_url,
             update_interval,
             bootstrap,
             silent,
@@ -505,8 +495,7 @@ fn main() {
 
             // Load configuration from environment variables
             let config = BrokerConfig::from_env();
-            let database_target =
-                resolve_database_target(db_path.as_deref(), postgres_url.as_deref(), &config);
+            let database_target = resolve_database_target(db_path.as_deref(), &config);
             let sqlite_path = match &database_target {
                 DatabaseTarget::Sqlite(path) => Some(path.as_str()),
                 DatabaseTarget::Postgres(_) => None,

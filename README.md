@@ -437,7 +437,6 @@ Arguments:
 
 Options:
   -i, --update-interval <UPDATE_INTERVAL>  update interval in seconds [default: 300]
-      --postgres-url <POSTGRES_URL>         explicit PostgreSQL catalog URL
       --no-log                             disable logging
   -b, --bootstrap                          bootstrap the database if it does not exist
       --env <ENV>

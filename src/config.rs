@@ -191,19 +191,15 @@ impl fmt::Debug for DatabaseTarget {
 pub const DEFAULT_SQLITE_PATH: &str = "bgpkit-broker.sqlite3";
 
 impl DatabaseTarget {
-    /// Resolve the database target with CLI values taking precedence over
-    /// environment configuration. A positional path beginning with `pg://`,
+    /// Resolve the database target with a positional CLI value taking precedence
+    /// over environment configuration. A positional path beginning with `pg://`,
     /// `postgres://`, or `postgresql://` selects PostgreSQL; any other path is
     /// a local SQLite file.
     pub fn resolve(
         database_path: Option<&str>,
-        cli_postgres_url: Option<&str>,
         environment_postgres_url: Option<&str>,
         environment_sqlite_path: Option<&str>,
     ) -> Self {
-        if let Some(url) = non_empty(cli_postgres_url) {
-            return Self::Postgres(normalize_postgres_url(url));
-        }
         if let Some(path) = non_empty(database_path) {
             return postgres_url_from_path(path)
                 .map(Self::Postgres)
@@ -447,17 +443,16 @@ mod tests {
     #[test]
     fn database_target_resolves_cli_path_and_environment_defaults() {
         assert_eq!(
-            DatabaseTarget::resolve(None, None, None, None),
+            DatabaseTarget::resolve(None, None, None),
             DatabaseTarget::Sqlite("bgpkit-broker.sqlite3".to_string())
         );
         assert_eq!(
-            DatabaseTarget::resolve(None, None, None, Some("/data/broker.sqlite3")),
+            DatabaseTarget::resolve(None, None, Some("/data/broker.sqlite3")),
             DatabaseTarget::Sqlite("/data/broker.sqlite3".to_string())
         );
         assert_eq!(
             DatabaseTarget::resolve(
                 Some("/tmp/override.sqlite3"),
-                None,
                 Some("postgresql://broker@db/catalog"),
                 Some("/data/broker.sqlite3"),
             ),
@@ -467,7 +462,6 @@ mod tests {
             DatabaseTarget::resolve(
                 Some("pg://broker@db/catalog"),
                 None,
-                None,
                 Some("/data/broker.sqlite3"),
             ),
             DatabaseTarget::Postgres("postgresql://broker@db/catalog".to_string())
@@ -476,22 +470,20 @@ mod tests {
             DatabaseTarget::resolve(
                 Some("postgresql://broker@db/catalog"),
                 None,
-                None,
                 Some("/data/broker.sqlite3"),
             ),
             DatabaseTarget::Postgres("postgresql://broker@db/catalog".to_string())
         );
         assert_eq!(
             DatabaseTarget::resolve(
-                Some("/tmp/override.sqlite3"),
-                Some("postgresql://broker@db/cli"),
+                None,
                 Some("postgresql://broker@db/environment"),
                 Some("/data/broker.sqlite3"),
             ),
-            DatabaseTarget::Postgres("postgresql://broker@db/cli".to_string())
+            DatabaseTarget::Postgres("postgresql://broker@db/environment".to_string())
         );
         assert_eq!(
-            DatabaseTarget::resolve(None, None, Some("   "), Some("   ")),
+            DatabaseTarget::resolve(None, Some("   "), Some("   ")),
             DatabaseTarget::Sqlite("bgpkit-broker.sqlite3".to_string())
         );
     }
