@@ -318,7 +318,7 @@ Cache files are stored as JSON in the specified directory. The cache key is gene
 
 **Database Maintenance:**
 - `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
-- `BGPKIT_BROKER_POSTGRES_URL` - Explicit PostgreSQL catalog URL for the `serve` API. SQLite remains the default; PostgreSQL supports the same crawler/update lifecycle when an update-capable URL is supplied.
+- `BGPKIT_BROKER_POSTGRES_URL` - Explicit PostgreSQL catalog URL for the `serve` API. SQLite remains the default; PostgreSQL supports the same crawler/update lifecycle when an update-capable URL is supplied. Initialize a new PostgreSQL catalog first with [`migration/postgres_bootstrap/bootstrap.py`](migration/postgres_bootstrap/README.md).
 
 ### Data Structures
 

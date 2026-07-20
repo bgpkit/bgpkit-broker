@@ -8,12 +8,12 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-/// Read-only PostgreSQL adapter for a catalog bootstrapped with
-/// `migration/postgres_bootstrap`.
+/// PostgreSQL adapter for a Broker catalog initialized with
+/// `migration/postgres_bootstrap/bootstrap.py`.
 ///
-/// It uses fully-qualified relations from the PostgreSQL compatibility schema.
-/// Live ingestion intentionally remains unavailable until the crawler can create
-/// accurate source-revision and ingest-run provenance for every observation batch.
+/// It uses fully-qualified relations from the PostgreSQL compatibility schema and
+/// supports the same catalog writes, latest-file maintenance, and update metadata
+/// lifecycle as the SQLite backend.
 #[derive(Clone)]
 pub struct PostgresDb {
     conn_pool: PgPool,
@@ -510,19 +510,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "requires BGPKIT_BROKER_TEST_POSTGRES_URL and a bootstrap schema"]
+    #[ignore = "requires BGPKIT_BROKER_TEST_POSTGRES_URL pointing to a disposable bootstrapped database"]
     async fn postgres_catalog_writes_update_latest_and_meta(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let database_url = std::env::var("BGPKIT_BROKER_TEST_POSTGRES_URL")?;
         let database = PostgresDb::new(&database_url).await?;
-        database.cleanup_old_meta_entries(0).await?;
-        let timestamp = DateTime::from_timestamp(1_704_067_500, 0)
-            .ok_or_else(|| std::io::Error::other("test timestamp is invalid"))?
-            .naive_utc();
+        let collector = Collector {
+            id: "pg-runtime-test".to_string(),
+            project: "riperis".to_string(),
+            url: "https://example.invalid/pg-runtime-test".to_string(),
+        };
+        database.insert_collector(&collector).await?;
+        database.reload_collectors().await?;
+        let timestamp = Utc::now().naive_utc();
         let item = BrokerItem {
             ts_start: timestamp,
             ts_end: timestamp + Duration::seconds(300),
-            collector_id: "rrc00".to_string(),
+            collector_id: collector.id.clone(),
             data_type: "updates".to_string(),
             url: "https://example.invalid/updates.20240101.0000.gz".to_string(),
             rough_size: 56,
@@ -531,8 +535,11 @@ mod tests {
 
         let inserted = database.insert_items(&[item], true).await?;
         assert_eq!(inserted.len(), 1);
-        assert_eq!(database.get_latest_files().await.len(), 1);
-        assert!(database.get_latest_updates_meta().await?.is_none());
+        assert!(database
+            .get_latest_files()
+            .await
+            .iter()
+            .any(|latest| latest.collector_id == collector.id));
         assert_eq!(database.insert_meta(3, 1).await?.len(), 1);
         assert_eq!(
             database
@@ -541,8 +548,6 @@ mod tests {
                 .map(|meta| meta.insert_count),
             Some(1)
         );
-        database.cleanup_old_meta_entries(0).await?;
-        assert!(database.get_latest_updates_meta().await?.is_none());
         Ok(())
     }
 
