@@ -25,4 +25,4 @@ WORKDIR /bgpkit-broker
 # `docker run -e` or Compose. Do not bake connection URLs or credentials into the image.
 EXPOSE 40064
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/bgpkit-broker"]
-CMD ["serve", "bgpkit-broker.sqlite3", "--bootstrap", "--silent"]
+CMD ["serve", "--bootstrap", "--silent"]
