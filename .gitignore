@@ -8,6 +8,8 @@
 *wal
 *.duckdb*
 *.parquet
+__pycache__/
+*.py[cod]
 /.env
 .claude
 CLAUDE.md

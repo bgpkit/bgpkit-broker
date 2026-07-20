@@ -5,7 +5,9 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use axum_prometheus::PrometheusMetricLayerBuilder;
-use bgpkit_broker::{BrokerItem, LocalBrokerDb, DEFAULT_PAGE_SIZE};
+#[cfg(test)]
+use bgpkit_broker::LocalBrokerDb;
+use bgpkit_broker::{BrokerItem, DatabaseBackend, DEFAULT_PAGE_SIZE};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use clap::Args;
 use futures::stream;
@@ -23,7 +25,7 @@ use tracing::{info, warn};
 pub(crate) const LIVE_EVENT_BUFFER_SIZE: usize = 4096;
 
 struct AppState {
-    database: LocalBrokerDb,
+    database: DatabaseBackend,
     live_events: broadcast::Sender<BrokerItem>,
     updater_enabled: bool,
 }
@@ -451,7 +453,7 @@ fn parse_time_str(ts_str: &str) -> Result<NaiveDateTime, String> {
 }
 
 pub async fn start_api_service(
-    database: LocalBrokerDb,
+    database: DatabaseBackend,
     live_events: broadcast::Sender<BrokerItem>,
     updater_enabled: bool,
     host: String,
@@ -524,15 +526,16 @@ mod tests {
         }
     }
 
-    async fn test_database() -> (tempfile::TempDir, LocalBrokerDb) {
+    async fn test_database() -> (tempfile::TempDir, DatabaseBackend) {
         let dir = tempdir().unwrap();
         let path = dir.path().join("test.sqlite3");
-        let database = LocalBrokerDb::new(path.to_str().unwrap()).await.unwrap();
+        let database =
+            DatabaseBackend::Sqlite(LocalBrokerDb::new(path.to_str().unwrap()).await.unwrap());
         (dir, database)
     }
 
     fn test_router(
-        database: LocalBrokerDb,
+        database: DatabaseBackend,
         live_events: broadcast::Sender<BrokerItem>,
         updater_enabled: bool,
         root: &str,

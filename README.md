@@ -318,6 +318,7 @@ Cache files are stored as JSON in the specified directory. The cache key is gene
 
 **Database Maintenance:**
 - `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
+- `BGPKIT_BROKER_POSTGRES_URL` - Explicit PostgreSQL catalog URL for the `serve` API. SQLite remains the default; PostgreSQL supports the same crawler/update lifecycle when an update-capable URL is supplied.
 
 ### Data Structures
 
@@ -428,13 +429,14 @@ API endpoints. It will also periodically update the local database unless the `-
 ```text
   Serve the Broker content via RESTful API
 
-Usage: bgpkit-broker serve [OPTIONS] <DB_PATH>
+Usage: bgpkit-broker serve [OPTIONS] [DB_PATH]
 
 Arguments:
-  <DB_PATH>  broker db file location
+  [DB_PATH]  broker SQLite db file location (the default backend) [default: bgpkit-broker.sqlite3]
 
 Options:
   -i, --update-interval <UPDATE_INTERVAL>  update interval in seconds [default: 300]
+      --postgres-url <POSTGRES_URL>         explicit PostgreSQL catalog URL
       --no-log                             disable logging
   -b, --bootstrap                          bootstrap the database if it does not exist
       --env <ENV>

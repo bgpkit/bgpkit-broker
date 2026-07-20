@@ -114,9 +114,12 @@ impl LocalBrokerDb {
             retention_days, cutoff_ts
         );
 
-        let result = sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM meta WHERE update_ts < {}", cutoff_ts)))
-            .execute(&self.conn_pool)
-            .await?;
+        let result = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM meta WHERE update_ts < {}",
+            cutoff_ts
+        )))
+        .execute(&self.conn_pool)
+        .await?;
 
         let deleted = result.rows_affected();
         if deleted > 0 {

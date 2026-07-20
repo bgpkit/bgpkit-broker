@@ -1,6 +1,13 @@
+#[cfg(feature = "cli")]
+mod backend;
 mod latest_files;
 mod meta;
+mod postgres;
 mod utils;
+
+#[cfg(feature = "cli")]
+pub use backend::DatabaseBackend;
+pub use postgres::PostgresDb;
 
 use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
@@ -308,34 +315,36 @@ impl LocalBrokerDb {
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
 
-        let items: Vec<Option<BrokerItem>> = sqlx::query(sqlx::AssertSqlSafe(query_string.as_str()))
-            .map(|row: SqliteRow| {
-                let collector_name = row.get::<String, _>("collector_name");
-                let _collector_url = row.get::<String, _>("collector_url");
-                let _project_name = row.get::<String, _>("project_name");
-                let timestamp = row.get::<i64, _>("timestamp");
-                let type_name = row.get::<String, _>("type");
-                let rough_size = row.get::<i64, _>("rough_size");
-                let exact_size = row.get::<i64, _>("exact_size");
-                let _updates_interval = row.get::<i64, _>("updates_interval");
+        let items: Vec<Option<BrokerItem>> =
+            sqlx::query(sqlx::AssertSqlSafe(query_string.as_str()))
+                .map(|row: SqliteRow| {
+                    let collector_name = row.get::<String, _>("collector_name");
+                    let _collector_url = row.get::<String, _>("collector_url");
+                    let _project_name = row.get::<String, _>("project_name");
+                    let timestamp = row.get::<i64, _>("timestamp");
+                    let type_name = row.get::<String, _>("type");
+                    let rough_size = row.get::<i64, _>("rough_size");
+                    let exact_size = row.get::<i64, _>("exact_size");
+                    let _updates_interval = row.get::<i64, _>("updates_interval");
 
-                let collector = collector_name_to_info.get(collector_name.as_str())?;
+                    let collector = collector_name_to_info.get(collector_name.as_str())?;
 
-                let ts_start = DateTime::from_timestamp(timestamp, 0)?.naive_utc();
+                    let ts_start = DateTime::from_timestamp(timestamp, 0)?.naive_utc();
 
-                let (url, ts_end) = infer_url(collector, &ts_start, type_name.as_str() == "rib");
-                Some(BrokerItem {
-                    ts_start,
-                    ts_end,
-                    collector_id: collector_name,
-                    data_type: type_name,
-                    url,
-                    rough_size,
-                    exact_size,
+                    let (url, ts_end) =
+                        infer_url(collector, &ts_start, type_name.as_str() == "rib");
+                    Some(BrokerItem {
+                        ts_start,
+                        ts_end,
+                        collector_id: collector_name,
+                        data_type: type_name,
+                        url,
+                        rough_size,
+                        exact_size,
+                    })
                 })
-            })
-            .fetch_all(&self.conn_pool)
-            .await?;
+                .fetch_all(&self.conn_pool)
+                .await?;
 
         Ok(DbSearchResult {
             items: items.into_iter().flatten().collect(),

@@ -227,11 +227,13 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 pub use collector::{load_collectors, Collector};
 
 #[cfg(feature = "cli")]
-pub use config::BrokerConfig;
+pub use config::{BrokerConfig, DatabaseTarget};
 #[cfg(feature = "cli")]
 pub use crawler::crawl_collector;
+#[cfg(feature = "cli")]
+pub use db::DatabaseBackend;
 #[cfg(feature = "backend")]
-pub use db::{LocalBrokerDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
+pub use db::{LocalBrokerDb, PostgresDb, UpdatesMeta, DEFAULT_PAGE_SIZE};
 pub use error::BrokerError;
 pub use item::BrokerItem;
 pub use peer::BrokerPeer;
@@ -415,7 +417,11 @@ impl BgpkitBroker {
 
         let mut hasher = Sha256::new();
         hasher.update(params_str.as_bytes());
-        hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
     }
 
     /// Try to load cached results for current query parameters.

@@ -10,7 +10,7 @@ use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, BrokerItem,
-    Collector, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    Collector, DatabaseBackend, DatabaseTarget, LocalBrokerDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
@@ -46,8 +46,13 @@ const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqli
 enum Commands {
     /// Serve the Broker content via RESTful API
     Serve {
-        /// broker db file location
+        /// broker SQLite db file location (the default backend)
+        #[clap(default_value = "bgpkit-broker.sqlite3")]
         db_path: String,
+
+        /// Explicit PostgreSQL connection URL. Takes precedence over SQLite and can also be set with BGPKIT_BROKER_POSTGRES_URL.
+        #[clap(long)]
+        postgres_url: Option<String>,
 
         /// update interval in seconds
         #[clap(short = 'i', long, default_value = "300", value_parser = min_update_interval_check)]
@@ -285,7 +290,7 @@ struct UpdateContext<'a> {
 
 /// update the database with data crawled from the given collectors
 async fn update_database(
-    db: &mut LocalBrokerDb,
+    db: &mut DatabaseBackend,
     collectors: Vec<Collector>,
     days: Option<u32>,
     context: UpdateContext<'_>,
@@ -316,7 +321,9 @@ async fn update_database(
     }
     if collector_updated {
         info!("collector list updated, reload collectors list into memory");
-        db.reload_collectors().await;
+        if let Err(e) = db.reload_collectors().await {
+            error!("failed to reload collectors: {}", e);
+        }
     }
 
     let collector_concurrency = context.config.crawler.collector_concurrency;
@@ -373,7 +380,10 @@ async fn update_database(
     }
 
     // Cleanup old meta entries
-    if let Err(e) = db.cleanup_old_meta_entries().await {
+    if let Err(e) = db
+        .cleanup_old_meta_entries(context.config.database.meta_retention_days)
+        .await
+    {
         error!("failed to cleanup old meta entries: {}", e);
     }
 
@@ -438,6 +448,31 @@ fn display_configuration_summary(
     }
 }
 
+fn resolve_database_target(
+    sqlite_path: &str,
+    postgres_url: Option<&str>,
+    config: &BrokerConfig,
+) -> DatabaseTarget {
+    match DatabaseTarget::resolve(
+        Some(sqlite_path),
+        postgres_url
+            .filter(|url| !url.trim().is_empty())
+            .or_else(|| {
+                config
+                    .database
+                    .postgres_url
+                    .as_deref()
+                    .filter(|url| !url.trim().is_empty())
+            }),
+    ) {
+        Ok(target) => target,
+        Err(e) => {
+            error!("database configuration error: {}", e);
+            exit(1);
+        }
+    }
+}
+
 fn main() {
     dotenvy::dotenv().ok();
 
@@ -464,6 +499,7 @@ fn main() {
     match cli.command {
         Commands::Serve {
             db_path,
+            postgres_url,
             update_interval,
             bootstrap,
             silent,
@@ -481,7 +517,8 @@ fn main() {
 
             // Load configuration from environment variables
             let config = BrokerConfig::from_env();
-
+            let database_target =
+                resolve_database_target(&db_path, postgres_url.as_deref(), &config);
             // Display configuration summary
             if do_log {
                 display_configuration_summary(
@@ -494,7 +531,9 @@ fn main() {
                 );
             }
 
-            if std::fs::metadata(&db_path).is_err() {
+            if matches!(database_target, DatabaseTarget::Sqlite(_))
+                && std::fs::metadata(&db_path).is_err()
+            {
                 if bootstrap {
                     // bootstrap the database
                     let rt = get_tokio_runtime();
@@ -530,7 +569,11 @@ fn main() {
 
             if do_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
-                let path = db_path.clone();
+                let database_target_clone = database_target.clone();
+                let sqlite_backup_path = match &database_target {
+                    DatabaseTarget::Sqlite(path) => Some(path.clone()),
+                    DatabaseTarget::Postgres(_) => None,
+                };
                 let backup_to = std::env::var("BGPKIT_BROKER_BACKUP_TO").ok();
                 let backup_to_clone = backup_to.clone();
                 let config_clone = config.clone();
@@ -546,7 +589,7 @@ fn main() {
                         }
                     };
                     rt.block_on(async {
-                        let mut db = match LocalBrokerDb::new(path.as_str()).await {
+                        let mut db = match DatabaseBackend::connect(&database_target_clone).await {
                             Ok(db) => db,
                             Err(e) => {
                                 error!("failed to open database: {}", e);
@@ -585,9 +628,11 @@ fn main() {
                         }
 
                         // perform initial backup if configured
-                        if let Some(ref backup_destination) = backup_to_clone {
+                        if let (Some(backup_destination), Some(path)) =
+                            (backup_to_clone.as_ref(), sqlite_backup_path.as_ref())
+                        {
                             info!("performing initial backup after first update...");
-                            match perform_periodic_backup(&path, backup_destination, None).await {
+                            match perform_periodic_backup(path, backup_destination, None).await {
                                 Ok(_) => {
                                     info!("initial backup completed successfully");
                                     last_backup_time = std::time::Instant::now();
@@ -626,21 +671,30 @@ fn main() {
                                 let backup_interval = config_clone.backup.interval();
 
                                 if now.duration_since(last_backup_time) >= backup_interval {
-                                    info!("starting daily backup procedure...");
-                                    match perform_periodic_backup(&path, backup_destination, None)
+                                    if let Some(path) = sqlite_backup_path.as_ref() {
+                                        info!("starting daily backup procedure...");
+                                        match perform_periodic_backup(
+                                            path,
+                                            backup_destination,
+                                            None,
+                                        )
                                         .await
-                                    {
-                                        Ok(_) => {
-                                            info!("daily backup completed successfully");
-                                            last_backup_time = now;
+                                        {
+                                            Ok(_) => {
+                                                info!("daily backup completed successfully");
+                                                last_backup_time = now;
 
-                                            // send backup heartbeat if configured
-                                            if let Err(e) = try_send_backup_heartbeat().await {
-                                                error!("failed to send backup heartbeat: {}", e);
+                                                // send backup heartbeat if configured
+                                                if let Err(e) = try_send_backup_heartbeat().await {
+                                                    error!(
+                                                        "failed to send backup heartbeat: {}",
+                                                        e
+                                                    );
+                                                }
                                             }
-                                        }
-                                        Err(e) => {
-                                            error!("daily backup failed: {}", e);
+                                            Err(e) => {
+                                                error!("daily backup failed: {}", e);
+                                            }
                                         }
                                     }
                                 }
@@ -672,7 +726,7 @@ fn main() {
                             exit(1);
                         }
                     }
-                    let database = match LocalBrokerDb::new(db_path.as_str()).await {
+                    let database = match DatabaseBackend::connect(&database_target).await {
                         Ok(db) => db,
                         Err(e) => {
                             error!("failed to open database for API: {}", e);
@@ -759,7 +813,7 @@ fn main() {
                         exit(1);
                     }
                     let mut db = match LocalBrokerDb::new(&from).await {
-                        Ok(db) => db,
+                        Ok(db) => DatabaseBackend::Sqlite(db),
                         Err(e) => {
                             error!("failed to open database: {}", e);
                             exit(1);
@@ -863,7 +917,7 @@ fn main() {
 
             rt.block_on(async {
                 let mut db = match LocalBrokerDb::new(&db_path).await {
-                    Ok(db) => db,
+                    Ok(db) => DatabaseBackend::Sqlite(db),
                     Err(e) => {
                         error!("failed to open database: {}", e);
                         exit(1);
