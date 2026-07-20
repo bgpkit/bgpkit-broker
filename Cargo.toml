@@ -73,6 +73,8 @@ axum-prometheus = { version = "0.10", optional = true }
 sqlx = { version = "0.9", features = [
     "runtime-tokio",
     "sqlite",
+    "postgres",
+    "chrono",
 ], optional = true }
 
 [features]

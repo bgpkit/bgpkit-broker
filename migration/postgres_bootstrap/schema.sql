@@ -1,0 +1,74 @@
+-- PostgreSQL catalog backing the BGPKIT Broker API.
+-- Raw MRT payloads remain in archive/object storage; this database indexes metadata.
+
+CREATE SCHEMA IF NOT EXISTS mrt;
+CREATE SCHEMA IF NOT EXISTS api;
+
+CREATE TABLE IF NOT EXISTS mrt.project (
+    project_id SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE CHECK (name IN ('ripe-ris', 'route-views'))
+);
+
+CREATE TABLE IF NOT EXISTS mrt.collector (
+    collector_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    project_id SMALLINT NOT NULL REFERENCES mrt.project(project_id),
+    name TEXT NOT NULL,
+    base_uri TEXT NOT NULL,
+    updates_interval_seconds INTEGER NOT NULL CHECK (updates_interval_seconds > 0),
+    UNIQUE (project_id, name)
+);
+
+-- One row is an observed archive object catalog entry, not a guarantee of reachability.
+CREATE TABLE IF NOT EXISTS mrt.file (
+    ts_start TIMESTAMPTZ NOT NULL,
+    collector_id BIGINT NOT NULL REFERENCES mrt.collector(collector_id),
+    data_type TEXT NOT NULL CHECK (data_type IN ('rib', 'updates')),
+    rough_size BIGINT NOT NULL DEFAULT 0 CHECK (rough_size >= 0),
+    exact_size BIGINT NOT NULL DEFAULT 0 CHECK (exact_size >= 0),
+    PRIMARY KEY (ts_start, collector_id, data_type)
+);
+
+-- Compatibility/read model: refreshed after each complete ingest.
+CREATE TABLE IF NOT EXISTS mrt.latest_file (
+    collector_id BIGINT NOT NULL REFERENCES mrt.collector(collector_id),
+    data_type TEXT NOT NULL CHECK (data_type IN ('rib', 'updates')),
+    ts_start TIMESTAMPTZ NOT NULL,
+    rough_size BIGINT NOT NULL DEFAULT 0,
+    exact_size BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (collector_id, data_type)
+);
+
+-- Mirrors the SQLite Broker `meta` table for operational update status.
+CREATE TABLE IF NOT EXISTS mrt.update_meta (
+    update_ts TIMESTAMPTZ NOT NULL,
+    update_duration_seconds INTEGER NOT NULL,
+    insert_count INTEGER NOT NULL
+);
+
+CREATE OR REPLACE VIEW api.mrt_file_search AS
+SELECT
+    f.ts_start AS timestamp,
+    f.rough_size,
+    f.exact_size,
+    f.data_type AS type,
+    c.name AS collector_name,
+    c.base_uri AS collector_url,
+    p.name AS project_name,
+    c.updates_interval_seconds AS updates_interval
+FROM mrt.file AS f
+JOIN mrt.collector AS c USING (collector_id)
+JOIN mrt.project AS p USING (project_id);
+
+CREATE OR REPLACE VIEW api.mrt_file_latest AS
+SELECT
+    l.ts_start AS timestamp,
+    l.rough_size,
+    l.exact_size,
+    l.data_type AS type,
+    c.name AS collector_name,
+    c.base_uri AS collector_url,
+    p.name AS project_name,
+    c.updates_interval_seconds AS updates_interval
+FROM mrt.latest_file AS l
+JOIN mrt.collector AS c USING (collector_id)
+JOIN mrt.project AS p USING (project_id);

@@ -166,18 +166,72 @@ impl HeartbeatConfig {
     }
 }
 
+/// Selected Broker database backend.
+///
+/// SQLite remains the default deployment contract. PostgreSQL is selected only
+/// when an explicit connection URL is supplied.
+#[derive(Clone, PartialEq, Eq)]
+pub enum DatabaseTarget {
+    Sqlite(String),
+    Postgres(String),
+}
+
+impl fmt::Debug for DatabaseTarget {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Sqlite(path) => formatter.debug_tuple("Sqlite").field(path).finish(),
+            Self::Postgres(_) => formatter
+                .debug_tuple("Postgres")
+                .field(&"<redacted>")
+                .finish(),
+        }
+    }
+}
+
+impl DatabaseTarget {
+    pub fn resolve(sqlite_path: Option<&str>, postgres_url: Option<&str>) -> Result<Self, String> {
+        if let Some(postgres_url) = postgres_url.filter(|url| !url.trim().is_empty()) {
+            return Ok(Self::Postgres(postgres_url.to_string()));
+        }
+        sqlite_path
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| Self::Sqlite(path.to_string()))
+            .ok_or_else(|| {
+                "a SQLite database path is required unless PostgreSQL is explicitly configured"
+                    .to_string()
+            })
+    }
+}
+
 /// Database maintenance configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DatabaseConfig {
     /// Number of days to retain meta entries.
     /// Environment variable: `BGPKIT_BROKER_META_RETENTION_DAYS`
     pub meta_retention_days: i64,
+    /// Explicit PostgreSQL connection URL. When unset, callers use SQLite.
+    /// Environment variable: `BGPKIT_BROKER_POSTGRES_URL`
+    pub postgres_url: Option<String>,
+}
+
+impl fmt::Debug for DatabaseConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DatabaseConfig")
+            .field("meta_retention_days", &self.meta_retention_days)
+            .field(
+                "postgres_url",
+                &self.postgres_url.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             meta_retention_days: DEFAULT_META_RETENTION_DAYS,
+            postgres_url: None,
         }
     }
 }
@@ -190,6 +244,7 @@ impl DatabaseConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(DEFAULT_META_RETENTION_DAYS),
+            postgres_url: std::env::var("BGPKIT_BROKER_POSTGRES_URL").ok(),
         }
     }
 }
@@ -345,5 +400,30 @@ mod tests {
             heartbeat_url: None,
         };
         assert_eq!(config.interval(), Duration::from_secs(12 * 60 * 60));
+    }
+
+    #[test]
+    fn database_target_prefers_explicit_postgres_url_without_changing_sqlite_default() {
+        assert_eq!(
+            DatabaseTarget::resolve(Some("broker.sqlite3"), None).unwrap(),
+            DatabaseTarget::Sqlite("broker.sqlite3".to_string())
+        );
+        assert_eq!(
+            DatabaseTarget::resolve(Some("broker.sqlite3"), Some("   ")).unwrap(),
+            DatabaseTarget::Sqlite("broker.sqlite3".to_string())
+        );
+        assert_eq!(
+            DatabaseTarget::resolve(
+                Some("broker.sqlite3"),
+                Some("postgresql://broker@localhost/bgpkit_platform"),
+            )
+            .unwrap(),
+            DatabaseTarget::Postgres("postgresql://broker@localhost/bgpkit_platform".to_string())
+        );
+    }
+
+    #[test]
+    fn database_target_requires_a_sqlite_path_without_postgres_opt_in() {
+        assert!(DatabaseTarget::resolve(None, None).is_err());
     }
 }
