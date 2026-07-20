@@ -6,7 +6,9 @@ services:
     volumes:
       - ./data:/bgpkit-broker
     environment:
-      # Empty keeps the SQLite default. Set this runtime variable to select a
-      # pre-initialized PostgreSQL catalog; do not commit the value.
+      # Empty values keep the built-in SQLite path. Set one runtime variable to
+      # select a pre-initialized PostgreSQL catalog or custom SQLite file; do not
+      # commit PostgreSQL connection values.
       BGPKIT_BROKER_POSTGRES_URL: ${BGPKIT_BROKER_POSTGRES_URL:-}
+      BGPKIT_BROKER_SQLITE_PATH: ${BGPKIT_BROKER_SQLITE_PATH:-}
     restart: unless-stopped

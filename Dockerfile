@@ -21,8 +21,9 @@ COPY --from=build /my_project/target/release/bgpkit-broker /usr/local/bin/bgpkit
 RUN apt update && apt install -y curl tini sqlite3
 WORKDIR /bgpkit-broker
 
-# Runtime configuration, including BGPKIT_BROKER_POSTGRES_URL, is supplied with
-# `docker run -e` or Compose. Do not bake connection URLs or credentials into the image.
+# Runtime configuration, including BGPKIT_BROKER_POSTGRES_URL and
+# BGPKIT_BROKER_SQLITE_PATH, is supplied with `docker run -e` or Compose. Do not
+# bake connection URLs or credentials into the image.
 EXPOSE 40064
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/bgpkit-broker"]
 CMD ["serve", "--bootstrap", "--silent"]
