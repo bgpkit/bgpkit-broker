@@ -188,19 +188,54 @@ impl fmt::Debug for DatabaseTarget {
     }
 }
 
+pub const DEFAULT_SQLITE_PATH: &str = "bgpkit-broker.sqlite3";
+
 impl DatabaseTarget {
-    pub fn resolve(sqlite_path: Option<&str>, postgres_url: Option<&str>) -> Result<Self, String> {
-        if let Some(postgres_url) = postgres_url.filter(|url| !url.trim().is_empty()) {
-            return Ok(Self::Postgres(postgres_url.to_string()));
+    /// Resolve the database target with CLI values taking precedence over
+    /// environment configuration. A positional path beginning with `pg://`,
+    /// `postgres://`, or `postgresql://` selects PostgreSQL; any other path is
+    /// a local SQLite file.
+    pub fn resolve(
+        database_path: Option<&str>,
+        cli_postgres_url: Option<&str>,
+        environment_postgres_url: Option<&str>,
+        environment_sqlite_path: Option<&str>,
+    ) -> Self {
+        if let Some(url) = non_empty(cli_postgres_url) {
+            return Self::Postgres(normalize_postgres_url(url));
         }
-        sqlite_path
-            .filter(|path| !path.trim().is_empty())
-            .map(|path| Self::Sqlite(path.to_string()))
-            .ok_or_else(|| {
-                "a SQLite database path is required unless PostgreSQL is explicitly configured"
-                    .to_string()
-            })
+        if let Some(path) = non_empty(database_path) {
+            return postgres_url_from_path(path)
+                .map(Self::Postgres)
+                .unwrap_or_else(|| Self::Sqlite(path.to_string()));
+        }
+        if let Some(url) = non_empty(environment_postgres_url) {
+            return Self::Postgres(normalize_postgres_url(url));
+        }
+        Self::Sqlite(
+            non_empty(environment_sqlite_path)
+                .unwrap_or(DEFAULT_SQLITE_PATH)
+                .to_string(),
+        )
     }
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn postgres_url_from_path(path: &str) -> Option<String> {
+    let lowercase_path = path.to_ascii_lowercase();
+    (lowercase_path.starts_with("pg://")
+        || lowercase_path.starts_with("postgres://")
+        || lowercase_path.starts_with("postgresql://"))
+    .then(|| normalize_postgres_url(path))
+}
+
+fn normalize_postgres_url(url: &str) -> String {
+    url.strip_prefix("pg://")
+        .map(|rest| format!("postgresql://{rest}"))
+        .unwrap_or_else(|| url.to_string())
 }
 
 /// Database maintenance configuration.
@@ -212,6 +247,9 @@ pub struct DatabaseConfig {
     /// Explicit PostgreSQL connection URL. When unset, callers use SQLite.
     /// Environment variable: `BGPKIT_BROKER_POSTGRES_URL`
     pub postgres_url: Option<String>,
+    /// SQLite catalog file path when no CLI database path or PostgreSQL URL is supplied.
+    /// Environment variable: `BGPKIT_BROKER_SQLITE_PATH`
+    pub sqlite_path: Option<String>,
 }
 
 impl fmt::Debug for DatabaseConfig {
@@ -223,6 +261,7 @@ impl fmt::Debug for DatabaseConfig {
                 "postgres_url",
                 &self.postgres_url.as_ref().map(|_| "<redacted>"),
             )
+            .field("sqlite_path", &self.sqlite_path)
             .finish()
     }
 }
@@ -232,6 +271,7 @@ impl Default for DatabaseConfig {
         Self {
             meta_retention_days: DEFAULT_META_RETENTION_DAYS,
             postgres_url: None,
+            sqlite_path: None,
         }
     }
 }
@@ -245,6 +285,7 @@ impl DatabaseConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(DEFAULT_META_RETENTION_DAYS),
             postgres_url: std::env::var("BGPKIT_BROKER_POSTGRES_URL").ok(),
+            sqlite_path: std::env::var("BGPKIT_BROKER_SQLITE_PATH").ok(),
         }
     }
 }
@@ -403,27 +444,54 @@ mod tests {
     }
 
     #[test]
-    fn database_target_prefers_explicit_postgres_url_without_changing_sqlite_default() {
+    fn database_target_resolves_cli_path_and_environment_defaults() {
         assert_eq!(
-            DatabaseTarget::resolve(Some("broker.sqlite3"), None).unwrap(),
-            DatabaseTarget::Sqlite("broker.sqlite3".to_string())
+            DatabaseTarget::resolve(None, None, None, None),
+            DatabaseTarget::Sqlite("bgpkit-broker.sqlite3".to_string())
         );
         assert_eq!(
-            DatabaseTarget::resolve(Some("broker.sqlite3"), Some("   ")).unwrap(),
-            DatabaseTarget::Sqlite("broker.sqlite3".to_string())
+            DatabaseTarget::resolve(None, None, None, Some("/data/broker.sqlite3")),
+            DatabaseTarget::Sqlite("/data/broker.sqlite3".to_string())
         );
         assert_eq!(
             DatabaseTarget::resolve(
-                Some("broker.sqlite3"),
-                Some("postgresql://broker@localhost/bgpkit_platform"),
-            )
-            .unwrap(),
-            DatabaseTarget::Postgres("postgresql://broker@localhost/bgpkit_platform".to_string())
+                Some("/tmp/override.sqlite3"),
+                None,
+                Some("postgresql://broker@db/catalog"),
+                Some("/data/broker.sqlite3"),
+            ),
+            DatabaseTarget::Sqlite("/tmp/override.sqlite3".to_string())
         );
-    }
-
-    #[test]
-    fn database_target_requires_a_sqlite_path_without_postgres_opt_in() {
-        assert!(DatabaseTarget::resolve(None, None).is_err());
+        assert_eq!(
+            DatabaseTarget::resolve(
+                Some("pg://broker@db/catalog"),
+                None,
+                None,
+                Some("/data/broker.sqlite3"),
+            ),
+            DatabaseTarget::Postgres("postgresql://broker@db/catalog".to_string())
+        );
+        assert_eq!(
+            DatabaseTarget::resolve(
+                Some("postgresql://broker@db/catalog"),
+                None,
+                None,
+                Some("/data/broker.sqlite3"),
+            ),
+            DatabaseTarget::Postgres("postgresql://broker@db/catalog".to_string())
+        );
+        assert_eq!(
+            DatabaseTarget::resolve(
+                Some("/tmp/override.sqlite3"),
+                Some("postgresql://broker@db/cli"),
+                Some("postgresql://broker@db/environment"),
+                Some("/data/broker.sqlite3"),
+            ),
+            DatabaseTarget::Postgres("postgresql://broker@db/cli".to_string())
+        );
+        assert_eq!(
+            DatabaseTarget::resolve(None, None, Some("   "), Some("   ")),
+            DatabaseTarget::Sqlite("bgpkit-broker.sqlite3".to_string())
+        );
     }
 }

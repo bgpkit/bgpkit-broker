@@ -46,9 +46,9 @@ const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqli
 enum Commands {
     /// Serve the Broker content via RESTful API
     Serve {
-        /// broker SQLite db file location (the default backend)
-        #[clap(default_value = "bgpkit-broker.sqlite3")]
-        db_path: String,
+        /// Database path or PostgreSQL URL. A path beginning with pg://, postgres://,
+        /// or postgresql:// selects PostgreSQL; other values select a SQLite file.
+        db_path: Option<String>,
 
         /// Explicit PostgreSQL connection URL. Takes precedence over SQLite and can also be set with BGPKIT_BROKER_POSTGRES_URL.
         #[clap(long)]
@@ -449,28 +449,16 @@ fn display_configuration_summary(
 }
 
 fn resolve_database_target(
-    sqlite_path: &str,
+    database_path: Option<&str>,
     postgres_url: Option<&str>,
     config: &BrokerConfig,
 ) -> DatabaseTarget {
-    match DatabaseTarget::resolve(
-        Some(sqlite_path),
-        postgres_url
-            .filter(|url| !url.trim().is_empty())
-            .or_else(|| {
-                config
-                    .database
-                    .postgres_url
-                    .as_deref()
-                    .filter(|url| !url.trim().is_empty())
-            }),
-    ) {
-        Ok(target) => target,
-        Err(e) => {
-            error!("database configuration error: {}", e);
-            exit(1);
-        }
-    }
+    DatabaseTarget::resolve(
+        database_path,
+        postgres_url,
+        config.database.postgres_url.as_deref(),
+        config.database.sqlite_path.as_deref(),
+    )
 }
 
 fn main() {
@@ -518,7 +506,11 @@ fn main() {
             // Load configuration from environment variables
             let config = BrokerConfig::from_env();
             let database_target =
-                resolve_database_target(&db_path, postgres_url.as_deref(), &config);
+                resolve_database_target(db_path.as_deref(), postgres_url.as_deref(), &config);
+            let sqlite_path = match &database_target {
+                DatabaseTarget::Sqlite(path) => Some(path.as_str()),
+                DatabaseTarget::Postgres(_) => None,
+            };
             // Display configuration summary
             if do_log {
                 display_configuration_summary(
@@ -531,25 +523,25 @@ fn main() {
                 );
             }
 
-            if matches!(database_target, DatabaseTarget::Sqlite(_))
-                && std::fs::metadata(&db_path).is_err()
-            {
-                if bootstrap {
-                    // bootstrap the database
-                    let rt = get_tokio_runtime();
-                    let from = BOOTSTRAP_URL.to_string();
-                    rt.block_on(async {
-                        if let Err(e) = download_file(&from, &db_path, silent).await {
-                            error!("failed to download bootstrap file: {}", e);
-                            exit(1);
-                        }
-                        // The update thread will handle the first update
-                    });
-                } else {
-                    error!(
-                    "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
-                );
-                    exit(1);
+            if let Some(sqlite_path) = sqlite_path {
+                if std::fs::metadata(sqlite_path).is_err() {
+                    if bootstrap {
+                        // bootstrap the database
+                        let rt = get_tokio_runtime();
+                        let from = BOOTSTRAP_URL.to_string();
+                        rt.block_on(async {
+                            if let Err(e) = download_file(&from, sqlite_path, silent).await {
+                                error!("failed to download bootstrap file: {}", e);
+                                exit(1);
+                            }
+                            // The update thread will handle the first update
+                        });
+                    } else {
+                        error!(
+                            "The specified database file does not exist. Consider run bootstrap command or serve command with `--bootstrap` flag."
+                        );
+                        exit(1);
+                    }
                 }
             }
 

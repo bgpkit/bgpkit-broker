@@ -319,6 +319,7 @@ Cache files are stored as JSON in the specified directory. The cache key is gene
 **Database Maintenance:**
 - `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
 - `BGPKIT_BROKER_POSTGRES_URL` - Explicit PostgreSQL catalog URL for the `serve` API. SQLite remains the default; PostgreSQL supports the same crawler/update lifecycle when an update-capable URL is supplied. Initialize a new PostgreSQL catalog first with [`migration/postgres_bootstrap/bootstrap.py`](migration/postgres_bootstrap/README.md).
+- `BGPKIT_BROKER_SQLITE_PATH` - SQLite catalog file path when neither a database path/URL argument nor PostgreSQL configuration is supplied. Default: `bgpkit-broker.sqlite3`.
 
 ### Data Structures
 
@@ -432,7 +433,7 @@ API endpoints. It will also periodically update the local database unless the `-
 Usage: bgpkit-broker serve [OPTIONS] [DB_PATH]
 
 Arguments:
-  [DB_PATH]  broker SQLite db file location (the default backend) [default: bgpkit-broker.sqlite3]
+  [DB_PATH]  database path or PostgreSQL URL. pg://, postgres://, and postgresql:// select PostgreSQL; other values select a SQLite file
 
 Options:
   -i, --update-interval <UPDATE_INTERVAL>  update interval in seconds [default: 300]
@@ -691,14 +692,14 @@ To run as a service using `docker compose`:
 docker compose up -d
 ```
 
-SQLite remains the default. To use PostgreSQL, initialize the catalog with
+SQLite remains the default. Set `BGPKIT_BROKER_SQLITE_PATH` to use another SQLite file. To use PostgreSQL, initialize the catalog with
 [`migration/postgres_bootstrap/bootstrap.py`](migration/postgres_bootstrap/README.md), then pass its URL only at runtime:
 
 ```bash
 BGPKIT_BROKER_POSTGRES_URL='[REDACTED]' docker compose up -d
 ```
 
-The Compose file forwards `BGPKIT_BROKER_POSTGRES_URL` without defining a database service or storing a connection URL. For `docker run`, pass the same variable with `-e BGPKIT_BROKER_POSTGRES_URL`; the image command does not override it.
+The optional `serve` database argument is also backend-agnostic: `pg://` and `postgresql://` URLs select PostgreSQL; other values are SQLite paths. The Compose file forwards both database environment variables without defining a database service or storing a connection URL. For `docker run`, pass the same variables with `-e`; the image command does not override them.
 
 You can also build the Docker image from the source code:
 
