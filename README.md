@@ -320,6 +320,7 @@ Cache files are stored as JSON in the specified directory. The cache key is gene
 - `BGPKIT_BROKER_META_RETENTION_DAYS` - Number of days to retain meta entries (default: 30)
 - `BGPKIT_BROKER_POSTGRES_URL` - Explicit PostgreSQL catalog URL for the `serve` API. SQLite remains the default; PostgreSQL supports the same crawler/update lifecycle when an update-capable URL is supplied. Initialize a new PostgreSQL catalog first with [`migration/postgres_bootstrap/bootstrap.py`](migration/postgres_bootstrap/README.md).
 - `BGPKIT_BROKER_SQLITE_PATH` - SQLite catalog file path when neither a database path/URL argument nor PostgreSQL configuration is supplied. Default: `bgpkit-broker.sqlite3`.
+- `BGPKIT_BROKER_POSTGRES_MAX_CONNECTIONS` - Maximum number of connections in the PostgreSQL pool (default: 10).
 
 ### Data Structures
 

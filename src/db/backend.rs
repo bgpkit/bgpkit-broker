@@ -10,10 +10,15 @@ pub enum DatabaseBackend {
 }
 
 impl DatabaseBackend {
-    pub async fn connect(target: &DatabaseTarget) -> Result<Self, BrokerError> {
+    pub async fn connect(
+        target: &DatabaseTarget,
+        max_connections: u32,
+    ) -> Result<Self, BrokerError> {
         match target {
             DatabaseTarget::Sqlite(path) => LocalBrokerDb::new(path).await.map(Self::Sqlite),
-            DatabaseTarget::Postgres(url) => PostgresDb::new(url).await.map(Self::Postgres),
+            DatabaseTarget::Postgres(url) => PostgresDb::new(url, max_connections)
+                .await
+                .map(Self::Postgres),
         }
     }
 
