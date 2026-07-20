@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   bgpkit-broker:
     image: bgpkit/bgpkit-broker:latest
@@ -6,4 +5,8 @@ services:
       - "40064:40064"
     volumes:
       - ./data:/bgpkit-broker
+    environment:
+      # Empty keeps the SQLite default. Set this runtime variable to select a
+      # pre-initialized PostgreSQL catalog; do not commit the value.
+      BGPKIT_BROKER_POSTGRES_URL: ${BGPKIT_BROKER_POSTGRES_URL:-}
     restart: unless-stopped

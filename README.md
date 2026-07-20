@@ -685,11 +685,20 @@ To run in deattached mode (as a service):
 docker run -d -p 40064:40064 bgpkit/bgpkit-broker:latest
 ```
 
-To run as a service using `docker-compose`:
+To run as a service using `docker compose`:
 
-``` bash
-docker-compose up -d
+```bash
+docker compose up -d
 ```
+
+SQLite remains the default. To use PostgreSQL, initialize the catalog with
+[`migration/postgres_bootstrap/bootstrap.py`](migration/postgres_bootstrap/README.md), then pass its URL only at runtime:
+
+```bash
+BGPKIT_BROKER_POSTGRES_URL='[REDACTED]' docker compose up -d
+```
+
+The Compose file forwards `BGPKIT_BROKER_POSTGRES_URL` without defining a database service or storing a connection URL. For `docker run`, pass the same variable with `-e BGPKIT_BROKER_POSTGRES_URL`; the image command does not override it.
 
 You can also build the Docker image from the source code:
 
