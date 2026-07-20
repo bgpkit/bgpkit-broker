@@ -438,8 +438,16 @@ fn display_configuration_summary(
     update_interval: u64,
     host: &str,
     port: u16,
+    database_target: &DatabaseTarget,
 ) {
-    for line in config.display_summary(do_update, do_api, update_interval, host, port) {
+    for line in config.display_summary(
+        do_update,
+        do_api,
+        update_interval,
+        host,
+        port,
+        database_target,
+    ) {
         info!("{}", line);
     }
 }
@@ -509,6 +517,7 @@ fn main() {
                     update_interval,
                     &host,
                     port,
+                    &database_target,
                 );
             }
 
@@ -570,7 +579,12 @@ fn main() {
                         }
                     };
                     rt.block_on(async {
-                        let mut db = match DatabaseBackend::connect(&database_target_clone).await {
+                        let mut db = match DatabaseBackend::connect(
+                            &database_target_clone,
+                            config_clone.database.postgres_max_connections,
+                        )
+                        .await
+                        {
                             Ok(db) => db,
                             Err(e) => {
                                 error!("failed to open database: {}", e);
@@ -707,7 +721,12 @@ fn main() {
                             exit(1);
                         }
                     }
-                    let database = match DatabaseBackend::connect(&database_target).await {
+                    let database = match DatabaseBackend::connect(
+                        &database_target,
+                        config.database.postgres_max_connections,
+                    )
+                    .await
+                    {
                         Ok(db) => db,
                         Err(e) => {
                             error!("failed to open database for API: {}", e);

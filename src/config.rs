@@ -18,6 +18,7 @@ const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 24;
 
 /// Default values for database maintenance
 const DEFAULT_META_RETENTION_DAYS: i64 = 30;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 10;
 
 /// Crawler configuration settings.
 ///
@@ -247,6 +248,9 @@ pub struct DatabaseConfig {
     /// SQLite catalog file path when no CLI database path or PostgreSQL URL is supplied.
     /// Environment variable: `BGPKIT_BROKER_SQLITE_PATH`
     pub sqlite_path: Option<String>,
+    /// Maximum number of connections in the PostgreSQL pool.
+    /// Environment variable: `BGPKIT_BROKER_POSTGRES_MAX_CONNECTIONS`
+    pub postgres_max_connections: u32,
 }
 
 impl fmt::Debug for DatabaseConfig {
@@ -259,6 +263,7 @@ impl fmt::Debug for DatabaseConfig {
                 &self.postgres_url.as_ref().map(|_| "<redacted>"),
             )
             .field("sqlite_path", &self.sqlite_path)
+            .field("postgres_max_connections", &self.postgres_max_connections)
             .finish()
     }
 }
@@ -269,6 +274,7 @@ impl Default for DatabaseConfig {
             meta_retention_days: DEFAULT_META_RETENTION_DAYS,
             postgres_url: None,
             sqlite_path: None,
+            postgres_max_connections: DEFAULT_POSTGRES_MAX_CONNECTIONS,
         }
     }
 }
@@ -283,6 +289,10 @@ impl DatabaseConfig {
                 .unwrap_or(DEFAULT_META_RETENTION_DAYS),
             postgres_url: std::env::var("BGPKIT_BROKER_POSTGRES_URL").ok(),
             sqlite_path: std::env::var("BGPKIT_BROKER_SQLITE_PATH").ok(),
+            postgres_max_connections: std::env::var("BGPKIT_BROKER_POSTGRES_MAX_CONNECTIONS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_POSTGRES_MAX_CONNECTIONS),
         }
     }
 }
@@ -332,10 +342,14 @@ impl BrokerConfig {
         update_interval: u64,
         host: &str,
         port: u16,
+        database_target: &DatabaseTarget,
     ) -> Vec<String> {
         let mut lines = Vec::new();
 
         lines.push("=== BGPKIT Broker Configuration ===".to_string());
+
+        // Database backend (the Debug impl redacts PostgreSQL URLs)
+        lines.push(format!("Database backend: {:?}", database_target));
 
         // Update service status
         if do_update {

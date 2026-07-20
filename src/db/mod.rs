@@ -24,6 +24,13 @@ pub use meta::UpdatesMeta;
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
 
+/// Update-file lookback window for RIPE RIS collectors, in seconds.
+/// RIPE RIS publishes update files every 5 minutes.
+pub const UPDATES_LOOKBACK_RIPE_RIS_SECS: i64 = 5 * 60;
+/// Update-file lookback window for RouteViews collectors, in seconds.
+/// RouteViews publishes update files every 15 minutes.
+pub const UPDATES_LOOKBACK_ROUTE_VIEWS_SECS: i64 = 15 * 60;
+
 #[derive(Clone)]
 pub struct LocalBrokerDb {
     /// shared connection pool for reading and writing
@@ -48,11 +55,7 @@ fn get_ts_start_clause(ts: i64) -> String {
                 OR (type='rib' AND timestamp >= {})
             )
                 "#,
-        ts,
-        5 * 60,
-        ts,
-        15 * 60,
-        ts
+        ts, UPDATES_LOOKBACK_RIPE_RIS_SECS, ts, UPDATES_LOOKBACK_ROUTE_VIEWS_SECS, ts
     )
 }
 
@@ -252,11 +255,11 @@ impl LocalBrokerDb {
             }
             (Some(ts_start), Some(ts_end)) => {
                 let start = ts_start;
+                // When searching with the same start and end timestamp, always
+                // include the given timestamp by expanding the end by 1 second.
+                // The PostgreSQL backend mirrors this in `normalize_search_end`.
                 let end = match ts_start == ts_end {
-                    true => {
-                        // making sure when searching with the same timestamp, we always include the given timestamp
-                        ts_start + Duration::seconds(1)
-                    }
+                    true => ts_start + Duration::seconds(1),
                     false => ts_end,
                 };
                 where_clauses.push(get_ts_start_clause(start.and_utc().timestamp()));

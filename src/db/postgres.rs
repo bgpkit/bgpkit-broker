@@ -1,4 +1,7 @@
-use super::{DbSearchResult, UpdatesMeta, DEFAULT_PAGE_SIZE};
+use super::{
+    DbSearchResult, UpdatesMeta, DEFAULT_PAGE_SIZE, UPDATES_LOOKBACK_RIPE_RIS_SECS,
+    UPDATES_LOOKBACK_ROUTE_VIEWS_SECS,
+};
 use crate::db::utils::infer_url;
 use crate::query::BrokerCollector;
 use crate::{BrokerError, BrokerItem, Collector};
@@ -7,6 +10,7 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use tracing::error;
 
 /// PostgreSQL adapter for a Broker catalog initialized with
 /// `migration/postgres_bootstrap/bootstrap.py`.
@@ -21,9 +25,9 @@ pub struct PostgresDb {
 }
 
 impl PostgresDb {
-    pub async fn new(database_url: &str) -> Result<Self, BrokerError> {
+    pub async fn new(database_url: &str, max_connections: u32) -> Result<Self, BrokerError> {
         let conn_pool = PgPoolOptions::new()
-            .max_connections(10)
+            .max_connections(max_connections)
             .connect(database_url)
             .await
             .map_err(database_error)?;
@@ -139,11 +143,17 @@ impl PostgresDb {
         .await
         {
             Ok(rows) => rows,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                error!("failed to get latest files: {}", e);
+                return Vec::new();
+            }
         };
         let collector_map = match self.collector_map() {
             Ok(collectors) => collectors,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                error!("failed to get collector map for latest files: {}", e);
+                return Vec::new();
+            }
         };
         rows.into_iter()
             .filter_map(|row| pg_row_to_item(row, &collector_map))
@@ -191,17 +201,25 @@ impl PostgresDb {
         let collector_map = self.collector_map()?;
         let mut inserted = Vec::new();
         for batch in items.chunks(1000) {
+            // Filter out items whose collector is not in the cache, matching the
+            // SQLite backend's filter_map behavior. Binding None for an unknown
+            // collector would violate the NOT NULL constraint and fail the entire
+            // batch insert.
+            let resolvable: Vec<&BrokerItem> = batch
+                .iter()
+                .filter(|item| collector_map.contains_key(item.collector_id.as_str()))
+                .collect();
+            if resolvable.is_empty() {
+                continue;
+            }
             let mut query = QueryBuilder::<Postgres>::new(
                 "INSERT INTO mrt.file (ts_start, collector_id, data_type, rough_size, exact_size) ",
             );
-            query.push_values(batch, |mut values, item| {
+            query.push_values(resolvable.iter(), |mut values, item| {
+                let collector_id = collector_map[item.collector_id.as_str()].id;
                 values
                     .push_bind(item.ts_start.and_utc())
-                    .push_bind(
-                        collector_map
-                            .get(item.collector_id.as_str())
-                            .map(|collector| collector.id),
-                    )
+                    .push_bind(collector_id)
                     .push_bind(item.data_type.as_str())
                     .push_bind(item.rough_size)
                     .push_bind(item.exact_size);
@@ -406,6 +424,13 @@ fn normalize_data_type(data_type: Option<&str>) -> Result<Option<&str>, BrokerEr
     }
 }
 
+/// Normalize the search end timestamp.
+///
+/// When `ts_start` and `ts_end` are identical, expand `ts_end` by one second so
+/// the given timestamp is always included in the result set. This mirrors the
+/// inline logic in `LocalBrokerDb::search` (db/mod.rs); the SQLite path applies
+/// the same +1-second rule but does so inside its match arms rather than via a
+/// helper. Both backends must keep this behavior in sync.
 fn normalize_search_end(
     ts_start: Option<NaiveDateTime>,
     ts_end: Option<NaiveDateTime>,
@@ -457,9 +482,9 @@ fn apply_search_filters(
         push_condition(query);
         query
             .push("((project_name = 'ripe-ris' AND type = 'updates' AND timestamp > ")
-            .push_bind(start - Duration::minutes(5))
+            .push_bind(start - Duration::seconds(UPDATES_LOOKBACK_RIPE_RIS_SECS))
             .push(") OR (project_name = 'route-views' AND type = 'updates' AND timestamp > ")
-            .push_bind(start - Duration::minutes(15))
+            .push_bind(start - Duration::seconds(UPDATES_LOOKBACK_ROUTE_VIEWS_SECS))
             .push(") OR (type = 'rib' AND timestamp >= ")
             .push_bind(start)
             .push("))");
@@ -514,7 +539,7 @@ mod tests {
     async fn postgres_catalog_writes_update_latest_and_meta(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let database_url = std::env::var("BGPKIT_BROKER_TEST_POSTGRES_URL")?;
-        let database = PostgresDb::new(&database_url).await?;
+        let database = PostgresDb::new(&database_url, 10).await?;
         let collector = Collector {
             id: "pg-runtime-test".to_string(),
             project: "riperis".to_string(),
