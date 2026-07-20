@@ -51,14 +51,14 @@ PostgreSQL is an explicit opt-in. A single URL is the only runtime connection se
 
 ```bash
 # Prefer an environment variable or secret manager for the URL.
-export BGPKIT_BROKER_POSTGRES_URL="$POSTGRES_URL"
-bgpkit-broker serve
+# Combined crawler + API service using the environment selector.
+BGPKIT_BROKER_POSTGRES_URL="$POSTGRES_URL" bgpkit-broker serve
 
-# Explicit CLI URL overrides the environment.
-bgpkit-broker serve --postgres-url "$POSTGRES_URL"
+# Or pass a PostgreSQL URL as the database target.
+bgpkit-broker serve "pg://broker@db.example/broker"
 
 # API-only deployment: disable the updater.
-bgpkit-broker serve --postgres-url "$POSTGRES_URL" --no-update
+BGPKIT_BROKER_POSTGRES_URL="$POSTGRES_URL" bgpkit-broker serve --no-update
 ```
 
 The runtime dispatches through `DatabaseBackend`: `LocalBrokerDb` for SQLite and `PostgresDb` for PostgreSQL. SQLite file backups are intentionally skipped for PostgreSQL deployments; use PostgreSQL-native backup/replication instead. No credential is stored in this repository.
