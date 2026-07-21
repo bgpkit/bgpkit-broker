@@ -2,11 +2,13 @@
 mod backend;
 mod latest_files;
 mod meta;
+#[cfg(feature = "backend")]
 mod postgres;
 mod utils;
 
 #[cfg(feature = "cli")]
 pub use backend::DatabaseBackend;
+#[cfg(feature = "backend")]
 pub use postgres::PostgresDb;
 
 use crate::db::utils::infer_url;
