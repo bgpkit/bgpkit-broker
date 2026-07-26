@@ -15,16 +15,47 @@ use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem, Collector};
 use chrono::{DateTime, Duration, NaiveDateTime};
-use sqlx::sqlite::SqliteRow;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
 use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
 use std::collections::HashMap;
+use std::str::FromStr;
 use tracing::{debug, error, info};
 
 pub use meta::UpdatesMeta;
 
 pub const DEFAULT_PAGE_SIZE: usize = 100;
+
+const DEFAULT_SQLITE_MAX_CONNECTIONS: u32 = 2;
+const DEFAULT_SQLITE_CACHE_SIZE_KIB: u32 = 640;
+const MAX_SQLITE_CACHE_SIZE_KIB: u32 = (i32::MAX as u32) + 1;
+
+fn bounded_positive_env_u32(name: &str, default: u32, maximum: u32) -> u32 {
+    bounded_positive_u32(std::env::var(name).ok().as_deref(), default, maximum)
+}
+
+fn bounded_positive_u32(value: Option<&str>, default: u32, maximum: u32) -> u32 {
+    value
+        .and_then(|value| value.parse().ok())
+        .filter(|value| (1..=maximum).contains(value))
+        .unwrap_or(default)
+}
+
+pub(crate) fn sqlite_pool_config() -> (u32, u32) {
+    (
+        bounded_positive_env_u32(
+            "BGPKIT_BROKER_SQLITE_MAX_CONNECTIONS",
+            DEFAULT_SQLITE_MAX_CONNECTIONS,
+            u32::MAX,
+        ),
+        bounded_positive_env_u32(
+            "BGPKIT_BROKER_SQLITE_CACHE_SIZE_KIB",
+            DEFAULT_SQLITE_CACHE_SIZE_KIB,
+            MAX_SQLITE_CACHE_SIZE_KIB,
+        ),
+    )
+}
 
 /// Update-file lookback window for RIPE RIS collectors, in seconds.
 /// RIPE RIS publishes update files every 5 minutes.
@@ -67,6 +98,15 @@ fn get_ts_end_clause(ts: i64) -> String {
 
 impl LocalBrokerDb {
     pub async fn new(path: &str) -> Result<Self, BrokerError> {
+        let (max_connections, cache_size_kib) = sqlite_pool_config();
+        Self::new_with_pool_options(path, max_connections, cache_size_kib).await
+    }
+
+    pub(crate) async fn new_with_pool_options(
+        path: &str,
+        max_connections: u32,
+        cache_size_kib: u32,
+    ) -> Result<Self, BrokerError> {
         info!("open local broker db at {}", path);
 
         if !Sqlite::database_exists(path).await? {
@@ -75,7 +115,17 @@ impl LocalBrokerDb {
                 Err(error) => panic!("error: {}", error),
             }
         }
-        let conn_pool = SqlitePool::connect(path).await?;
+
+        // SQLite serializes writes at the file level. Keeping the pool small
+        // avoids duplicated page caches, statement caches, and worker threads.
+        // Keep mmap disabled: faulted pages count toward process RSS.
+        let conn_pool = SqlitePoolOptions::new()
+            .max_connections(max_connections)
+            .connect_with(
+                SqliteConnectOptions::from_str(path)?
+                    .pragma("cache_size", format!("-{cache_size_kib}")),
+            )
+            .await?;
 
         let mut db = LocalBrokerDb {
             conn_pool,
@@ -570,6 +620,55 @@ mod tests {
         if shm_path.exists() {
             let _ = std::fs::remove_file(shm_path);
         }
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_pool_options() -> Result<(), BrokerError> {
+        let db_path = create_temp_db_path("pool_options");
+        let db_path_string = db_path.to_string_lossy();
+        let db = LocalBrokerDb::new_with_pool_options(&db_path_string, 3, 512).await?;
+
+        assert_eq!(db.conn_pool.options().get_max_connections(), 3);
+
+        // Hold all three connections at once so the pool has to create each
+        // one, then verify the connection-level PRAGMA on every worker.
+        let mut connections = Vec::new();
+        for _ in 0..3 {
+            let mut connection = db.conn_pool.acquire().await?;
+            let cache_size = sqlx::query("PRAGMA cache_size")
+                .map(|row: SqliteRow| row.get::<i64, _>(0))
+                .fetch_one(&mut *connection)
+                .await?;
+            assert_eq!(cache_size, -512);
+            connections.push(connection);
+        }
+
+        drop(connections);
+        drop(db);
+        cleanup_db_file(&db_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bounded_positive_u32_config_value() {
+        assert_eq!(bounded_positive_u32(Some("4"), 2, u32::MAX), 4);
+        assert_eq!(bounded_positive_u32(Some("0"), 2, u32::MAX), 2);
+        assert_eq!(bounded_positive_u32(Some("invalid"), 2, u32::MAX), 2);
+        assert_eq!(bounded_positive_u32(Some("4294967296"), 2, u32::MAX), 2);
+        assert_eq!(bounded_positive_u32(None, 2, u32::MAX), 2);
+
+        assert_eq!(
+            bounded_positive_u32(Some("2147483648"), 640, MAX_SQLITE_CACHE_SIZE_KIB),
+            2_147_483_648
+        );
+        assert_eq!(
+            bounded_positive_u32(Some("2147483649"), 640, MAX_SQLITE_CACHE_SIZE_KIB),
+            640
+        );
+        assert_eq!(
+            bounded_positive_u32(Some("4294967295"), 640, MAX_SQLITE_CACHE_SIZE_KIB),
+            640
+        );
     }
 
     #[tokio::test]

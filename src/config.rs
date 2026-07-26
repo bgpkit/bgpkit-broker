@@ -7,6 +7,8 @@
 use std::fmt;
 use std::time::Duration;
 
+use crate::db::sqlite_pool_config;
+
 /// Default values for crawler configuration
 const DEFAULT_CRAWLER_MAX_RETRIES: u32 = 3;
 const DEFAULT_CRAWLER_BACKOFF_MS: u64 = 1000;
@@ -407,9 +409,10 @@ impl BrokerConfig {
         }
 
         // Database maintenance
+        let (sqlite_max_connections, sqlite_cache_size_kib) = sqlite_pool_config();
         lines.push(format!(
-            "Database: meta_retention_days={}",
-            self.database.meta_retention_days
+            "Database: meta_retention_days={}, sqlite_max_connections={}, sqlite_cache_size_kib={}",
+            self.database.meta_retention_days, sqlite_max_connections, sqlite_cache_size_kib
         ));
 
         lines.push("=====================================".to_string());
