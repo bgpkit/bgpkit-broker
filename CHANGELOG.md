@@ -19,6 +19,10 @@ All notable changes to this project will be documented in this file.
     * Added default 30-day time window when neither `ts_start` nor `ts_end` is specified
     * Prevents full table scans that caused timeouts on large databases
     * Returns recent data by default instead of starting from 1970
+* Bounded SQLite connection-pool memory usage (fixes #101)
+    * Reduced the default maximum from 10 to 2 connections per pool
+    * Set SQLite's suggested per-connection page-cache maximum to 640 KiB
+    * Added `BGPKIT_BROKER_SQLITE_MAX_CONNECTIONS` and `BGPKIT_BROKER_SQLITE_CACHE_SIZE_KIB` overrides
 
 ## v0.11.0 - 2025-03-23
 
