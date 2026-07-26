@@ -15,10 +15,11 @@ use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem, Collector};
 use chrono::{DateTime, Duration, NaiveDateTime};
+use futures_util::TryStreamExt;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
 use sqlx::Row;
 use sqlx::SqlitePool;
-use sqlx::{migrate::MigrateDatabase, Sqlite};
+use sqlx::{migrate::MigrateDatabase, QueryBuilder, Sqlite};
 use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::{debug, error, info};
@@ -83,9 +84,9 @@ fn get_ts_start_clause(ts: i64) -> String {
     format!(
         r#"
             (
-                (project_name='ripe-ris' AND type='updates' AND timestamp > {} - {})
-                OR (project_name='route-views' AND type='updates' AND timestamp > {} - {})
-                OR (type='rib' AND timestamp >= {})
+                (c.project='ripe-ris' AND t.name='updates' AND i.timestamp > {} - {})
+                OR (c.project='route-views' AND t.name='updates' AND i.timestamp > {} - {})
+                OR (t.name='rib' AND i.timestamp >= {})
             )
                 "#,
         ts, UPDATES_LOOKBACK_RIPE_RIS_SECS, ts, UPDATES_LOOKBACK_ROUTE_VIEWS_SECS, ts
@@ -93,7 +94,29 @@ fn get_ts_start_clause(ts: i64) -> String {
 }
 
 fn get_ts_end_clause(ts: i64) -> String {
-    format!("timestamp < {}", ts)
+    format!("i.timestamp < {}", ts)
+}
+
+fn append_search_group(
+    group: &mut Vec<BrokerItem>,
+    items: &mut Vec<BrokerItem>,
+    remaining_offset: &mut usize,
+    limit: usize,
+) -> bool {
+    group.sort();
+    for item in group.drain(..) {
+        if *remaining_offset > 0 {
+            *remaining_offset -= 1;
+            continue;
+        }
+        if limit == 0 || items.len() < limit {
+            items.push(item);
+        }
+        if limit > 0 && items.len() == limit {
+            return true;
+        }
+    }
+    false
 }
 
 impl LocalBrokerDb {
@@ -182,6 +205,9 @@ impl LocalBrokerDb {
             CREATE INDEX IF NOT EXISTS idx_files_timestamp
                 ON files(timestamp);
 
+            CREATE INDEX IF NOT EXISTS idx_files_collector_timestamp_type
+                ON files(collector_id, timestamp, type_id);
+
             CREATE INDEX IF NOT EXISTS idx_meta_update_ts
                 ON meta(update_ts);
 
@@ -255,39 +281,68 @@ impl LocalBrokerDb {
         page_size: Option<usize>,
     ) -> Result<DbSearchResult, BrokerError> {
         let mut where_clauses: Vec<String> = vec![];
-        if let Some(collectors) = collectors {
-            if !collectors.is_empty() {
-                let collectors_array_str = collectors
-                    .into_iter()
-                    .map(|c| format!("'{}'", c))
-                    .collect::<Vec<String>>()
-                    .join(",");
-                where_clauses.push(format!("collector_name IN ({})", collectors_array_str));
+        let collector_filter_active = collectors.as_ref().is_some_and(|items| !items.is_empty());
+        let normalized_project = match project.as_deref().map(str::to_lowercase).as_deref() {
+            Some("ris" | "riperis" | "ripe-ris") => Some("ripe-ris"),
+            Some("routeviews" | "rv" | "route-views") => Some("route-views"),
+            Some(_) => {
+                return Err(BrokerError::BrokerError(format!(
+                    "Unknown project: {}",
+                    project.unwrap_or_default()
+                )));
             }
-        }
-        if let Some(project) = project {
-            match project.to_lowercase().as_str() {
-                "ris" | "riperis" | "ripe-ris" => {
-                    where_clauses.push("project_name='ripe-ris'".to_string());
+            None => None,
+        };
+
+        let collector_filter = collector_filter_active || normalized_project.is_some();
+        let selected_collector_ids = if collector_filter {
+            let mut query = QueryBuilder::<Sqlite>::new("SELECT id FROM collectors");
+            let mut has_condition = false;
+            if let Some(collector_names) = collectors.as_ref().filter(|items| !items.is_empty()) {
+                query.push(" WHERE name IN (");
+                let mut values = query.separated(", ");
+                for collector_name in collector_names {
+                    values.push_bind(collector_name);
                 }
-                "routeviews" | "rv" | "route-views" => {
-                    where_clauses.push("project_name='route-views'".to_string());
-                }
-                _ => {
-                    return Err(BrokerError::BrokerError(format!(
-                        "Unknown project: {}",
-                        project
-                    )));
-                }
+                values.push_unseparated(")");
+                has_condition = true;
+            }
+            if let Some(project) = normalized_project {
+                query.push(if has_condition {
+                    " AND project="
+                } else {
+                    " WHERE project="
+                });
+                query.push_bind(project);
+            }
+            query
+                .build_query_scalar::<i64>()
+                .fetch_all(&self.conn_pool)
+                .await?
+        } else {
+            Vec::new()
+        };
+
+        if collector_filter {
+            match selected_collector_ids.as_slice() {
+                [] => where_clauses.push("1=0".to_string()),
+                [id] => where_clauses.push(format!("i.collector_id={id}")),
+                ids => where_clauses.push(format!(
+                    "i.collector_id IN ({})",
+                    ids.iter()
+                        .map(i64::to_string)
+                        .collect::<Vec<String>>()
+                        .join(",")
+                )),
             }
         }
         if let Some(data_type) = data_type {
             match data_type.as_str() {
                 "updates" | "update" | "u" => {
-                    where_clauses.push("type = 'updates'".to_string());
+                    where_clauses.push("t.name='updates'".to_string());
                 }
                 "rib" | "ribs" | "r" => {
-                    where_clauses.push("type = 'rib'".to_string());
+                    where_clauses.push("t.name='rib'".to_string());
                 }
                 _ => {
                     return Err(BrokerError::BrokerError(format!(
@@ -320,17 +375,23 @@ impl LocalBrokerDb {
             (None, None) => {}
         }
 
-        // page starting from 1
-        let (limit, offset) = match (page, page_size) {
-            (Some(page), Some(page_size)) => (page_size, page_size * (page - 1)),
-            (Some(page), None) => (DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE * (page - 1)),
-            (None, Some(page_size)) => (page_size, 0),
-            (None, None) => (0, 0),
-        };
-
-        let limit_clause = match limit {
-            0 => "".to_string(),
-            _ => format!("LIMIT {} OFFSET {}", limit, offset),
+        // Pages start at 1. `None`/`None` preserves the public SQLite
+        // backend's historical unpaginated behavior.
+        let page_number = page.unwrap_or(1);
+        if page_number == 0 {
+            return Err(BrokerError::BrokerError("page must start at 1".to_string()));
+        }
+        let page_size_value = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+        let unlimited = page.is_none() && page_size.is_none();
+        let (limit, offset) = if unlimited {
+            (0, 0)
+        } else {
+            let offset = (page_number - 1)
+                .checked_mul(page_size_value)
+                .ok_or_else(|| {
+                    BrokerError::BrokerError("pagination offset overflow".to_string())
+                })?;
+            (page_size_value, offset)
         };
 
         // Build the WHERE clause string once to use in both queries
@@ -341,7 +402,10 @@ impl LocalBrokerDb {
 
         // First query: Get total count
         let count_query = format!(
-            "SELECT COUNT(*) as total FROM files_view {}",
+            "SELECT COUNT(*) AS total \
+             FROM files i \
+             JOIN collectors c ON c.id=i.collector_id \
+             JOIN types t ON t.id=i.type_id {}",
             where_clause_str
         );
         debug!("Count query: {}", count_query.as_str());
@@ -351,60 +415,89 @@ impl LocalBrokerDb {
             .fetch_one(&self.conn_pool)
             .await?;
 
-        // Second query: Get paginated results
+        if !unlimited && limit == 0 {
+            return Ok(DbSearchResult {
+                items: Vec::new(),
+                page: page_number,
+                page_size: page_size_value,
+                total: total_count,
+            });
+        }
+
+        // SQLite otherwise builds and fills a temporary top-N B-tree by
+        // scanning every matching row before applying LIMIT. Scan in timestamp
+        // order instead, and sort only the bounded equal-timestamp group in
+        // memory to preserve BrokerItem's full ordering contract.
+        let index_hint = match selected_collector_ids.as_slice() {
+            [_] if collector_filter => "idx_files_collector_timestamp_type",
+            _ => "idx_files_timestamp",
+        };
         let query_string = format!(
             r#"
-            SELECT collector_name, collector_url, project_name, timestamp, type, rough_size, exact_size, updates_interval
-            FROM files_view
+            SELECT i.collector_id AS collector_db_id,
+                   c.name AS collector_name, c.url AS collector_url,
+                   c.project AS project_name, i.timestamp AS timestamp,
+                   t.name AS type, i.rough_size AS rough_size,
+                   i.exact_size AS exact_size,
+                   c.updates_interval AS updates_interval
+            FROM files i INDEXED BY {index_hint}
+            JOIN collectors c ON c.id=i.collector_id
+            JOIN types t ON t.id=i.type_id
             {}
-            ORDER BY timestamp ASC, type, collector_name
-            {}
+            ORDER BY i.timestamp ASC
             "#,
-            where_clause_str, limit_clause,
+            where_clause_str,
         );
         debug!("Data query: {}", query_string.as_str());
 
-        let collector_name_to_info = self
-            .collectors
-            .iter()
-            .map(|c| (c.name.clone(), c.clone()))
-            .collect::<HashMap<String, BrokerCollector>>();
+        let mut rows =
+            sqlx::query(sqlx::AssertSqlSafe(query_string.as_str())).fetch(&self.conn_pool);
+        let mut items = Vec::new();
+        let mut group = Vec::new();
+        let mut group_timestamp = None;
+        let mut remaining_offset = offset;
 
-        let items: Vec<Option<BrokerItem>> =
-            sqlx::query(sqlx::AssertSqlSafe(query_string.as_str()))
-                .map(|row: SqliteRow| {
-                    let collector_name = row.get::<String, _>("collector_name");
-                    let _collector_url = row.get::<String, _>("collector_url");
-                    let _project_name = row.get::<String, _>("project_name");
-                    let timestamp = row.get::<i64, _>("timestamp");
-                    let type_name = row.get::<String, _>("type");
-                    let rough_size = row.get::<i64, _>("rough_size");
-                    let exact_size = row.get::<i64, _>("exact_size");
-                    let _updates_interval = row.get::<i64, _>("updates_interval");
+        while let Some(row) = rows.try_next().await? {
+            let timestamp = row.get::<i64, _>("timestamp");
+            if group_timestamp.is_some_and(|current| current != timestamp)
+                && append_search_group(&mut group, &mut items, &mut remaining_offset, limit)
+            {
+                break;
+            }
+            group_timestamp = Some(timestamp);
 
-                    let collector = collector_name_to_info.get(collector_name.as_str())?;
-
-                    let ts_start = DateTime::from_timestamp(timestamp, 0)?.naive_utc();
-
-                    let (url, ts_end) =
-                        infer_url(collector, &ts_start, type_name.as_str() == "rib");
-                    Some(BrokerItem {
-                        ts_start,
-                        ts_end,
-                        collector_id: collector_name,
-                        data_type: type_name,
-                        url,
-                        rough_size,
-                        exact_size,
-                    })
-                })
-                .fetch_all(&self.conn_pool)
-                .await?;
+            let collector_name = row.get::<String, _>("collector_name");
+            let collector = BrokerCollector {
+                id: row.get::<i64, _>("collector_db_id"),
+                name: collector_name.clone(),
+                url: row.get::<String, _>("collector_url"),
+                project: row.get::<String, _>("project_name"),
+                updates_interval: row.get::<i64, _>("updates_interval"),
+            };
+            let Some(ts_start) = DateTime::from_timestamp(timestamp, 0).map(|ts| ts.naive_utc())
+            else {
+                continue;
+            };
+            let type_name = row.get::<String, _>("type");
+            let (url, ts_end) = infer_url(&collector, &ts_start, type_name.as_str() == "rib");
+            group.push(BrokerItem {
+                ts_start,
+                ts_end,
+                collector_id: collector_name,
+                data_type: type_name,
+                url,
+                rough_size: row.get::<i64, _>("rough_size"),
+                exact_size: row.get::<i64, _>("exact_size"),
+            });
+        }
+        if limit == 0 || items.len() < limit {
+            append_search_group(&mut group, &mut items, &mut remaining_offset, limit);
+        }
 
         Ok(DbSearchResult {
-            items: items.into_iter().flatten().collect(),
-            page: page.unwrap_or(1),
-            page_size: page_size.unwrap_or(DEFAULT_PAGE_SIZE),
+            items,
+            page: page_number,
+            page_size: page_size_value,
             total: total_count,
         })
     }
@@ -725,6 +818,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_existing_database_gets_collector_timestamp_index() {
+        let db_path = create_temp_db_path("collector_timestamp_index");
+        let db_path_str = db_path.to_str().unwrap();
+
+        // Simulate a database created by an older broker release.
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+        sqlx::query("DROP INDEX idx_files_collector_timestamp_type")
+            .execute(&db.conn_pool)
+            .await
+            .unwrap();
+        drop(db);
+
+        let db = LocalBrokerDb::new(db_path_str).await.unwrap();
+        let indexes = sqlx::query("PRAGMA index_list('files')")
+            .map(|row: SqliteRow| row.get::<String, _>("name"))
+            .fetch_all(&db.conn_pool)
+            .await
+            .unwrap();
+
+        assert!(indexes
+            .iter()
+            .any(|name| name == "idx_files_collector_timestamp_type"));
+
+        drop(db);
+        cleanup_db_file(&db_path);
+    }
+
+    #[tokio::test]
     async fn test_inserts() {
         let db_path = create_temp_db_path("inserts");
         let db_path_str = db_path.to_str().unwrap();
@@ -812,6 +933,120 @@ mod tests {
         // Verify insertion worked
         let entry_count = db.get_entry_count().await.unwrap();
         assert_eq!(entry_count, 3);
+
+        // All three rows share a timestamp; pagination must still preserve the
+        // full BrokerItem ordering by timestamp, data type, and collector.
+        let first_page = db
+            .search(None, None, None, None, None, Some(1), Some(3))
+            .await
+            .unwrap();
+        assert_eq!(first_page.total, 3);
+        assert_eq!(first_page.items.len(), 3);
+        assert_eq!(first_page.items[0].collector_id, "rrc01");
+        assert_eq!(first_page.items[0].data_type, "rib");
+        assert_eq!(first_page.items[1].collector_id, "route-views2");
+        assert_eq!(first_page.items[2].collector_id, "rrc00");
+
+        let second_page = db
+            .search(None, None, None, None, None, Some(2), Some(1))
+            .await
+            .unwrap();
+        assert_eq!(second_page.items.len(), 1);
+        assert_eq!(second_page.items[0].collector_id, "route-views2");
+
+        let collector_result = db
+            .search(
+                Some(vec!["rrc00".to_string()]),
+                None,
+                None,
+                None,
+                None,
+                Some(1),
+                Some(10),
+            )
+            .await
+            .unwrap();
+        assert_eq!(collector_result.total, 1);
+        assert_eq!(collector_result.items[0].collector_id, "rrc00");
+
+        let project_result = db
+            .search(
+                None,
+                Some("ris".to_string()),
+                None,
+                None,
+                None,
+                Some(1),
+                Some(10),
+            )
+            .await
+            .unwrap();
+        assert_eq!(project_result.total, 2);
+        assert!(project_result
+            .items
+            .iter()
+            .all(|item| item.collector_id.starts_with("rrc")));
+
+        let zero_page = db
+            .search(None, None, None, None, None, Some(1), Some(0))
+            .await
+            .unwrap();
+        assert_eq!(zero_page.total, 3);
+        assert!(zero_page.items.is_empty());
+
+        let overflow = db
+            .search(None, None, None, None, None, Some(usize::MAX), Some(2))
+            .await;
+        assert!(overflow.is_err());
+
+        // Collector and project filters must use live metadata rather than the
+        // per-handle collector cache.
+        let stale_db = db.clone();
+        db.insert_collector(&Collector {
+            id: "rrc99".to_string(),
+            project: "riperis".to_string(),
+            url: "https://data.ris.ripe.net/rrc99/".to_string(),
+        })
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO files (collector_id, type_id, timestamp, rough_size, exact_size) \
+             SELECT c.id, t.id, 1640995300, 4000, 4096 \
+             FROM collectors c, types t WHERE c.name='rrc99' AND t.name='updates'",
+        )
+        .execute(&db.conn_pool)
+        .await
+        .unwrap();
+        let live_result = stale_db
+            .search(
+                Some(vec!["rrc99".to_string()]),
+                Some("ris".to_string()),
+                None,
+                None,
+                None,
+                Some(1),
+                Some(10),
+            )
+            .await
+            .unwrap();
+        assert_eq!(live_result.total, 1);
+        assert_eq!(live_result.items[0].collector_id, "rrc99");
+
+        let full_order = db
+            .search(None, None, None, None, None, Some(1), Some(10))
+            .await
+            .unwrap()
+            .items;
+        let mut paged_order = Vec::new();
+        for page in 1..=2 {
+            paged_order.extend(
+                db.search(None, None, None, None, None, Some(page), Some(2))
+                    .await
+                    .unwrap()
+                    .items,
+            );
+        }
+        assert_eq!(paged_order, full_order);
 
         // Cleanup
         drop(db);

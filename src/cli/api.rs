@@ -71,6 +71,12 @@ pub struct BrokerHealthQueryParams {
     pub max_delay_secs: Option<u32>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrokerLatestQuery {
+    /// filter by collector IDs; use commas to separate multiple collectors
+    pub collector_id: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerSearchResult {
     pub total: usize,
@@ -113,11 +119,20 @@ async fn search(
         )
             .into_response();
     }
-    if page_size > 1000 {
+    if page_size == 0 || page_size > 1000 {
         return (
             StatusCode::BAD_REQUEST,
             Json(BrokerApiError::SearchError(
-                "maximum page size is 1000".to_string(),
+                "page size must be between 1 and 1000".to_string(),
+            )),
+        )
+            .into_response();
+    }
+    if (page - 1).checked_mul(page_size).is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(BrokerApiError::SearchError(
+                "pagination offset is too large".to_string(),
             )),
         )
             .into_response();
@@ -259,8 +274,18 @@ async fn search(
 }
 
 /// Get the latest MRT files meta information
-async fn latest(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let items = state.database.get_latest_files().await;
+async fn latest(
+    query: Query<BrokerLatestQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let mut items = state.database.get_latest_files().await;
+    if let Some(collector_ids) = &query.collector_id {
+        let wanted = collector_ids
+            .split(',')
+            .map(str::trim)
+            .collect::<Vec<&str>>();
+        items.retain(|item| wanted.contains(&item.collector_id.as_str()));
+    }
     let meta = state
         .database
         .get_latest_updates_meta()
@@ -546,7 +571,9 @@ mod tests {
             updater_enabled,
         });
         let app = Router::new()
+            .route("/search", get(search))
             .route("/events", get(events))
+            .route("/latest", get(latest))
             .with_state(state);
         if root == "/" {
             app
@@ -626,6 +653,57 @@ mod tests {
             .unwrap();
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_search_rejects_zero_page_size() {
+        let (_dir, database) = test_database().await;
+        let (sender, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
+        let app = test_router(database, sender, true, "/");
+        let request = http::Request::builder()
+            .uri("/search?page_size=0")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_latest_endpoint_filters_by_collector_id() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.sqlite3");
+        let mut database = LocalBrokerDb::new(path.to_str().unwrap()).await.unwrap();
+        for collector_id in ["rrc00", "rrc01"] {
+            database
+                .insert_collector(&bgpkit_broker::Collector {
+                    id: collector_id.to_string(),
+                    project: "riperis".to_string(),
+                    url: format!("https://data.ris.ripe.net/{collector_id}/"),
+                })
+                .await
+                .unwrap();
+        }
+        database.reload_collectors().await;
+
+        let mut rrc00 = test_item(1);
+        rrc00.collector_id = "rrc00".to_string();
+        let mut rrc01 = test_item(2);
+        rrc01.collector_id = "rrc01".to_string();
+        database.update_latest_files(&[rrc00, rrc01], false).await;
+
+        let (sender, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
+        let app = test_router(DatabaseBackend::Sqlite(database), sender, true, "/");
+        let request = http::Request::builder()
+            .uri("/latest?collector_id=rrc00")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let result: BrokerSearchResult = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.count, 1);
+        assert_eq!(result.data[0].collector_id, "rrc00");
     }
 
     #[tokio::test]
