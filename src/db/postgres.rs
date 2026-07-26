@@ -85,6 +85,13 @@ impl PostgresDb {
             return Err(BrokerError::BrokerError("page must start at 1".to_string()));
         }
         let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+        let offset = (page - 1)
+            .checked_mul(page_size)
+            .ok_or_else(|| BrokerError::BrokerError("pagination offset overflow".to_string()))?;
+        let limit = i64::try_from(page_size)
+            .map_err(|_| BrokerError::BrokerError("page size is too large".to_string()))?;
+        let offset = i64::try_from(offset)
+            .map_err(|_| BrokerError::BrokerError("pagination offset is too large".to_string()))?;
         let total = self
             .search_count(&collectors, project.as_deref(), data_type, ts_start, ts_end)
             .await?;
@@ -102,10 +109,8 @@ impl PostgresDb {
             ts_end,
         );
         query.push(" ORDER BY timestamp ASC, type ASC, collector_name ASC");
-        query.push(" LIMIT ").push_bind(page_size as i64);
-        query
-            .push(" OFFSET ")
-            .push_bind(((page - 1) * page_size) as i64);
+        query.push(" LIMIT ").push_bind(limit);
+        query.push(" OFFSET ").push_bind(offset);
 
         let rows = query
             .build()

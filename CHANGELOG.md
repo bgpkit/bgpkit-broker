@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file.
     * Reduced the default maximum from 10 to 2 connections per pool
     * Set SQLite's suggested per-connection page-cache maximum to 640 KiB
     * Added `BGPKIT_BROKER_SQLITE_MAX_CONNECTIONS` and `BGPKIT_BROKER_SQLITE_CACHE_SIZE_KIB` overrides
+* Bounded memory used by broad SQLite searches
+    * Added a covering collector/timestamp/type index for exact counts
+    * Streamed results in timestamp order and sorted only equal-timestamp groups, avoiding a full matching-row scan for paginated results
+* Added comma-separated `collector_id` filtering to the `/latest` endpoint
 
 ## v0.11.0 - 2025-03-23
 

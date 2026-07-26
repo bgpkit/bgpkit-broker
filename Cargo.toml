@@ -110,7 +110,7 @@ cli = [
     # SSE
     "sse",
 ]
-backend = ["tokio", "sqlx"]
+backend = ["tokio", "sqlx", "futures-util"]
 
 sse = ["futures-util", "tokio"]
 
