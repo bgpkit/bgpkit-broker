@@ -278,7 +278,7 @@ dependencies = [
  "lazy_static",
  "log",
  "num_cpus",
- "oneio 0.23.0",
+ "oneio 0.24.1",
  "regex",
  "reqwest 0.13.1",
  "scraper",
@@ -1993,9 +1993,9 @@ dependencies = [
 
 [[package]]
 name = "oneio"
-version = "0.23.0"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b29ec2e492d1f3350fa4b5701dbac89544a521c755b99d1667dd98c3cdd5984a"
+checksum = "cd0d54e0e058b4dbb9a171a0d6fcd8971955c991023fd9055dbba49b7f60745e"
 dependencies = [
  "dotenvy",
  "hex",
@@ -2688,7 +2688,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3932,7 +3932,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
