@@ -2,10 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## v0.12.0 - 2026-07-27
+
+### New features
+
+* Added an opt-in PostgreSQL backend for self-hosted brokers
+    * Selects PostgreSQL automatically when the database path or `BGPKIT_BROKER_POSTGRES_URL` begins with `pg://`, `postgres://`, or `postgresql://` (case-insensitive); any other path is treated as a local SQLite file
+    * Configurable connection pool via `BGPKIT_BROKER_POSTGRES_MAX_CONNECTIONS`
+    * SQLite remains the default backend; the container image is backend-neutral unless explicitly configured
+    * PostgreSQL bootstrap requires pre-seeding the schema; SQLite users are unaffected
+* Added a unified `DatabaseTarget` configuration path so the backend can be selected from either the positional CLI argument or environment variables (`BGPKIT_BROKER_POSTGRES_URL`, `BGPKIT_BROKER_SQLITE_PATH`)
 
 ### Updates
 
+* Upgraded direct dependencies to current releases
+    * `reqwest` 0.12 -> 0.13 (`rustls-tls-native-roots` feature replaced by `rustls`)
+    * `sha2` 0.10 -> 0.11
+    * `sqlx` 0.8 -> 0.9
+    * `bgpkit-commons` 0.9 -> 0.10, `oneio` 0.20 -> 0.24.2, `scraper` 0.24 -> 0.27, `tabled` 0.20 -> 0.21, `tower-http` 0.6 -> 0.7, `axum-prometheus` 0.9 -> 0.10, `itertools` 0.14 -> 0.15
+    * Resolved the `rsa` (RUSTSEC-2023-0071) advisory via the `sqlx` 0.9 upgrade; `fxhash` unmaintained warning removed via `scraper` 0.27
+* Updated the Docker base image from `rust:1.90` to `rust:1.97`
+* CI now publishes multi-architecture (`linux/amd64`, `linux/arm64`) container images
 * Updated `route-views2` collector URL from `https://archive.routeviews.org/bgpdata` to `https://archive.routeviews.org/route-views2/bgpdata` to match RouteViews' directory rename ([announcement](https://www.routeviews.org/routeviews/2026/07/09/name-change-for-mrt-file-access/))
     * The old `/bgpdata` path remains available via HTTP symlink, but rsync users must use the new path
     * Existing databases need a manual `UPDATE collectors SET url = 'https://archive.routeviews.org/route-views2/bgpdata' WHERE name = 'route-views2'`
@@ -28,6 +45,7 @@ All notable changes to this project will be documented in this file.
     * Restored SQL-level `LIMIT`/`OFFSET` with the composite index so paginated queries stop early instead of streaming the full result set
     * Previous streaming approach held a pooled connection for the entire scan, exhausting the 2-connection pool under concurrent broad searches and hanging the service
 * Added comma-separated `collector_id` filtering to the `/latest` endpoint
+* Fixed S3 backup uploads on endpoints that require path-style object keys by updating `oneio` to 0.24.2
 
 ## v0.11.0 - 2025-03-23
 
