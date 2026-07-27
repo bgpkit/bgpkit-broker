@@ -25,7 +25,8 @@ All notable changes to this project will be documented in this file.
     * Added `BGPKIT_BROKER_SQLITE_MAX_CONNECTIONS` and `BGPKIT_BROKER_SQLITE_CACHE_SIZE_KIB` overrides
 * Bounded memory used by broad SQLite searches
     * Added a covering collector/timestamp/type index for exact counts
-    * Streamed results in timestamp order and sorted only equal-timestamp groups, avoiding a full matching-row scan for paginated results
+    * Restored SQL-level `LIMIT`/`OFFSET` with the composite index so paginated queries stop early instead of streaming the full result set
+    * Previous streaming approach held a pooled connection for the entire scan, exhausting the 2-connection pool under concurrent broad searches and hanging the service
 * Added comma-separated `collector_id` filtering to the `/latest` endpoint
 
 ## v0.11.0 - 2025-03-23

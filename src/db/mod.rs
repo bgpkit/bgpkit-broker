@@ -15,7 +15,6 @@ use crate::db::utils::infer_url;
 use crate::query::{BrokerCollector, BrokerItemType};
 use crate::{BrokerError, BrokerItem, Collector};
 use chrono::{DateTime, Duration, NaiveDateTime};
-use futures_util::TryStreamExt;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
 use sqlx::Row;
 use sqlx::SqlitePool;
@@ -95,28 +94,6 @@ fn get_ts_start_clause(ts: i64) -> String {
 
 fn get_ts_end_clause(ts: i64) -> String {
     format!("i.timestamp < {}", ts)
-}
-
-fn append_search_group(
-    group: &mut Vec<BrokerItem>,
-    items: &mut Vec<BrokerItem>,
-    remaining_offset: &mut usize,
-    limit: usize,
-) -> bool {
-    group.sort();
-    for item in group.drain(..) {
-        if *remaining_offset > 0 {
-            *remaining_offset -= 1;
-            continue;
-        }
-        if limit == 0 || items.len() < limit {
-            items.push(item);
-        }
-        if limit > 0 && items.len() == limit {
-            return true;
-        }
-    }
-    false
 }
 
 impl LocalBrokerDb {
@@ -424,14 +401,19 @@ impl LocalBrokerDb {
             });
         }
 
-        // SQLite otherwise builds and fills a temporary top-N B-tree by
-        // scanning every matching row before applying LIMIT. Scan in timestamp
-        // order instead, and sort only the bounded equal-timestamp group in
-        // memory to preserve BrokerItem's full ordering contract.
-        let index_hint = match selected_collector_ids.as_slice() {
-            [_] if collector_filter => "idx_files_collector_timestamp_type",
-            _ => "idx_files_timestamp",
+        // SQL-level LIMIT/OFFSET lets the SQLite optimizer stop scanning once
+        // the page is filled. The composite index
+        // idx_files_collector_timestamp_type and idx_files_timestamp support
+        // the ORDER BY ... LIMIT pattern so SQLite does not materialize a full
+        // temporary sort. The previous streaming approach scanned every
+        // matching row while holding a pooled connection, exhausting the small
+        // (max_connections=2) pool and hanging the service under concurrent
+        // broad searches.
+        let limit_clause = match limit {
+            0 => "".to_string(),
+            _ => format!("LIMIT {} OFFSET {}", limit, offset),
         };
+
         let query_string = format!(
             r#"
             SELECT i.collector_id AS collector_db_id,
@@ -440,59 +422,53 @@ impl LocalBrokerDb {
                    t.name AS type, i.rough_size AS rough_size,
                    i.exact_size AS exact_size,
                    c.updates_interval AS updates_interval
-            FROM files i INDEXED BY {index_hint}
+            FROM files i
             JOIN collectors c ON c.id=i.collector_id
             JOIN types t ON t.id=i.type_id
             {}
-            ORDER BY i.timestamp ASC
+            ORDER BY i.timestamp ASC, t.name ASC, c.name ASC
+            {}
             "#,
-            where_clause_str,
+            where_clause_str, limit_clause,
         );
         debug!("Data query: {}", query_string.as_str());
 
-        let mut rows =
-            sqlx::query(sqlx::AssertSqlSafe(query_string.as_str())).fetch(&self.conn_pool);
-        let mut items = Vec::new();
-        let mut group = Vec::new();
-        let mut group_timestamp = None;
-        let mut remaining_offset = offset;
+        // Build BrokerItem directly from row data rather than the in-memory
+        // collector cache, so searches reflect collectors inserted after the
+        // handle was created (e.g. by the crawler updater).
+        let items: Vec<BrokerItem> = sqlx::query(sqlx::AssertSqlSafe(query_string.as_str()))
+            .map(|row: SqliteRow| {
+                let collector_name = row.get::<String, _>("collector_name");
+                let timestamp = row.get::<i64, _>("timestamp");
+                let type_name = row.get::<String, _>("type");
+                let rough_size = row.get::<i64, _>("rough_size");
+                let exact_size = row.get::<i64, _>("exact_size");
 
-        while let Some(row) = rows.try_next().await? {
-            let timestamp = row.get::<i64, _>("timestamp");
-            if group_timestamp.is_some_and(|current| current != timestamp)
-                && append_search_group(&mut group, &mut items, &mut remaining_offset, limit)
-            {
-                break;
-            }
-            group_timestamp = Some(timestamp);
+                let collector = BrokerCollector {
+                    id: row.get::<i64, _>("collector_db_id"),
+                    name: collector_name.clone(),
+                    url: row.get::<String, _>("collector_url"),
+                    project: row.get::<String, _>("project_name"),
+                    updates_interval: row.get::<i64, _>("updates_interval"),
+                };
 
-            let collector_name = row.get::<String, _>("collector_name");
-            let collector = BrokerCollector {
-                id: row.get::<i64, _>("collector_db_id"),
-                name: collector_name.clone(),
-                url: row.get::<String, _>("collector_url"),
-                project: row.get::<String, _>("project_name"),
-                updates_interval: row.get::<i64, _>("updates_interval"),
-            };
-            let Some(ts_start) = DateTime::from_timestamp(timestamp, 0).map(|ts| ts.naive_utc())
-            else {
-                continue;
-            };
-            let type_name = row.get::<String, _>("type");
-            let (url, ts_end) = infer_url(&collector, &ts_start, type_name.as_str() == "rib");
-            group.push(BrokerItem {
-                ts_start,
-                ts_end,
-                collector_id: collector_name,
-                data_type: type_name,
-                url,
-                rough_size: row.get::<i64, _>("rough_size"),
-                exact_size: row.get::<i64, _>("exact_size"),
-            });
-        }
-        if limit == 0 || items.len() < limit {
-            append_search_group(&mut group, &mut items, &mut remaining_offset, limit);
-        }
+                let ts_start = DateTime::from_timestamp(timestamp, 0).map(|ts| ts.naive_utc())?;
+                let (url, ts_end) = infer_url(&collector, &ts_start, type_name.as_str() == "rib");
+                Some(BrokerItem {
+                    ts_start,
+                    ts_end,
+                    collector_id: collector_name,
+                    data_type: type_name,
+                    url,
+                    rough_size,
+                    exact_size,
+                })
+            })
+            .fetch_all(&self.conn_pool)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
 
         Ok(DbSearchResult {
             items,
