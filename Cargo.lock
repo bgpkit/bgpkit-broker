@@ -278,7 +278,7 @@ dependencies = [
  "lazy_static",
  "log",
  "num_cpus",
- "oneio 0.24.1",
+ "oneio 0.24.2",
  "regex",
  "reqwest 0.13.1",
  "scraper",
@@ -1993,9 +1993,9 @@ dependencies = [
 
 [[package]]
 name = "oneio"
-version = "0.24.1"
+version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd0d54e0e058b4dbb9a171a0d6fcd8971955c991023fd9055dbba49b7f60745e"
+checksum = "34fd427fd9962a9bf2d99da1b6cbc71ae72aec49c90723a4944128462d021ac2"
 dependencies = [
  "dotenvy",
  "hex",

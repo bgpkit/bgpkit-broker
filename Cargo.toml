@@ -58,7 +58,7 @@ bgpkit-commons = { version = "0.10", default-features = false, features = ["mrt_
 
 # crawler dependencies
 futures = { version = "0.3", optional = true }
-oneio = { version = "0.24.1", default-features = false, features = ["https", "s3"], optional = true }
+oneio = { version = "0.24.2", default-features = false, features = ["https", "s3"], optional = true }
 regex = { version = "1", optional = true }
 scraper = { version = "0.27", optional = true }
 tokio = { version = "1", optional = true, features = ["full"] }
