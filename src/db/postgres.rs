@@ -298,17 +298,29 @@ impl PostgresDb {
             return Ok(());
         }
         let collector_map = self.collector_map()?;
-        for batch in files.chunks(1000) {
+        let mut latest_by_key: HashMap<(i64, &str), &BrokerItem> = HashMap::new();
+        for item in files {
+            let Some(collector) = collector_map.get(item.collector_id.as_str()) else {
+                continue;
+            };
+            let key = (collector.id, item.data_type.as_str());
+            match latest_by_key.get(&key) {
+                Some(existing) if existing.ts_start >= item.ts_start => {}
+                _ => {
+                    latest_by_key.insert(key, item);
+                }
+            }
+        }
+
+        let latest: Vec<_> = latest_by_key.into_values().collect();
+        for batch in latest.chunks(1000) {
             let mut query = QueryBuilder::<Postgres>::new(
                 "INSERT INTO mrt.latest_file (collector_id, data_type, ts_start, rough_size, exact_size) ",
             );
             query.push_values(batch, |mut values, item| {
+                let collector_id = collector_map[item.collector_id.as_str()].id;
                 values
-                    .push_bind(
-                        collector_map
-                            .get(item.collector_id.as_str())
-                            .map(|collector| collector.id),
-                    )
+                    .push_bind(collector_id)
                     .push_bind(item.data_type.as_str())
                     .push_bind(item.ts_start.and_utc())
                     .push_bind(item.rough_size)
