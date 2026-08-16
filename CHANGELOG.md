@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.12.1 - 2026-08-16
+
+### Bug fixes
+
+* Broker server now survives transient database outages (fixes the crash loop on restart) (#105)
+    * Startup retries the database connection with exponential backoff instead of exiting on the first failure; a PostgreSQL restart no longer crash-loops the container until Docker's restart backoff happens to align with the database returning
+    * Retries are configurable via `BGPKIT_BROKER_DB_CONNECT_RETRIES` (default 10) and `BGPKIT_BROKER_DB_CONNECT_BACKOFF_MS` (default 3000; doubles after each failure)
+    * A failed latest-files read during an update round now skips that round instead of being treated as an empty database, which previously triggered a full bootstrap re-crawl of every collector on every update interval for the duration of the outage
+    * `/latest` and `/missing-collectors` return 503 with the standard error body when the database read fails, instead of a misleading empty 200 response
+    * `LocalBrokerDb::new` returns an error instead of panicking when SQLite cannot create the database file
+* Fixed duplicate rows in PostgreSQL latest-file upserts (#104)
+    * `update_latest_files` deduplicates the incoming batch by `(collector, data_type)` in memory before upserting, keeping the newest item per key; previously multiple same-type items from one collector in a single batch inserted duplicate rows, since the `ON CONFLICT (collector_id, data_type)` clause cannot deduplicate rows within a single `INSERT` statement
+
 ## v0.12.0 - 2026-07-27
 
 ### New features
