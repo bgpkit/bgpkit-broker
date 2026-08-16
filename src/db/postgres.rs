@@ -10,7 +10,6 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use tracing::error;
 
 /// PostgreSQL adapter for a Broker catalog initialized with
 /// `migration/postgres_bootstrap/bootstrap.py`.
@@ -139,30 +138,19 @@ impl PostgresDb {
         Ok(timestamp.map(|timestamp| timestamp.naive_utc()))
     }
 
-    pub async fn get_latest_files(&self) -> Vec<BrokerItem> {
-        let rows = match sqlx::query(
+    pub async fn get_latest_files(&self) -> Result<Vec<BrokerItem>, BrokerError> {
+        let rows = sqlx::query(
             "SELECT collector_name, timestamp, type, rough_size, exact_size \
              FROM api.mrt_file_latest",
         )
         .fetch_all(&self.conn_pool)
         .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!("failed to get latest files: {}", e);
-                return Vec::new();
-            }
-        };
-        let collector_map = match self.collector_map() {
-            Ok(collectors) => collectors,
-            Err(e) => {
-                error!("failed to get collector map for latest files: {}", e);
-                return Vec::new();
-            }
-        };
-        rows.into_iter()
+        .map_err(database_error)?;
+        let collector_map = self.collector_map()?;
+        Ok(rows
+            .into_iter()
             .filter_map(|row| pg_row_to_item(row, &collector_map))
-            .collect()
+            .collect())
     }
 
     pub async fn get_latest_updates_meta(&self) -> Result<Option<UpdatesMeta>, BrokerError> {
@@ -579,7 +567,7 @@ mod tests {
         assert_eq!(inserted.len(), 1);
         assert!(database
             .get_latest_files()
-            .await
+            .await?
             .iter()
             .any(|latest| latest.collector_id == collector.id));
         assert_eq!(database.insert_meta(3, 1).await?.len(), 1);

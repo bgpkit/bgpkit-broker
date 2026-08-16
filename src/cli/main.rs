@@ -8,6 +8,7 @@ use crate::api::{start_api_service, BrokerSearchQuery};
 use crate::backup::{backup_database, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
+use bgpkit_broker::db::ConnectRetryConfig;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, BrokerItem,
     Collector, DatabaseBackend, DatabaseTarget, LocalBrokerDb, DEFAULT_PAGE_SIZE,
@@ -294,12 +295,23 @@ async fn update_database(
     let start_time = Instant::now();
     let now = Utc::now();
 
-    let latest_ts_map: HashMap<String, NaiveDateTime> = db
-        .get_latest_files()
-        .await
-        .into_iter()
-        .map(|f| (f.collector_id.clone(), f.ts_start))
-        .collect();
+    let latest_ts_map: HashMap<String, NaiveDateTime> = match db.get_latest_files().await {
+        Ok(files) => files
+            .into_iter()
+            .map(|f| (f.collector_id.clone(), f.ts_start))
+            .collect(),
+        Err(e) => {
+            // A failed read here previously produced an empty map, which the
+            // crawler treated as an empty database and answered with a full
+            // bootstrap crawl of every collector. Skip this update round
+            // instead and retry on the next interval.
+            error!(
+                "failed to read latest files, skipping this update round: {}",
+                e
+            );
+            return;
+        }
+    };
 
     let mut collector_updated = false;
     for c in &collectors {
@@ -579,9 +591,15 @@ fn main() {
                         }
                     };
                     rt.block_on(async {
-                        let mut db = match DatabaseBackend::connect(
+                        let mut db = match DatabaseBackend::connect_with_retry(
                             &database_target_clone,
                             config_clone.database.postgres_max_connections,
+                            ConnectRetryConfig {
+                                max_attempts: config_clone.database.db_connect_retries.max(1),
+                                initial_backoff: std::time::Duration::from_millis(
+                                    config_clone.database.db_connect_backoff_ms,
+                                ),
+                            },
                         )
                         .await
                         {
@@ -721,9 +739,15 @@ fn main() {
                             exit(1);
                         }
                     }
-                    let database = match DatabaseBackend::connect(
+                    let database = match DatabaseBackend::connect_with_retry(
                         &database_target,
                         config.database.postgres_max_connections,
+                        ConnectRetryConfig {
+                            max_attempts: config.database.db_connect_retries.max(1),
+                            initial_backoff: std::time::Duration::from_millis(
+                                config.database.db_connect_backoff_ms,
+                            ),
+                        },
                     )
                     .await
                     {

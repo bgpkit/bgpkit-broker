@@ -323,6 +323,8 @@ Cache files are stored as JSON in the specified directory. The cache key is gene
 - `BGPKIT_BROKER_SQLITE_MAX_CONNECTIONS` - Maximum number of connections in each SQLite pool (default: 2). Increase this only when measured query concurrency requires it; every connection has a dedicated worker thread and private caches.
 - `BGPKIT_BROKER_SQLITE_CACHE_SIZE_KIB` - SQLite's suggested per-connection page-cache maximum in KiB (default: 640).
 - `BGPKIT_BROKER_POSTGRES_MAX_CONNECTIONS` - Maximum number of connections in the PostgreSQL pool (default: 10).
+- `BGPKIT_BROKER_DB_CONNECT_RETRIES` - Maximum connection attempts before the serve command gives up; each attempt waits with exponential backoff (default: 10).
+- `BGPKIT_BROKER_DB_CONNECT_BACKOFF_MS` - Initial backoff in milliseconds between database connection attempts; doubles after each failure (default: 3000).
 
 ### Data Structures
 
