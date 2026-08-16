@@ -126,13 +126,13 @@ impl LocalBrokerDb {
         }
     }
 
-    pub async fn get_latest_files(&self) -> Vec<BrokerItem> {
+    pub async fn get_latest_files(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let collector_name_to_info = self
             .collectors
             .iter()
             .map(|c| (c.name.clone(), c.clone()))
             .collect::<HashMap<String, BrokerCollector>>();
-        match sqlx::query(
+        let rows = sqlx::query(
             "select timestamp, collector_name, type, rough_size, exact_size from latest",
         )
         .map(|row: SqliteRow| {
@@ -167,13 +167,7 @@ impl LocalBrokerDb {
             })
         })
         .fetch_all(&self.conn_pool)
-        .await
-        {
-            Ok(items) => items.into_iter().flatten().collect(),
-            Err(e) => {
-                error!("failed to get latest files: {}", e);
-                Vec::new()
-            }
-        }
+        .await?;
+        Ok(rows.into_iter().flatten().collect())
     }
 }

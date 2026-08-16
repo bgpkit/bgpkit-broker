@@ -7,6 +7,8 @@ mod postgres;
 mod utils;
 
 #[cfg(feature = "cli")]
+pub use backend::ConnectRetryConfig;
+#[cfg(feature = "cli")]
 pub use backend::DatabaseBackend;
 #[cfg(feature = "backend")]
 pub use postgres::PostgresDb;
@@ -112,7 +114,9 @@ impl LocalBrokerDb {
         if !Sqlite::database_exists(path).await? {
             match Sqlite::create_database(path).await {
                 Ok(_) => info!("Created db at {}", path),
-                Err(error) => panic!("error: {}", error),
+                Err(error) => {
+                    return Err(BrokerError::DatabaseError(error));
+                }
             }
         }
 
@@ -1037,7 +1041,7 @@ mod tests {
         let db = LocalBrokerDb::new(db_path_str).await.unwrap();
 
         // Test get_latest_files on empty database
-        let files = db.get_latest_files().await;
+        let files = db.get_latest_files().await.unwrap();
         assert!(files.is_empty());
 
         // Cleanup
@@ -1055,7 +1059,7 @@ mod tests {
         // Test update_latest_files with empty items (should not crash)
         db.update_latest_files(&[], false).await;
 
-        let files = db.get_latest_files().await;
+        let files = db.get_latest_files().await.unwrap();
         assert!(files.is_empty());
 
         // Cleanup

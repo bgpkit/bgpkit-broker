@@ -21,6 +21,8 @@ const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 24;
 /// Default values for database maintenance
 const DEFAULT_META_RETENTION_DAYS: i64 = 30;
 const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 10;
+const DEFAULT_DB_CONNECT_RETRIES: u32 = 10;
+const DEFAULT_DB_CONNECT_BACKOFF_MS: u64 = 3000;
 
 /// Crawler configuration settings.
 ///
@@ -253,6 +255,13 @@ pub struct DatabaseConfig {
     /// Maximum number of connections in the PostgreSQL pool.
     /// Environment variable: `BGPKIT_BROKER_POSTGRES_MAX_CONNECTIONS`
     pub postgres_max_connections: u32,
+    /// Maximum connection attempts before the serve command gives up and exits.
+    /// Environment variable: `BGPKIT_BROKER_DB_CONNECT_RETRIES`
+    pub db_connect_retries: u32,
+    /// Initial backoff between connection attempts, in milliseconds. The delay
+    /// doubles after each failed attempt (1x, 2x, 4x, ...).
+    /// Environment variable: `BGPKIT_BROKER_DB_CONNECT_BACKOFF_MS`
+    pub db_connect_backoff_ms: u64,
 }
 
 impl fmt::Debug for DatabaseConfig {
@@ -277,6 +286,8 @@ impl Default for DatabaseConfig {
             postgres_url: None,
             sqlite_path: None,
             postgres_max_connections: DEFAULT_POSTGRES_MAX_CONNECTIONS,
+            db_connect_retries: DEFAULT_DB_CONNECT_RETRIES,
+            db_connect_backoff_ms: DEFAULT_DB_CONNECT_BACKOFF_MS,
         }
     }
 }
@@ -295,6 +306,14 @@ impl DatabaseConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(DEFAULT_POSTGRES_MAX_CONNECTIONS),
+            db_connect_retries: std::env::var("BGPKIT_BROKER_DB_CONNECT_RETRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_DB_CONNECT_RETRIES),
+            db_connect_backoff_ms: std::env::var("BGPKIT_BROKER_DB_CONNECT_BACKOFF_MS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_DB_CONNECT_BACKOFF_MS),
         }
     }
 }
@@ -434,6 +453,8 @@ mod tests {
         assert_eq!(config.crawler.month_concurrency, 2);
         assert_eq!(config.backup.interval_hours, 24);
         assert_eq!(config.database.meta_retention_days, 30);
+        assert_eq!(config.database.db_connect_retries, 10);
+        assert_eq!(config.database.db_connect_backoff_ms, 3000);
         assert!(!config.backup.is_enabled());
     }
 

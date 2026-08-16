@@ -278,7 +278,19 @@ async fn latest(
     query: Query<BrokerLatestQuery>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let mut items = state.database.get_latest_files().await;
+    let mut items = match state.database.get_latest_files().await {
+        Ok(items) => items,
+        Err(e) => {
+            error!("failed to get latest files: {}", e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(BrokerApiError::BrokerNotHealthy(
+                    "database connection error".to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
     if let Some(collector_ids) = &query.collector_id {
         let wanted = collector_ids
             .split(',')
@@ -307,6 +319,7 @@ async fn latest(
         data: items,
         meta,
     })
+    .into_response()
 }
 
 /// Return Broker API and database health
@@ -365,7 +378,19 @@ async fn health(
 }
 
 async fn missing_collectors(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let latest_items = state.database.get_latest_files().await;
+    let latest_items = match state.database.get_latest_files().await {
+        Ok(items) => items,
+        Err(e) => {
+            error!("failed to get latest files: {}", e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(BrokerApiError::BrokerNotHealthy(
+                    "database connection error".to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
     let missing_collectors = get_missing_collectors(&latest_items);
 
     match missing_collectors.is_empty() {
