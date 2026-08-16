@@ -22,14 +22,17 @@ pub struct ConnectRetryConfig {
 
 impl ConnectRetryConfig {
     /// Delay before the attempt with the given one-based index, assuming all
-    /// previous attempts failed. Grows exponentially from the initial backoff
-    /// and saturates to `None` once the wait exceeds `Duration::MAX`.
+    /// previous attempts failed. Doubles after each failure and returns
+    /// `None` once the wait would exceed `Duration::MAX`.
     fn backoff_before_attempt(&self, attempt: u32) -> Option<Duration> {
         if attempt == 0 {
             return Some(Duration::ZERO);
         }
-        let shift = (attempt - 1).min(u32::BITS - 1);
-        self.initial_backoff.checked_mul(1_u32 << shift)
+        let mut delay = self.initial_backoff;
+        for _ in 1..attempt {
+            delay = delay.checked_mul(2)?;
+        }
+        Some(delay)
     }
 }
 
@@ -221,20 +224,15 @@ mod tests {
 
     #[tokio::test]
     async fn connect_with_retry_exhausts_attempts_and_returns_error() {
-        // A SQLite path whose parent directory is read-only fails fast, which
-        // mirrors the production failure mode (database unavailable) without
-        // waiting on TCP timeouts. The retry loop must surface the final
-        // error after exhausting attempts instead of hanging or panicking.
-        use std::os::unix::fs::PermissionsExt;
-
+        // A database path under a regular file fails fast on every platform,
+        // mirroring "database unavailable" without TCP timeouts or
+        // platform-specific permission tricks. The retry loop must surface
+        // the final error after exhausting attempts instead of hanging or
+        // panicking.
         let dir = tempfile::tempdir().unwrap();
-        let ro = dir.path().join("ro");
-        std::fs::create_dir(&ro).unwrap();
-        let db_path = ro.join("sub").join("broker.sqlite3");
-
-        let mut perms = std::fs::metadata(&ro).unwrap().permissions();
-        perms.set_mode(0o555);
-        std::fs::set_permissions(&ro, perms).unwrap();
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"regular file, not a directory").unwrap();
+        let db_path = blocker.join("broker.sqlite3");
 
         let target = DatabaseTarget::Sqlite(db_path.to_str().unwrap().to_string());
         let retry = ConnectRetryConfig {
@@ -243,11 +241,6 @@ mod tests {
         };
         let result = DatabaseBackend::connect_with_retry(&target, 2, retry).await;
         assert!(result.is_err());
-
-        // Restore permissions so tempfile can clean up.
-        let mut perms = std::fs::metadata(&ro).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&ro, perms).unwrap();
     }
 
     #[tokio::test]
