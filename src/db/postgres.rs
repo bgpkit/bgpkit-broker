@@ -41,8 +41,8 @@ impl PostgresDb {
     pub async fn reload_collectors(&self) -> Result<(), BrokerError> {
         let collectors = sqlx::query(
             "SELECT c.collector_id, c.name, c.base_uri, p.name AS project, c.updates_interval_seconds \
-             FROM mrt.collector AS c \
-             JOIN mrt.project AS p USING (project_id) \
+             FROM broker.collector AS c \
+             JOIN broker.project AS p USING (project_id) \
              ORDER BY c.collector_id",
         )
         .map(|row: PgRow| BrokerCollector {
@@ -97,7 +97,7 @@ impl PostgresDb {
 
         let mut query = QueryBuilder::<Postgres>::new(
             "SELECT collector_name, timestamp, type, rough_size, exact_size \
-             FROM api.mrt_file_search",
+             FROM broker.file_search_view",
         );
         apply_search_filters(
             &mut query,
@@ -131,7 +131,7 @@ impl PostgresDb {
 
     pub async fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
         let timestamp: Option<DateTime<Utc>> =
-            sqlx::query_scalar("SELECT max(ts_start) FROM mrt.file")
+            sqlx::query_scalar("SELECT max(ts_start) FROM broker.file")
                 .fetch_one(&self.conn_pool)
                 .await
                 .map_err(database_error)?;
@@ -141,7 +141,7 @@ impl PostgresDb {
     pub async fn get_latest_files(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let rows = sqlx::query(
             "SELECT collector_name, timestamp, type, rough_size, exact_size \
-             FROM api.mrt_file_latest",
+             FROM broker.file_latest_view",
         )
         .fetch_all(&self.conn_pool)
         .await
@@ -157,7 +157,7 @@ impl PostgresDb {
         let row = sqlx::query(
             "SELECT extract(epoch FROM update_ts)::bigint AS update_ts, \
                 update_duration_seconds AS update_duration, insert_count \
-             FROM mrt.update_meta ORDER BY update_ts DESC LIMIT 1",
+             FROM broker.update_meta ORDER BY update_ts DESC LIMIT 1",
         )
         .fetch_optional(&self.conn_pool)
         .await
@@ -171,9 +171,9 @@ impl PostgresDb {
 
     pub async fn analyze(&self) -> Result<(), BrokerError> {
         for statement in [
-            "ANALYZE mrt.file",
-            "ANALYZE mrt.collector",
-            "ANALYZE mrt.latest_file",
+            "ANALYZE broker.file",
+            "ANALYZE broker.collector",
+            "ANALYZE broker.latest_file",
         ] {
             sqlx::query(statement)
                 .execute(&self.conn_pool)
@@ -206,7 +206,7 @@ impl PostgresDb {
                 continue;
             }
             let mut query = QueryBuilder::<Postgres>::new(
-                "INSERT INTO mrt.file (ts_start, collector_id, data_type, rough_size, exact_size) ",
+                "INSERT INTO broker.file (ts_start, collector_id, data_type, rough_size, exact_size) ",
             );
             query.push_values(resolvable.iter(), |mut values, item| {
                 let collector_id = collector_map[item.collector_id.as_str()].id;
@@ -246,8 +246,8 @@ impl PostgresDb {
         let project = normalize_project(&collector.project)?;
         let interval = if project == "ripe-ris" { 300 } else { 900 };
         sqlx::query(
-            "INSERT INTO mrt.collector (project_id, name, base_uri, updates_interval_seconds) \
-             SELECT project_id, $1, $2, $3 FROM mrt.project WHERE name = $4 \
+            "INSERT INTO broker.collector (project_id, name, base_uri, updates_interval_seconds) \
+             SELECT project_id, $1, $2, $3 FROM broker.project WHERE name = $4 \
              ON CONFLICT (project_id, name) DO UPDATE SET \
                  base_uri = EXCLUDED.base_uri, updates_interval_seconds = EXCLUDED.updates_interval_seconds",
         )
@@ -267,15 +267,15 @@ impl PostgresDb {
         bootstrap: bool,
     ) -> Result<(), BrokerError> {
         if bootstrap {
-            sqlx::query("TRUNCATE mrt.latest_file")
+            sqlx::query("TRUNCATE broker.latest_file")
                 .execute(&self.conn_pool)
                 .await
                 .map_err(database_error)?;
             sqlx::query(
-                "INSERT INTO mrt.latest_file (collector_id, data_type, ts_start, rough_size, exact_size) \
+                "INSERT INTO broker.latest_file (collector_id, data_type, ts_start, rough_size, exact_size) \
                  SELECT DISTINCT ON (collector_id, data_type) \
                     collector_id, data_type, ts_start, rough_size, exact_size \
-                 FROM mrt.file ORDER BY collector_id, data_type, ts_start DESC",
+                 FROM broker.file ORDER BY collector_id, data_type, ts_start DESC",
             )
             .execute(&self.conn_pool)
             .await
@@ -303,7 +303,7 @@ impl PostgresDb {
         let latest: Vec<_> = latest_by_key.into_values().collect();
         for batch in latest.chunks(1000) {
             let mut query = QueryBuilder::<Postgres>::new(
-                "INSERT INTO mrt.latest_file (collector_id, data_type, ts_start, rough_size, exact_size) ",
+                "INSERT INTO broker.latest_file (collector_id, data_type, ts_start, rough_size, exact_size) ",
             );
             query.push_values(batch, |mut values, item| {
                 let collector_id = collector_map[item.collector_id.as_str()].id;
@@ -318,7 +318,7 @@ impl PostgresDb {
                 " ON CONFLICT (collector_id, data_type) DO UPDATE SET \
                     ts_start = EXCLUDED.ts_start, rough_size = EXCLUDED.rough_size, \
                     exact_size = EXCLUDED.exact_size \
-                  WHERE EXCLUDED.ts_start > mrt.latest_file.ts_start",
+                  WHERE EXCLUDED.ts_start > broker.latest_file.ts_start",
             );
             query
                 .build()
@@ -335,7 +335,7 @@ impl PostgresDb {
         item_inserted: i32,
     ) -> Result<Vec<UpdatesMeta>, BrokerError> {
         let row = sqlx::query(
-            "INSERT INTO mrt.update_meta (update_ts, update_duration_seconds, insert_count) \
+            "INSERT INTO broker.update_meta (update_ts, update_duration_seconds, insert_count) \
              VALUES (now(), $1, $2) \
              RETURNING extract(epoch FROM update_ts)::bigint AS update_ts, \
                        update_duration_seconds AS update_duration, insert_count",
@@ -354,7 +354,7 @@ impl PostgresDb {
 
     pub async fn cleanup_old_meta_entries(&self, retention_days: i64) -> Result<(), BrokerError> {
         sqlx::query(
-            "DELETE FROM mrt.update_meta WHERE update_ts < now() - ($1::bigint * interval '1 day')",
+            "DELETE FROM broker.update_meta WHERE update_ts < now() - ($1::bigint * interval '1 day')",
         )
         .bind(retention_days)
         .execute(&self.conn_pool)
@@ -385,7 +385,8 @@ impl PostgresDb {
         ts_start: Option<NaiveDateTime>,
         ts_end: Option<NaiveDateTime>,
     ) -> Result<usize, BrokerError> {
-        let mut query = QueryBuilder::<Postgres>::new("SELECT count(*) FROM api.mrt_file_search");
+        let mut query =
+            QueryBuilder::<Postgres>::new("SELECT count(*) FROM broker.file_search_view");
         apply_search_filters(&mut query, collectors, project, data_type, ts_start, ts_end);
         let total: i64 = query
             .build_query_scalar()

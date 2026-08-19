@@ -34,9 +34,50 @@ class BootstrapHelpersTests(unittest.TestCase):
 
     def test_schema_uses_operational_update_metadata_without_provenance_tables(self):
         schema = bootstrap.schema_sql()
-        self.assertIn("CREATE TABLE IF NOT EXISTS mrt.update_meta", schema)
+        self.assertIn("CREATE TABLE IF NOT EXISTS broker.update_meta", schema)
         self.assertNotIn("meta.source_revision", schema)
         self.assertNotIn("meta.ingest_run", schema)
+
+    def test_schema_uses_broker_namespace_and_suffixes_read_views(self):
+        schema = bootstrap.schema_sql()
+        self.assertIn("CREATE SCHEMA IF NOT EXISTS broker", schema)
+        self.assertIn("CREATE TABLE IF NOT EXISTS broker.file", schema)
+        self.assertIn("CREATE OR REPLACE VIEW broker.file_search_view", schema)
+        self.assertIn("CREATE OR REPLACE VIEW broker.file_latest_view", schema)
+        self.assertNotIn("mrt.", schema)
+        self.assertNotIn("api.", schema)
+
+    def test_live_migration_renames_broker_schema_and_views_without_dropping_data(self):
+        migration = (Path(__file__).parents[1] / "migrate_mrt_api_to_broker.sql").read_text()
+        self.assertIn("ALTER SCHEMA mrt RENAME TO broker", migration)
+        self.assertIn("ALTER VIEW api.mrt_file_search SET SCHEMA broker", migration)
+        self.assertIn("ALTER VIEW broker.mrt_file_search RENAME TO file_search_view", migration)
+        self.assertIn("ALTER VIEW api.mrt_file_latest SET SCHEMA broker", migration)
+        self.assertIn("ALTER VIEW broker.mrt_file_latest RENAME TO file_latest_view", migration)
+        self.assertNotIn("DROP SCHEMA IF EXISTS mrt CASCADE", migration)
+
+    def test_reset_checks_for_inbound_foreign_keys_before_dropping_broker(self):
+        sql = bootstrap.reset_dependency_check_sql()
+        self.assertIn("constraint_type = 'FOREIGN KEY'", sql)
+        self.assertIn("table_schema = 'broker'", sql)
+        self.assertIn("table_schema <> 'broker'", sql)
+
+    def test_reset_uses_restrictive_schema_drop(self):
+        source = MODULE_PATH.read_text()
+        self.assertNotIn("DROP SCHEMA IF EXISTS broker CASCADE", source)
+        self.assertEqual(
+            bootstrap.reset_drop_statements(),
+            (
+                "DROP VIEW IF EXISTS broker.file_search_view",
+                "DROP VIEW IF EXISTS broker.file_latest_view",
+                "DROP TABLE IF EXISTS broker.update_meta",
+                "DROP TABLE IF EXISTS broker.latest_file",
+                "DROP TABLE IF EXISTS broker.file",
+                "DROP TABLE IF EXISTS broker.collector",
+                "DROP TABLE IF EXISTS broker.project",
+                "DROP SCHEMA IF EXISTS broker",
+            ),
+        )
 
 
 if __name__ == "__main__":
