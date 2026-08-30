@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Bug fixes
+
+* Periodic S3 backup no longer retries in a full-file loop on failure (#107)
+    * The backup gate now advances on the last attempt (not the last success), so a failed backup waits for a full `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` window before the next attempt instead of re-running on every update tick
+    * The S3 upload step retries up to 3 times with exponential backoff (2s initial, doubling) before giving up for the interval window
+
 ## v0.12.1 - 2026-08-16
 
 ### Bug fixes
