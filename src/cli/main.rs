@@ -5,7 +5,7 @@ mod utils;
 
 use crate::api::LIVE_EVENT_BUFFER_SIZE;
 use crate::api::{start_api_service, BrokerSearchQuery};
-use crate::backup::{backup_database, perform_periodic_backup};
+use crate::backup::{backup_database, backup_due, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::db::ConnectRetryConfig;
@@ -612,8 +612,11 @@ fn main() {
                         let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
 
-                        // track last backup time for daily backups
-                        let mut last_backup_time = std::time::Instant::now();
+                        // Track the last backup ATTEMPT (not last success): a
+                        // failed attempt must not retry until a full interval
+                        // has elapsed, otherwise every update tick re-uploads
+                        // the whole file (#107).
+                        let mut last_backup_attempt = std::time::Instant::now();
 
                         // the first tick happens without waiting
                         update_interval_timer.tick().await;
@@ -645,10 +648,10 @@ fn main() {
                             (backup_to_clone.as_ref(), sqlite_backup_path.as_ref())
                         {
                             info!("performing initial backup after first update...");
+                            last_backup_attempt = std::time::Instant::now();
                             match perform_periodic_backup(path, backup_destination, None).await {
                                 Ok(_) => {
                                     info!("initial backup completed successfully");
-                                    last_backup_time = std::time::Instant::now();
 
                                     // send backup heartbeat if configured
                                     if let Err(e) = try_send_backup_heartbeat().await {
@@ -656,7 +659,11 @@ fn main() {
                                     }
                                 }
                                 Err(e) => {
-                                    error!("initial backup failed: {}", e);
+                                    error!(
+                                        "initial backup failed: {}; next attempt waits for the \
+                                         backup interval to elapse",
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -680,12 +687,12 @@ fn main() {
 
                             // check if backup is needed
                             if let Some(ref backup_destination) = backup_to_clone {
-                                let now = std::time::Instant::now();
                                 let backup_interval = config_clone.backup.interval();
 
-                                if now.duration_since(last_backup_time) >= backup_interval {
+                                if backup_due(last_backup_attempt, backup_interval) {
                                     if let Some(path) = sqlite_backup_path.as_ref() {
                                         info!("starting daily backup procedure...");
+                                        last_backup_attempt = std::time::Instant::now();
                                         match perform_periodic_backup(
                                             path,
                                             backup_destination,
@@ -695,7 +702,6 @@ fn main() {
                                         {
                                             Ok(_) => {
                                                 info!("daily backup completed successfully");
-                                                last_backup_time = now;
 
                                                 // send backup heartbeat if configured
                                                 if let Err(e) = try_send_backup_heartbeat().await {
@@ -706,7 +712,11 @@ fn main() {
                                                 }
                                             }
                                             Err(e) => {
-                                                error!("daily backup failed: {}", e);
+                                                error!(
+                                                    "daily backup failed: {}; next attempt \
+                                                     waits for the backup interval to elapse",
+                                                    e
+                                                );
                                             }
                                         }
                                     }
