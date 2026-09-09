@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Dependencies
+
+* Updated `oneio` dependency from 0.24.2 to 0.26, clearing the suppaftp advisory ([RUSTSEC-2026-0271](https://rustsec.org/advisories/RUSTSEC-2026-0271.html)) carried by oneio 0.24's lockfile entry (the `cli` feature enables oneio's `https`/`s3` features).
+
 ### Bug fixes
 
 * Periodic S3 backup no longer retries in a full-file loop on failure (#107)

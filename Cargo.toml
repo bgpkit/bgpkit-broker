@@ -54,11 +54,11 @@ futures-util = { version = "0.3.28", optional = true }
 itertools = { version = "0.15", optional = true }
 tempfile = { version = "3.8", optional = true }
 which = { version = "8.0.0", optional = true }
-bgpkit-commons = { version = "0.10", default-features = false, features = ["mrt_collectors", "countries"], optional = true }
+bgpkit-commons = { version = "0.13", default-features = false, features = ["mrt_collectors", "countries"], optional = true }
 
 # crawler dependencies
 futures = { version = "0.3", optional = true }
-oneio = { version = "0.24.2", default-features = false, features = ["https", "s3"], optional = true }
+oneio = { version = "0.26", default-features = false, features = ["https", "s3"], optional = true }
 regex = { version = "1", optional = true }
 scraper = { version = "0.27", optional = true }
 tokio = { version = "1", optional = true, features = ["full"] }
