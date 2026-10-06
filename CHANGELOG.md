@@ -2,17 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## v0.13.0 - 2026-10-06
 
-### Dependencies
+### New features
 
-* Updated `oneio` dependency from 0.24.2 to 0.26, clearing the suppaftp advisory ([RUSTSEC-2026-0271](https://rustsec.org/advisories/RUSTSEC-2026-0271.html)) carried by oneio 0.24's lockfile entry (the `cli` feature enables oneio's `https`/`s3` features).
+* Consolidated the PostgreSQL Broker catalog into a single `broker` schema (#106)
+    * The catalog that previously split across the `mrt` and `api` schemas now lives under `broker`, and the read views are exposed as `broker.file_search_view` and `broker.file_latest_view`
+    * `migration/postgres_bootstrap/migrate_mrt_api_to_broker.sql` migrates an existing `mrt` + `api` database in place without rewriting rows and preserves the composite foreign key from `spectrum.processing` to the canonical Broker file identity; stop the Broker and Spectrum writers and take a verified PostgreSQL backup before running it
+    * The bootstrap script now refuses an unsafe `--reset` when another schema has a foreign key into `broker` instead of cascading through it; SQLite-backed deployments are unaffected
 
 ### Bug fixes
 
-* Periodic S3 backup no longer retries in a full-file loop on failure (#107)
+* Periodic S3 backup no longer retries in a full-file loop on failure (#108, fixes #107)
     * The backup gate now advances on the last attempt (not the last success), so a failed backup waits for a full `BGPKIT_BROKER_BACKUP_INTERVAL_HOURS` window before the next attempt instead of re-running on every update tick
     * The S3 upload step retries up to 3 times with exponential backoff (2s initial, doubling) before giving up for the interval window
+
+### Dependencies
+
+* Updated `oneio` 0.24.2 -> 0.26 and `bgpkit-commons` 0.10 -> 0.13 (#109), clearing the quick-xml advisories ([RUSTSEC-2026-0194](https://rustsec.org/advisories/RUSTSEC-2026-0194.html), [RUSTSEC-2026-0195](https://rustsec.org/advisories/RUSTSEC-2026-0195.html)) and the suppaftp advisory ([RUSTSEC-2026-0271](https://rustsec.org/advisories/RUSTSEC-2026-0271.html)) carried by the previous dependency chain; the lockfile also moves `rustls` to 0.23.45, clearing [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html)
+    * `cargo audit` reports no vulnerabilities on this lockfile; the remaining `proc-macro-error2` unmaintained warning does not fail the audit
 
 ## v0.12.1 - 2026-08-16
 
