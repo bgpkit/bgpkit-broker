@@ -261,13 +261,33 @@ pub struct BgpkitBroker {
     cache_dir: Option<PathBuf>,
 }
 
+/// Default public broker API endpoint.
+const DEFAULT_BROKER_URL: &str = "https://api.bgpkit.com/v3/broker";
+
+/// Resolve the broker base URL from `BGPKIT_BROKER_URL`, falling back to the
+/// public API when the variable is unset or blank.
+fn resolve_default_broker_url() -> String {
+    normalize_broker_url(std::env::var("BGPKIT_BROKER_URL").ok())
+}
+
+fn normalize_broker_url(value: Option<String>) -> String {
+    match value {
+        Some(url) => {
+            let trimmed = url.trim();
+            if trimmed.is_empty() {
+                DEFAULT_BROKER_URL.to_string()
+            } else {
+                trimmed.trim_end_matches('/').to_string()
+            }
+        }
+        None => DEFAULT_BROKER_URL.to_string(),
+    }
+}
+
 impl Default for BgpkitBroker {
     fn default() -> Self {
         dotenvy::dotenv().ok();
-        let url = match std::env::var("BGPKIT_BROKER_URL") {
-            Ok(url) => url.trim_end_matches('/').to_string(),
-            Err(_) => "https://api.bgpkit.com/v3/broker".to_string(),
-        };
+        let url = resolve_default_broker_url();
 
         let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
 
@@ -1945,5 +1965,27 @@ mod tests {
         assert_eq!(broker.query_params.data_type, Some("rib".to_string()));
         assert_eq!(broker.query_params.page, 1);
         assert_eq!(broker.query_params.page_size, 10);
+    }
+
+    #[test]
+    fn test_broker_url_falls_back_to_default() {
+        assert_eq!(normalize_broker_url(None), DEFAULT_BROKER_URL);
+        assert_eq!(normalize_broker_url(Some(String::new())), DEFAULT_BROKER_URL);
+        assert_eq!(
+            normalize_broker_url(Some("   ".to_string())),
+            DEFAULT_BROKER_URL
+        );
+    }
+
+    #[test]
+    fn test_broker_url_is_normalized() {
+        assert_eq!(
+            normalize_broker_url(Some(" https://broker.example.com/v2/ ".to_string())),
+            "https://broker.example.com/v2"
+        );
+        assert_eq!(
+            normalize_broker_url(Some("https://broker.example.com/v2////".to_string())),
+            "https://broker.example.com/v2"
+        );
     }
 }
