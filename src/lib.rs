@@ -264,9 +264,9 @@ pub struct BgpkitBroker {
 /// Default public broker API endpoint.
 const DEFAULT_BROKER_URL: &str = "https://api.bgpkit.com/v3/broker";
 
-/// Resolve the broker base URL from `BGPKIT_BROKER_URL`, falling back to the
-/// public API when the variable is unset or blank.
-fn resolve_default_broker_url() -> String {
+/// Resolve the effective broker base URL: the `BGPKIT_BROKER_URL` value when
+/// set and non-blank, otherwise the default public API endpoint.
+fn resolve_broker_url() -> String {
     normalize_broker_url(std::env::var("BGPKIT_BROKER_URL").ok())
 }
 
@@ -287,7 +287,7 @@ fn normalize_broker_url(value: Option<String>) -> String {
 impl Default for BgpkitBroker {
     fn default() -> Self {
         dotenvy::dotenv().ok();
-        let url = resolve_default_broker_url();
+        let url = resolve_broker_url();
 
         let collector_project_map = DEFAULT_COLLECTORS_CONFIG.clone().to_project_map();
 
