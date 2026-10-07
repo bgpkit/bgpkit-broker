@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.13.1 - 2026-10-07
+
+### Bug fixes
+
+* The broker base URL from `BGPKIT_BROKER_URL` is normalized before use: surrounding whitespace and trailing slashes are trimmed, and an unset or blank value falls back to the public endpoint instead of producing an empty base URL (#111)
+    * The resolution is covered by unit tests, including a check that `BgpkitBroker::default()` picks up and normalizes the environment variable (#111)
+
 ## v0.13.0 - 2026-10-06
 
 ### New features
