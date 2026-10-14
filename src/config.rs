@@ -318,6 +318,70 @@ impl DatabaseConfig {
     }
 }
 
+/// NATS notifier configuration (feature `nats`).
+///
+/// Environment variables:
+/// - `BGPKIT_BROKER_NATS_URL`: when unset or blank the notifier is disabled
+/// - `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD` (default `public`)
+/// - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` (default `bgpkit.file`)
+#[cfg(feature = "nats")]
+#[derive(Clone)]
+pub struct NatsConfig {
+    /// NATS server URL; `None` disables the notifier.
+    pub url: Option<String>,
+    /// Username for the NATS connection.
+    pub user: String,
+    /// Password for the NATS connection.
+    pub password: String,
+    /// Root subject for file events; subjects are built as
+    /// `{root}.{project}.{collector}.{data_type}`.
+    pub root_subject: String,
+}
+
+#[cfg(feature = "nats")]
+impl fmt::Debug for NatsConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NatsConfig")
+            .field("url", &self.url.as_ref().map(|_| "<redacted>"))
+            .field("user", &self.user)
+            .field("password", &"<redacted>")
+            .field("root_subject", &self.root_subject)
+            .finish()
+    }
+}
+
+#[cfg(feature = "nats")]
+impl Default for NatsConfig {
+    fn default() -> Self {
+        Self {
+            url: None,
+            user: "public".to_string(),
+            password: "public".to_string(),
+            root_subject: "bgpkit.file".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "nats")]
+impl NatsConfig {
+    /// Load NATS configuration from environment variables.
+    pub fn from_env() -> Self {
+        let url = std::env::var("BGPKIT_BROKER_NATS_URL")
+            .ok()
+            .map(|url| url.trim().to_string())
+            .filter(|url| !url.is_empty());
+        Self {
+            url,
+            user: std::env::var("BGPKIT_BROKER_NATS_USER").unwrap_or_else(|_| "public".to_string()),
+            password: std::env::var("BGPKIT_BROKER_NATS_PASSWORD")
+                .unwrap_or_else(|_| "public".to_string()),
+            root_subject: std::env::var("BGPKIT_BROKER_NATS_ROOT_SUBJECT")
+                .unwrap_or_else(|_| "bgpkit.file".to_string()),
+        }
+    }
+}
+
 /// Complete BGPKIT Broker configuration.
 ///
 /// This struct aggregates all configuration settings and provides methods
@@ -335,6 +399,10 @@ pub struct BrokerConfig {
 
     /// Database maintenance settings
     pub database: DatabaseConfig,
+
+    /// NATS notifier settings (feature `nats`)
+    #[cfg(feature = "nats")]
+    pub notifier: NatsConfig,
 }
 
 impl BrokerConfig {
@@ -350,6 +418,8 @@ impl BrokerConfig {
             backup: BackupConfig::from_env(),
             heartbeat: HeartbeatConfig::from_env(),
             database: DatabaseConfig::from_env(),
+            #[cfg(feature = "nats")]
+            notifier: NatsConfig::from_env(),
         }
     }
 
@@ -427,6 +497,17 @@ impl BrokerConfig {
             (false, false) => lines.push("Heartbeats: DISABLED".to_string()),
         }
 
+        // NATS notifier (feature `nats`)
+        #[cfg(feature = "nats")]
+        lines.push(format!(
+            "NATS notifier: {} (root subject: {})",
+            match self.notifier.url {
+                Some(_) => "ENABLED",
+                None => "disabled (BGPKIT_BROKER_NATS_URL not set)",
+            },
+            self.notifier.root_subject
+        ));
+
         // Database maintenance
         let (sqlite_max_connections, sqlite_cache_size_kib) = sqlite_pool_config();
         lines.push(format!(
@@ -443,6 +524,21 @@ impl BrokerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "nats")]
+    #[test]
+    fn nats_config_debug_redacts_secrets() {
+        let config = NatsConfig {
+            url: Some("nats://user:secret@example.com:4222".to_string()),
+            user: "bgpkit".to_string(),
+            password: "hunter2".to_string(),
+            root_subject: "bgpkit.file".to_string(),
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("hunter2"));
+        assert!(!debug.contains("secret"));
+        assert!(debug.contains("<redacted>"));
+    }
 
     #[test]
     fn test_default_config() {

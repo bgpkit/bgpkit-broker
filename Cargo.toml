@@ -76,6 +76,7 @@ sqlx = { version = "0.9", features = [
     "postgres",
     "chrono",
 ], optional = true }
+async-nats = { version = "0.50.0", optional = true }
 
 [features]
 default = []
@@ -113,6 +114,8 @@ cli = [
 backend = ["tokio", "sqlx", "futures-util"]
 
 sse = ["futures-util", "tokio"]
+# NATS notifications for newly indexed files (implies cli)
+nats = ["cli", "dep:async-nats"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3.17"

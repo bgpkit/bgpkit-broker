@@ -9,6 +9,8 @@ use crate::backup::{backup_database, backup_due, perform_periodic_backup};
 use crate::bootstrap::download_file;
 use crate::utils::{get_missing_collectors, is_local_path, parse_s3_path};
 use bgpkit_broker::db::ConnectRetryConfig;
+#[cfg(feature = "nats")]
+use bgpkit_broker::notifier::nats::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, BrokerItem,
     Collector, DatabaseBackend, DatabaseTarget, LocalBrokerDb, DEFAULT_PAGE_SIZE,
@@ -278,8 +280,35 @@ async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
     }
 }
 
+/// Ensures the NATS notifier is available when a NATS URL is configured.
+///
+/// A failed connection is retried on the next update cycle instead of leaving
+/// the notifier disabled for the lifetime of the process.
+#[cfg(feature = "nats")]
+async fn ensure_nats_notifier(notifier: &mut Option<NatsNotifier>, config: &BrokerConfig) {
+    if notifier.is_some() || config.notifier.url.is_none() {
+        return;
+    }
+    match NatsNotifier::from_config(&config.notifier).await {
+        Ok(Some(n)) => {
+            info!("NATS notifier enabled");
+            *notifier = Some(n);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            error!(
+                "NATS notifier connection failed (will retry next cycle): {}",
+                e
+            );
+        }
+    }
+}
+
 struct UpdateContext<'a> {
     live_events: &'a Option<broadcast::Sender<BrokerItem>>,
+    /// Optional NATS notifier for newly inserted items (feature `nats`).
+    #[cfg(feature = "nats")]
+    nats_notifier: &'a Option<NatsNotifier>,
     send_heartbeat: bool,
     update_interval_secs: Option<u64>,
     config: &'a BrokerConfig,
@@ -363,6 +392,16 @@ async fn update_database(
                         if let Some(sender) = context.live_events {
                             for item in &inserted {
                                 let _ = sender.send(item.clone());
+                            }
+                        }
+                        #[cfg(feature = "nats")]
+                        if let Some(notifier) = context.nats_notifier {
+                            if let Err(e) = notifier.send(&inserted).await {
+                                error!(
+                                    "failed to publish {} new items to NATS: {}",
+                                    inserted.len(),
+                                    e
+                                );
                             }
                         }
                     }
@@ -569,6 +608,8 @@ fn main() {
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let (live_events, _) = broadcast::channel(LIVE_EVENT_BUFFER_SIZE);
 
+            let mut updater_handle: Option<std::thread::JoinHandle<()>> = None;
+
             if do_update {
                 // starting a new dedicated thread to periodically fetch new data from collectors
                 let database_target_clone = database_target.clone();
@@ -580,7 +621,8 @@ fn main() {
                 let backup_to_clone = backup_to.clone();
                 let config_clone = config.clone();
                 let live_events_clone = live_events.clone();
-                std::thread::spawn(move || {
+                let api_enabled = do_api;
+                updater_handle = Some(std::thread::spawn(move || {
                     let rt = get_tokio_runtime();
 
                     let collectors = match load_collectors() {
@@ -609,6 +651,11 @@ fn main() {
                                 exit(1);
                             }
                         };
+                        #[cfg(feature = "nats")]
+                        let mut nats_notifier: Option<NatsNotifier> = None;
+                        #[cfg(feature = "nats")]
+                        ensure_nats_notifier(&mut nats_notifier, &config_clone).await;
+
                         let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
 
@@ -628,6 +675,8 @@ fn main() {
                             None,
                             UpdateContext {
                                 live_events: &Some(live_events_clone.clone()),
+                                #[cfg(feature = "nats")]
+                                nats_notifier: &nats_notifier,
                                 send_heartbeat: true,
                                 update_interval_secs: Some(update_interval),
                                 config: &config_clone,
@@ -639,7 +688,7 @@ fn main() {
                         }
 
                         // sending readiness signal; API can start now
-                        if ready_tx.send(()).is_err() {
+                        if api_enabled && ready_tx.send(()).is_err() {
                             error!("failed to send ready signal");
                         }
 
@@ -671,6 +720,9 @@ fn main() {
                         loop {
                             update_interval_timer.tick().await;
 
+                            #[cfg(feature = "nats")]
+                            ensure_nats_notifier(&mut nats_notifier, &config_clone).await;
+
                             // updating from the latest data available
                             update_database(
                                 &mut db,
@@ -678,6 +730,8 @@ fn main() {
                                 None,
                                 UpdateContext {
                                     live_events: &Some(live_events_clone.clone()),
+                                    #[cfg(feature = "nats")]
+                                    nats_notifier: &nats_notifier,
                                     send_heartbeat: true,
                                     update_interval_secs: Some(update_interval),
                                     config: &config_clone,
@@ -726,7 +780,7 @@ fn main() {
                             info!("wait for {} seconds before next update", update_interval);
                         }
                     });
-                });
+                }));
 
                 if let Some(ref backup_destination) = backup_to {
                     info!(
@@ -781,6 +835,16 @@ fn main() {
                         exit(1);
                     }
                 });
+            }
+
+            if let Some(handle) = updater_handle {
+                // With the API disabled nothing else keeps the process alive:
+                // wait on the updater thread so `serve --no-api` runs as a
+                // pure updater instead of exiting right after spawning it.
+                if !do_api && handle.join().is_err() {
+                    error!("updater thread panicked");
+                    exit(1);
+                }
             }
         }
         Commands::Bootstrap {
@@ -859,6 +923,8 @@ fn main() {
                         None,
                         UpdateContext {
                             live_events: &None,
+                            #[cfg(feature = "nats")]
+                            nats_notifier: &None,
                             send_heartbeat: false,
                             update_interval_secs: None,
                             config: &config,
@@ -963,6 +1029,8 @@ fn main() {
                     days,
                     UpdateContext {
                         live_events: &None,
+                        #[cfg(feature = "nats")]
+                        nats_notifier: &None,
                         send_heartbeat: false,
                         update_interval_secs: None,
                         config: &config,
