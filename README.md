@@ -73,6 +73,7 @@ The BGPKIT Broker Rust SDK provides access to BGP archive files from RouteViews 
 - 📊 Access to collector peers information
 - ⏰ Query latest available files for each collector
 - 📡 Optional async SSE subscription for live new-file notifications
+- 📨 Optional NATS JetStream publishing of new-file events (enable the `nats` feature)
 - 💾 Optional disk caching for query results (useful for development and offline usage)
 - 📸 Get MRT files needed for routing table snapshot reconstruction
 - ✅ Configuration validation with helpful error messages
@@ -391,6 +392,11 @@ Broker instance with ease.
 
 Install with `cargo install bgpkit-broker@^0.13 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
+
+To publish new-file notifications to NATS, build with the `nats` feature (for example
+`cargo install --path . --features cli,nats`) and set `BGPKIT_BROKER_NATS_URL` (plus optional
+`BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD`, and `BGPKIT_BROKER_NATS_ROOT_SUBJECT`).
+The notifier stays disabled when the URL is unset.
 
 If you are in a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
 
