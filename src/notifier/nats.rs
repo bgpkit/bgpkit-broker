@@ -99,19 +99,24 @@ impl NatsNotifier {
                 }
             }
         }
-        if let Err(e) = self.client.flush().await {
-            failures += 1;
-            if first_error.is_empty() {
-                first_error = format!("flush: {e}");
-            }
+        let flush_error = match self.client.flush().await {
+            Ok(()) => None,
+            Err(e) => Some(format!("flush error: {e}")),
+        };
+        let mut problems: Vec<String> = Vec::new();
+        if failures > 0 {
+            problems.push(format!(
+                "{failures} of {} items failed to publish; first item error: {first_error}",
+                items.len()
+            ));
         }
-        if failures == 0 {
+        if let Some(flush_error) = flush_error {
+            problems.push(flush_error);
+        }
+        if problems.is_empty() {
             Ok(())
         } else {
-            Err(BrokerError::NotifierError(format!(
-                "{failures} of {} items failed to publish; first error: {first_error}",
-                items.len()
-            )))
+            Err(BrokerError::NotifierError(problems.join("; ")))
         }
     }
 

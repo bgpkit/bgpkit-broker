@@ -325,7 +325,7 @@ impl DatabaseConfig {
 /// - `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD` (default `public`)
 /// - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` (default `bgpkit.file`)
 #[cfg(feature = "nats")]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NatsConfig {
     /// NATS server URL; `None` disables the notifier.
     pub url: Option<String>,
@@ -336,6 +336,19 @@ pub struct NatsConfig {
     /// Root subject for file events; subjects are built as
     /// `{root}.{project}.{collector}.{data_type}`.
     pub root_subject: String,
+}
+
+#[cfg(feature = "nats")]
+impl fmt::Debug for NatsConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NatsConfig")
+            .field("url", &self.url.as_ref().map(|_| "<redacted>"))
+            .field("user", &self.user)
+            .field("password", &"<redacted>")
+            .field("root_subject", &self.root_subject)
+            .finish()
+    }
 }
 
 #[cfg(feature = "nats")]
@@ -511,6 +524,21 @@ impl BrokerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "nats")]
+    #[test]
+    fn nats_config_debug_redacts_secrets() {
+        let config = NatsConfig {
+            url: Some("nats://user:secret@example.com:4222".to_string()),
+            user: "bgpkit".to_string(),
+            password: "hunter2".to_string(),
+            root_subject: "bgpkit.file".to_string(),
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("hunter2"));
+        assert!(!debug.contains("secret"));
+        assert!(debug.contains("<redacted>"));
+    }
 
     #[test]
     fn test_default_config() {
