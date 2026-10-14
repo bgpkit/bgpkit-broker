@@ -3,7 +3,7 @@
 //! Enabled with the `nats` feature. Environment configuration:
 //! - `BGPKIT_BROKER_NATS_URL`: when unset or blank the notifier is disabled
 //! - `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD` (default `public`)
-//! - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` (default `bgpkit.files`)
+//! - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` (default `bgpkit.file`)
 //!
 //! Messages are published through JetStream so that consumers can track their
 //! own positions across restarts. The message ID is the file's canonical URL,
@@ -48,7 +48,7 @@ impl NatsNotifier {
         let password =
             std::env::var("BGPKIT_BROKER_NATS_PASSWORD").unwrap_or_else(|_| "public".to_string());
         let root_subject = std::env::var("BGPKIT_BROKER_NATS_ROOT_SUBJECT")
-            .unwrap_or_else(|_| "bgpkit.files".to_string());
+            .unwrap_or_else(|_| "bgpkit.file".to_string());
         Ok(Some(
             Self::connect(&url, &user, &password, root_subject).await?,
         ))
@@ -117,12 +117,12 @@ mod tests {
     #[test]
     fn subject_uses_project_vocabulary() {
         assert_eq!(
-            subject_for("bgpkit.files", &item("rrc00", "updates")),
-            "bgpkit.files.ripe-ris.rrc00.updates"
+            subject_for("bgpkit.file", &item("rrc00", "updates")),
+            "bgpkit.file.ripe-ris.rrc00.updates"
         );
         assert_eq!(
-            subject_for("bgpkit.files.", &item("route-views2", "rib")),
-            "bgpkit.files.route-views.route-views2.rib"
+            subject_for("bgpkit.file.", &item("route-views2", "rib")),
+            "bgpkit.file.route-views.route-views2.rib"
         );
     }
 }
