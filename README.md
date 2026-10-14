@@ -396,7 +396,16 @@ run `cargo install --path . --features cli`.
 To publish new-file notifications to NATS, build with the `nats` feature (for example
 `cargo install --path . --features cli,nats`) and set `BGPKIT_BROKER_NATS_URL` (plus optional
 `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD`, and `BGPKIT_BROKER_NATS_ROOT_SUBJECT`).
-The notifier stays disabled when the URL is unset.
+The notifier stays disabled when the URL is unset, and notifications are emitted by the
+long-running `serve` daemon (the one-shot `update` and `bootstrap` commands do not publish).
+
+Publishing goes through JetStream, so a stream whose subject filter covers the root subject must
+exist first; the broker does not create streams. For example:
+
+```
+nats stream add FILES --subjects "bgpkit.file.>" --storage file --retention limits \
+  --max-age 72h --max-bytes 2GB --discard old --dupe-window 5m
+```
 
 If you are in a macOS environment, you can also use homebrew to install the pre-compiled binary (universal):
 

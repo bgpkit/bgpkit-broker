@@ -280,6 +280,30 @@ async fn try_send_backup_heartbeat() -> Result<(), BrokerError> {
     }
 }
 
+/// Ensures the NATS notifier is available when a NATS URL is configured.
+///
+/// A failed connection is retried on the next update cycle instead of leaving
+/// the notifier disabled for the lifetime of the process.
+#[cfg(feature = "nats")]
+async fn ensure_nats_notifier(notifier: &mut Option<NatsNotifier>, config: &BrokerConfig) {
+    if notifier.is_some() || config.notifier.url.is_none() {
+        return;
+    }
+    match NatsNotifier::from_config(&config.notifier).await {
+        Ok(Some(n)) => {
+            info!("NATS notifier enabled");
+            *notifier = Some(n);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            error!(
+                "NATS notifier connection failed (will retry next cycle): {}",
+                e
+            );
+        }
+    }
+}
+
 struct UpdateContext<'a> {
     live_events: &'a Option<broadcast::Sender<BrokerItem>>,
     /// Optional NATS notifier for newly inserted items (feature `nats`).
@@ -628,20 +652,9 @@ fn main() {
                             }
                         };
                         #[cfg(feature = "nats")]
-                        let nats_notifier = match NatsNotifier::from_env().await {
-                            Ok(Some(notifier)) => {
-                                info!("NATS notifier enabled");
-                                Some(notifier)
-                            }
-                            Ok(None) => {
-                                info!("NATS notifier disabled (BGPKIT_BROKER_NATS_URL not set)");
-                                None
-                            }
-                            Err(e) => {
-                                error!("failed to initialize NATS notifier: {}", e);
-                                None
-                            }
-                        };
+                        let mut nats_notifier: Option<NatsNotifier> = None;
+                        #[cfg(feature = "nats")]
+                        ensure_nats_notifier(&mut nats_notifier, &config_clone).await;
 
                         let mut update_interval_timer =
                             tokio::time::interval(std::time::Duration::from_secs(update_interval));
@@ -706,6 +719,9 @@ fn main() {
 
                         loop {
                             update_interval_timer.tick().await;
+
+                            #[cfg(feature = "nats")]
+                            ensure_nats_notifier(&mut nats_notifier, &config_clone).await;
 
                             // updating from the latest data available
                             update_database(

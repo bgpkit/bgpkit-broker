@@ -1,16 +1,24 @@
 //! NATS notifier: publishes newly indexed broker items, one message per file.
 //!
-//! Enabled with the `nats` feature. Environment configuration:
-//! - `BGPKIT_BROKER_NATS_URL`: when unset or blank the notifier is disabled
-//! - `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD` (default `public`)
-//! - `BGPKIT_BROKER_NATS_ROOT_SUBJECT` (default `bgpkit.file`)
+//! Enabled with the `nats` feature; configured through [`NatsConfig`]
+//! (`BGPKIT_BROKER_NATS_*` environment variables). Notifications are emitted by
+//! the long-running `serve` daemon only; the one-shot `update` and `bootstrap`
+//! commands do not publish.
 //!
-//! Messages are published through JetStream so that consumers can track their
-//! own positions across restarts. The message ID is the file's canonical URL,
-//! so publisher retries within the stream's duplicate window are deduplicated
-//! by the server.
+//! Prerequisites: a JetStream stream whose subject filter covers `{root}.>`
+//! must exist (for example a stream `FILES` on `bgpkit.file.>`); the broker
+//! does not create streams, and publishes fail while no stream matches.
+//!
+//! The message ID is the file's canonical URL, so publisher retries within the
+//! stream's duplicate window are deduplicated by the server.
+//!
+//! [`NatsConfig`]: crate::config::NatsConfig
 
+use crate::config::NatsConfig;
 use crate::{BrokerError, BrokerItem};
+
+/// How many times a single item is (re)published before it is reported failed.
+const PUBLISH_ATTEMPTS: u32 = 3;
 
 /// Builds the per-item publish subject: `{root}.{project}.{collector}.{type}`.
 pub fn subject_for(root_subject: &str, item: &BrokerItem) -> String {
@@ -34,23 +42,23 @@ pub struct NatsNotifier {
 }
 
 impl NatsNotifier {
-    /// Connects using environment configuration.
+    /// Connects using a [`NatsConfig`].
     ///
-    /// Returns `Ok(None)` when `BGPKIT_BROKER_NATS_URL` is not set, which
-    /// disables publishing without failing the caller.
-    pub async fn from_env() -> Result<Option<Self>, BrokerError> {
-        let url = match std::env::var("BGPKIT_BROKER_NATS_URL") {
-            Ok(url) if !url.trim().is_empty() => url,
-            _ => return Ok(None),
+    /// Returns `Ok(None)` when the configured URL is unset, which disables
+    /// publishing without failing the caller.
+    pub async fn from_config(config: &NatsConfig) -> Result<Option<Self>, BrokerError> {
+        let url = match config.url.as_deref() {
+            Some(url) => url,
+            None => return Ok(None),
         };
-        let user =
-            std::env::var("BGPKIT_BROKER_NATS_USER").unwrap_or_else(|_| "public".to_string());
-        let password =
-            std::env::var("BGPKIT_BROKER_NATS_PASSWORD").unwrap_or_else(|_| "public".to_string());
-        let root_subject = std::env::var("BGPKIT_BROKER_NATS_ROOT_SUBJECT")
-            .unwrap_or_else(|_| "bgpkit.file".to_string());
         Ok(Some(
-            Self::connect(&url, &user, &password, root_subject).await?,
+            Self::connect(
+                url,
+                &config.user,
+                &config.password,
+                config.root_subject.clone(),
+            )
+            .await?,
         ))
     }
 
@@ -74,26 +82,65 @@ impl NatsNotifier {
     }
 
     /// Publishes one message per item and waits for the JetStream acks.
+    ///
+    /// A failing item is retried a bounded number of times and then reported;
+    /// it does not stop the remaining items of the batch. The returned error
+    /// summarizes the failures so the caller can log them; durable delivery
+    /// beyond this retry is intentionally out of scope (consumers reconcile
+    /// against the catalog).
     pub async fn send(&self, items: &[BrokerItem]) -> Result<(), BrokerError> {
+        let mut failures = 0usize;
+        let mut first_error = String::new();
         for item in items {
-            let subject = subject_for(&self.root_subject, item);
-            let payload = serde_json::to_vec(item)
-                .map_err(|e| BrokerError::NotifierError(format!("NATS payload error: {e}")))?;
+            if let Err(e) = self.send_one(item).await {
+                failures += 1;
+                if first_error.is_empty() {
+                    first_error = format!("{}: {}", item.url, e);
+                }
+            }
+        }
+        if let Err(e) = self.client.flush().await {
+            failures += 1;
+            if first_error.is_empty() {
+                first_error = format!("flush: {e}");
+            }
+        }
+        if failures == 0 {
+            Ok(())
+        } else {
+            Err(BrokerError::NotifierError(format!(
+                "{failures} of {} items failed to publish; first error: {first_error}",
+                items.len()
+            )))
+        }
+    }
+
+    async fn send_one(&self, item: &BrokerItem) -> Result<(), BrokerError> {
+        let subject = subject_for(&self.root_subject, item);
+        let payload = serde_json::to_vec(item)
+            .map_err(|e| BrokerError::NotifierError(format!("NATS payload error: {e}")))?;
+        let mut last_error = String::new();
+        for attempt in 1..=PUBLISH_ATTEMPTS {
             let mut headers = async_nats::HeaderMap::new();
             headers.insert("Nats-Msg-Id", item.url.as_str());
-            let ack = self
+            let result = match self
                 .jetstream
-                .publish_with_headers(subject, headers, payload.into())
+                .publish_with_headers(subject.clone(), headers, payload.clone().into())
                 .await
-                .map_err(|e| BrokerError::NotifierError(format!("NATS publish error: {e}")))?;
-            ack.await
-                .map_err(|e| BrokerError::NotifierError(format!("NATS ack error: {e}")))?;
+            {
+                Ok(ack) => match ack.await {
+                    Ok(_) => return Ok(()),
+                    Err(e) => format!("ack error: {e}"),
+                },
+                Err(e) => format!("publish error: {e}"),
+            };
+            last_error = result;
+            if attempt < PUBLISH_ATTEMPTS {
+                tokio::time::sleep(std::time::Duration::from_millis(200 * u64::from(attempt)))
+                    .await;
+            }
         }
-        self.client
-            .flush()
-            .await
-            .map_err(|e| BrokerError::NotifierError(format!("NATS flush error: {e}")))?;
-        Ok(())
+        Err(BrokerError::NotifierError(last_error))
     }
 }
 
@@ -124,5 +171,12 @@ mod tests {
             subject_for("bgpkit.file.", &item("route-views2", "rib")),
             "bgpkit.file.route-views.route-views2.rib"
         );
+    }
+
+    #[test]
+    fn config_defaults_to_disabled() {
+        let config = NatsConfig::default();
+        assert!(config.url.is_none());
+        assert_eq!(config.root_subject, "bgpkit.file");
     }
 }

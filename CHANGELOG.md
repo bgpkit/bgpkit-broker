@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 * Optional NATS notifier (`nats` feature): newly indexed files are published to NATS JetStream, one message per file, with the file URL as the message ID so publisher retries are deduplicated within the stream's duplicate window
     * Configured through `BGPKIT_BROKER_NATS_URL`, `BGPKIT_BROKER_NATS_USER`, `BGPKIT_BROKER_NATS_PASSWORD`, and `BGPKIT_BROKER_NATS_ROOT_SUBJECT`; disabled when the URL is unset
+    * Publishing requires an existing JetStream stream covering the subject root (the broker does not create streams) and is emitted by the `serve` daemon; failed items are retried and reported without stopping the batch
 
 ### Bug fixes
 
