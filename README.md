@@ -56,13 +56,13 @@ and [route leak detection][route-leak].
 Add the following dependency to your `Cargo.toml`:
 
 ```toml
-bgpkit-broker = "0.13"
+bgpkit-broker = "0.14"
 ```
 
 To subscribe to live SSE notifications from the Rust SDK, enable the `sse` feature:
 
 ```toml
-bgpkit-broker = { version = "0.13", features = ["sse"] }
+bgpkit-broker = { version = "0.14", features = ["sse"] }
 ```
 
 ### Overview
@@ -390,7 +390,7 @@ Broker instance with ease.
 
 ### Install
 
-Install with `cargo install bgpkit-broker@^0.13 --features cli` or check out the main branch and
+Install with `cargo install bgpkit-broker@^0.14 --features cli` or check out the main branch and
 run `cargo install --path . --features cli`.
 
 To publish new-file notifications to NATS, build with the `nats` feature (for example

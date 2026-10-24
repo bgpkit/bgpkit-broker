@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## v0.14.0 - 2026-10-24
 
 ### New features
 
@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.
 ### Bug fixes
 
 * `serve --no-api` keeps running as a pure updater: the process previously exited immediately after spawning the updater thread because only the API path kept the main thread alive
+* Periodic S3 backup runs its upload off the update loop and writes the object under the key callers expect (#113)
+    * `s3_upload_with_retry` runs each blocking `oneio::s3_upload` on tokio's blocking pool and logs how long the attempt took; awaiting the blocking call on the runtime thread stopped crawling for the whole transfer, which is minutes for a multi-GB database
+    * `parse_s3_path` no longer prefixes the key with `/`, so `s3://bucket/path/file` is written to `path/file` instead of `/path/file`, which is not the key the published bootstrap URL uses
+
+### Dependencies
+
+* Updated `oneio` from 0.26 to 0.27, which uploads multipart parts in parallel instead of one part at a time (#113)
+    * `bgpkit-commons` still resolves `oneio` 0.26, so the lock carries both versions until commons releases against 0.27
 
 ## v0.13.1 - 2026-10-07
 
