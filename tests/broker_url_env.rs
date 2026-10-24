@@ -10,7 +10,10 @@ use bgpkit_broker::BgpkitBroker;
 fn default_reads_and_normalizes_bgpkit_broker_url() {
     let previous = std::env::var("BGPKIT_BROKER_URL").ok();
 
-    std::env::set_var("BGPKIT_BROKER_URL", " https://broker.example.com/v9/broker/ ");
+    std::env::set_var(
+        "BGPKIT_BROKER_URL",
+        " https://broker.example.com/v9/broker/ ",
+    );
     let broker = BgpkitBroker::default();
     assert_eq!(broker.broker_url, "https://broker.example.com/v9/broker");
 

@@ -1972,7 +1972,10 @@ mod tests {
     #[test]
     fn test_broker_url_falls_back_to_default() {
         assert_eq!(normalize_broker_url(None), DEFAULT_BROKER_URL);
-        assert_eq!(normalize_broker_url(Some(String::new())), DEFAULT_BROKER_URL);
+        assert_eq!(
+            normalize_broker_url(Some(String::new())),
+            DEFAULT_BROKER_URL
+        );
         assert_eq!(
             normalize_broker_url(Some("   ".to_string())),
             DEFAULT_BROKER_URL
