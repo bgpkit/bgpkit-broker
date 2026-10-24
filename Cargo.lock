@@ -286,7 +286,7 @@ dependencies = [
  "lazy_static",
  "log",
  "num_cpus",
- "oneio 0.27.0",
+ "oneio",
  "regex",
  "reqwest 0.13.5",
  "scraper",
@@ -307,12 +307,12 @@ dependencies = [
 
 [[package]]
 name = "bgpkit-commons"
-version = "0.13.1"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9548fecce8ac60b99fce5ce897eda8728e034e387d8da07402e8b48636f1ea52"
+checksum = "e0b008f6f6a44acec2999113c12fea9c7ec682654c2c2e99db0a5feadaa347ac"
 dependencies = [
  "chrono",
- "oneio 0.26.1",
+ "oneio",
  "serde",
  "thiserror",
 ]
@@ -2096,29 +2096,13 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "oneio"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d77cbb0c450f4324612bc361ad472ee632dc4fb86d8ebe3275949f4321a5b6b"
-dependencies = [
- "bzip2",
- "dotenvy",
- "flate2",
- "reqwest 0.12.28",
- "rustls",
- "serde",
- "serde_json",
- "suppaftp",
- "thiserror",
- "xz2",
-]
-
-[[package]]
-name = "oneio"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "430b0879fae9a8c1f64ec74a7b1d87edb9c27fc516ceb521ee2e90996ce95624"
 dependencies = [
+ "bzip2",
  "dotenvy",
+ "flate2",
  "hex",
  "hmac 0.12.1",
  "percent-encoding",
@@ -2126,9 +2110,12 @@ dependencies = [
  "reqwest 0.12.28",
  "rustls",
  "rusty-s3",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "suppaftp",
  "thiserror",
+ "xz2",
 ]
 
 [[package]]
