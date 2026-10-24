@@ -81,10 +81,39 @@ pub fn parse_s3_path(path: &str) -> Option<(String, String)> {
     }
     let parts = parts[1].split('/').collect::<Vec<&str>>();
     let bucket = parts[0].to_string();
-    // join the rest delimited by `/`
-    let path = format!("/{}", parts[1..].join("/"));
-    if parts.ends_with(&["/"]) {
+    if bucket.is_empty() || parts.len() < 2 || parts.ends_with(&["/"]) {
         return None;
     }
-    Some((bucket, path))
+    // S3 keys have no leading slash. Prepending one stores the object under
+    // "/path/to/file", which is a different key from the "path/to/file"
+    // callers and public URLs use.
+    let key = parts[1..].join("/");
+    if key.is_empty() {
+        return None;
+    }
+    Some((bucket, key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_s3_path_keeps_key_without_leading_slash() {
+        assert_eq!(
+            parse_s3_path("s3://spaces/broker/bgpkit_broker.sqlite3"),
+            Some((
+                "spaces".to_string(),
+                "broker/bgpkit_broker.sqlite3".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_s3_path_rejects_incomplete_targets() {
+        assert_eq!(parse_s3_path("s3://spaces"), None);
+        assert_eq!(parse_s3_path("s3://spaces/"), None);
+        assert_eq!(parse_s3_path("file://spaces/key"), None);
+        assert_eq!(parse_s3_path("/var/lib/bgpkit-broker/backup.db"), None);
+    }
 }

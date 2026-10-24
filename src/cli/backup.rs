@@ -112,25 +112,60 @@ async fn perform_s3_backup(
 /// flaky transfer does not restart the full file from byte zero on every
 /// update tick. The outer serve loop additionally gates retries on the backup
 /// interval, see issue #107.
+///
+/// `oneio::s3_upload` is blocking. Each attempt runs on the blocking pool:
+/// awaiting it on the runtime thread would stall the update loop for the whole
+/// transfer, which is minutes for a multi-GB database.
 async fn s3_upload_with_retry(bucket: &str, s3_path: &str, file_path: &str) -> Result<(), String> {
     let mut delay = S3_UPLOAD_RETRY_DELAY;
     for attempt in 1..=S3_UPLOAD_MAX_ATTEMPTS {
-        match oneio::s3_upload(bucket, s3_path, file_path) {
+        let started = std::time::Instant::now();
+        let upload = {
+            let bucket = bucket.to_string();
+            let s3_path = s3_path.to_string();
+            let file_path = file_path.to_string();
+            tokio::task::spawn_blocking(move || oneio::s3_upload(&bucket, &s3_path, &file_path))
+                .await
+        };
+        let elapsed = started.elapsed();
+
+        let result = match upload {
+            Ok(result) => result,
+            Err(join_error) => {
+                error!("backup upload task failed: {}", join_error);
+                return Err(format!(
+                    "failed to upload backup file to S3: {}",
+                    join_error
+                ));
+            }
+        };
+
+        match result {
             Ok(_) => {
-                info!("periodic backup file uploaded to S3");
+                info!(
+                    "periodic backup file uploaded to S3 in {:.1}s",
+                    elapsed.as_secs_f64()
+                );
                 return Ok(());
             }
             Err(e) if attempt == S3_UPLOAD_MAX_ATTEMPTS => {
                 error!(
-                    "failed to upload periodic backup file to S3 after {} attempts: {}",
-                    attempt, e
+                    "failed to upload periodic backup file to S3 after {} attempts (last \
+                     attempt took {:.1}s): {}",
+                    attempt,
+                    elapsed.as_secs_f64(),
+                    e
                 );
                 return Err(format!("failed to upload backup file to S3: {}", e));
             }
             Err(e) => {
                 error!(
-                    "upload attempt {}/{} failed: {}; retrying in {:?}",
-                    attempt, S3_UPLOAD_MAX_ATTEMPTS, e, delay
+                    "upload attempt {}/{} failed after {:.1}s: {}; retrying in {:?}",
+                    attempt,
+                    S3_UPLOAD_MAX_ATTEMPTS,
+                    elapsed.as_secs_f64(),
+                    e,
+                    delay
                 );
                 tokio::time::sleep(delay).await;
                 delay *= 2;

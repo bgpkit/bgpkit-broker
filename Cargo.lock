@@ -286,7 +286,7 @@ dependencies = [
  "lazy_static",
  "log",
  "num_cpus",
- "oneio",
+ "oneio 0.27.0",
  "regex",
  "reqwest 0.13.5",
  "scraper",
@@ -312,7 +312,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9548fecce8ac60b99fce5ce897eda8728e034e387d8da07402e8b48636f1ea52"
 dependencies = [
  "chrono",
- "oneio",
+ "oneio 0.26.1",
  "serde",
  "thiserror",
 ]
@@ -2103,6 +2103,22 @@ dependencies = [
  "bzip2",
  "dotenvy",
  "flate2",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "suppaftp",
+ "thiserror",
+ "xz2",
+]
+
+[[package]]
+name = "oneio"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "430b0879fae9a8c1f64ec74a7b1d87edb9c27fc516ceb521ee2e90996ce95624"
+dependencies = [
+ "dotenvy",
  "hex",
  "hmac 0.12.1",
  "percent-encoding",
@@ -2110,12 +2126,9 @@ dependencies = [
  "reqwest 0.12.28",
  "rustls",
  "rusty-s3",
- "serde",
- "serde_json",
  "sha2 0.10.9",
  "suppaftp",
  "thiserror",
- "xz2",
 ]
 
 [[package]]
