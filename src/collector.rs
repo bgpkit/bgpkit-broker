@@ -415,6 +415,10 @@ lazy_static! {
         {
           "id":"crix.sjo",
           "url": "http://archive.routeviews.org/crix.sjo/bgpdata"
+        },
+        {
+          "id":"france-ix.lys",
+          "url": "https://archive.routeviews.org/france-ix.lys/bgpdata"
         }
       ]
     }
@@ -423,4 +427,37 @@ lazy_static! {
     "#
     )
     .expect("invalid default collectors configuration");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_collectors_have_unique_ids() {
+        let collectors = load_collectors().expect("load default collectors");
+        let mut ids: Vec<&str> = collectors.iter().map(|c| c.id.as_str()).collect();
+        let total = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(
+            total,
+            ids.len(),
+            "duplicate collector ids in default config"
+        );
+    }
+
+    #[test]
+    fn default_config_includes_france_ix_lys() {
+        let collectors = load_collectors().expect("load default collectors");
+        let collector = collectors
+            .iter()
+            .find(|c| c.id == "france-ix.lys")
+            .expect("france-ix.lys collector is missing from the default config");
+        assert_eq!(collector.project, "routeviews");
+        assert_eq!(
+            collector.url,
+            "https://archive.routeviews.org/france-ix.lys/bgpdata"
+        );
+    }
 }
