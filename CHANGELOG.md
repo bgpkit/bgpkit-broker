@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### New collector
+
+* Added RouteViews `france-ix.lys` collector (France-IX Paris/Lyon/Marseille, LYS) to the supported collectors list
+    * Data archive: <https://archive.routeviews.org/france-ix.lys/bgpdata>; the collector started publishing RIB and 15-minute update files on 2026-10-21
+
 ## v0.14.0 - 2026-10-24
 
 ### New features
