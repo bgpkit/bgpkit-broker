@@ -1310,20 +1310,35 @@ impl BgpkitBroker {
     fn run_files_query(&self, url: &str) -> Result<BrokerQueryResult, BrokerError> {
         log::info!("sending broker query to {}", url);
         match self.client.get(url).send() {
-            Ok(res) => match res.json::<BrokerQueryResult>() {
-                Ok(res) => {
-                    if let Some(e) = res.error {
-                        Err(BrokerError::BrokerError(e))
-                    } else {
-                        Ok(res)
+            Ok(res) => {
+                let status = res.status();
+                if !status.is_success() {
+                    // A non-2xx body carries the API's own explanation (for
+                    // example "All deployment instances are down"). Decoding it
+                    // as a success payload only produced a serde message such as
+                    // "error decoding response body", which hid the real cause.
+                    let body = res.text().unwrap_or_default();
+                    let body = body.trim();
+                    let body: String = body.chars().take(512).collect();
+                    return Err(BrokerError::BrokerError(format!(
+                        "broker API returned HTTP {status}: {body}"
+                    )));
+                }
+                match res.json::<BrokerQueryResult>() {
+                    Ok(res) => {
+                        if let Some(e) = res.error {
+                            Err(BrokerError::BrokerError(e))
+                        } else {
+                            Ok(res)
+                        }
+                    }
+                    Err(e) => {
+                        // json decoding error. most likely the service returns an error message without
+                        // `data` field.
+                        Err(BrokerError::BrokerError(e.to_string()))
                     }
                 }
-                Err(e) => {
-                    // json decoding error. most likely the service returns an error message without
-                    // `data` field.
-                    Err(BrokerError::BrokerError(e.to_string()))
-                }
-            },
+            }
             Err(e) => Err(BrokerError::from(e)),
         }
     }
@@ -1430,6 +1445,51 @@ impl IntoIterator for &BgpkitBroker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A non-2xx answer must surface the API's own error text, not a JSON
+    /// decode failure that hides the cause.
+    #[test]
+    fn test_http_error_body_is_surfaced() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+        let addr = listener.local_addr().expect("local addr");
+        let server = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+                let mut request_line = String::new();
+                let _ = reader.read_line(&mut request_line);
+                let body = r#"{"error":"Failed to fetch search results","message":"All deployment instances are down"}"#;
+                let response = format!(
+                    "HTTP/1.1 500 Internal Server Error\r\n\
+                     Content-Type: application/json\r\n\
+                     Content-Length: {}\r\n\
+                     Connection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+
+        let broker = BgpkitBroker::new()
+            .broker_url(format!("http://{}", addr))
+            .ts_start("1634693400")
+            .ts_end("1634693400");
+        let err = broker
+            .query_single_page()
+            .expect_err("HTTP 500 must be reported as an error");
+        let msg = err.to_string();
+        assert!(msg.contains("HTTP 500"), "unexpected message: {msg}");
+        assert!(
+            msg.contains("All deployment instances are down"),
+            "server error body was dropped: {msg}"
+        );
+
+        let _ = server.join();
+    }
 
     #[test]
     fn test_query() {
