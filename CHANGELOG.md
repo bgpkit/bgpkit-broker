@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased changes
+
+### Bug fixes
+
+* Searches with a `ts_start` no longer scan every file older than the requested window
+    * `libsqlite3-sys` enables `SQLITE_ENABLE_STAT4`, so the startup `ANALYZE` writes `sqlite_stat4`; with those histograms the planner sometimes dropped the lower bound from the index range for the three-branch time predicate. A one-day RIB search for 2019 then read the whole older part of the 4.3 GB database (4.9 s for the count query plus 5.1 s for the page on the production DB) and exceeded the API's per-backend timeout
+    * The search now adds `timestamp >= ts_start - 900`, a bound every branch of that predicate already implies, so matching rows are unchanged while the planner gets a seekable range; the same queries planned as a seek and ran in 2 ms and 3 ms
+    * The PostgreSQL backend applies the same bound so both stores express the same predicate
+
+* Non-2xx broker responses keep the server's message
+    * `run_files_query` decoded the error body as a success payload, so callers saw `error decoding response body` and lost the API's own explanation (for example `All deployment instances are down`); the HTTP status and the first 512 characters of the body are now part of the error
+
 ## v0.14.1 - 2026-10-27
 
 ### New collector

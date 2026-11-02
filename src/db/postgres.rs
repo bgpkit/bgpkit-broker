@@ -485,6 +485,13 @@ fn apply_search_filters(
     }
     if let Some(start) = ts_start {
         let start = start.and_utc();
+        // Redundant lower bound implied by every branch below; it exists so the
+        // planner gets an indexable range, mirroring `get_ts_floor_clause` in the
+        // SQLite backend.
+        push_condition(query);
+        query
+            .push("timestamp >= ")
+            .push_bind(start - Duration::seconds(UPDATES_LOOKBACK_ROUTE_VIEWS_SECS));
         push_condition(query);
         query
             .push("((project_name = 'ripe-ris' AND type = 'updates' AND timestamp > ")

@@ -94,6 +94,24 @@ fn get_ts_start_clause(ts: i64) -> String {
     )
 }
 
+/// Redundant lower bound on `i.timestamp` that every branch of
+/// [get_ts_start_clause] already implies.
+///
+/// SQLite's planner (using the STAT4 histograms `ANALYZE` writes, which
+/// libsqlite3-sys enables) sometimes picks an index range for the OR clause
+/// that keeps only the upper bound (`timestamp < end`) and drops the lower one.
+/// The search then walks every row older than the requested window: on the
+/// 4.3 GB production database a 2019 RIB day measured 4.9 s for the count query
+/// and 5.1 s for the page, and the API's per-backend timeout turned that into an
+/// HTTP 500. With this clause present the same queries planned as a seek and
+/// ran in 2 ms and 3 ms.
+///
+/// The bound is strictly weaker than every branch above, so it cannot change
+/// which rows match; it only gives the planner a range it can seek on.
+fn get_ts_floor_clause(ts: i64) -> String {
+    format!("i.timestamp >= {}", ts - UPDATES_LOOKBACK_ROUTE_VIEWS_SECS)
+}
+
 fn get_ts_end_clause(ts: i64) -> String {
     format!("i.timestamp < {}", ts)
 }
@@ -336,6 +354,7 @@ impl LocalBrokerDb {
 
         match (ts_start, ts_end) {
             (Some(ts_start), None) => {
+                where_clauses.push(get_ts_floor_clause(ts_start.and_utc().timestamp()));
                 where_clauses.push(get_ts_start_clause(ts_start.and_utc().timestamp()));
             }
             (None, Some(ts_end)) => {
@@ -350,6 +369,7 @@ impl LocalBrokerDb {
                     true => ts_start + Duration::seconds(1),
                     false => ts_end,
                 };
+                where_clauses.push(get_ts_floor_clause(start.and_utc().timestamp()));
                 where_clauses.push(get_ts_start_clause(start.and_utc().timestamp()));
                 where_clauses.push(get_ts_end_clause(end.and_utc().timestamp()));
             }
@@ -664,6 +684,20 @@ mod tests {
     use super::*;
     use chrono::DateTime;
     use std::path::PathBuf;
+
+    /// The redundant lower bound must never exclude a row that one of the
+    /// lookback branches accepts, otherwise adding it would change results.
+    #[test]
+    fn test_ts_floor_clause_does_not_narrow_lookback_branches() {
+        let ts = 1_555_718_400i64;
+        let floor = ts - UPDATES_LOOKBACK_ROUTE_VIEWS_SECS;
+        assert_eq!(get_ts_floor_clause(ts), format!("i.timestamp >= {floor}"));
+        assert!(
+            floor < ts - UPDATES_LOOKBACK_RIPE_RIS_SECS,
+            "floor must stay below the RIPE RIS updates branch bound"
+        );
+        assert!(floor < ts, "floor must stay below the RIB branch bound");
+    }
 
     /// Helper function to create a temporary database file path
     fn create_temp_db_path(test_name: &str) -> PathBuf {
