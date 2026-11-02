@@ -99,11 +99,12 @@ fn get_ts_start_clause(ts: i64) -> String {
 ///
 /// SQLite's planner (using the STAT4 histograms `ANALYZE` writes, which
 /// libsqlite3-sys enables) sometimes picks an index range for the OR clause
-/// that keeps only the lower bound of one branch. The search then walks every
-/// row older than the requested window: on the 4.3 GB production database a
-/// 2019 RIB day measured 4.9 s for the count query and 5.1 s for the page, and
-/// the API's per-backend timeout turned that into an HTTP 500. With this clause
-/// present the same queries planned as a seek and ran in 2 ms and 3 ms.
+/// that keeps only the upper bound (`timestamp < end`) and drops the lower one.
+/// The search then walks every row older than the requested window: on the
+/// 4.3 GB production database a 2019 RIB day measured 4.9 s for the count query
+/// and 5.1 s for the page, and the API's per-backend timeout turned that into an
+/// HTTP 500. With this clause present the same queries planned as a seek and
+/// ran in 2 ms and 3 ms.
 ///
 /// The bound is strictly weaker than every branch above, so it cannot change
 /// which rows match; it only gives the planner a range it can seek on.
