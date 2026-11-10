@@ -171,6 +171,14 @@ impl DatabaseBackend {
         }
     }
 
+    /// Newest file timestamp per project, for the crawler's freshness check.
+    pub async fn get_latest_by_project(&self) -> Result<Vec<(String, NaiveDateTime)>, BrokerError> {
+        match self {
+            Self::Sqlite(database) => database.get_latest_by_project().await,
+            Self::Postgres(database) => database.get_latest_by_project().await,
+        }
+    }
+
     pub async fn get_latest_files(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         match self {
             Self::Sqlite(database) => database.get_latest_files().await,

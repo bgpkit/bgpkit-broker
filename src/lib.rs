@@ -209,7 +209,7 @@ mod collector;
 #[cfg(feature = "cli")]
 pub mod config;
 #[cfg(feature = "cli")]
-mod crawler;
+pub mod crawler;
 #[cfg(feature = "backend")]
 pub mod db;
 mod error;

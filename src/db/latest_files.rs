@@ -26,6 +26,30 @@ impl LocalBrokerDb {
         Ok(datetime)
     }
 
+    /// Newest file timestamp per project, for the crawler's freshness check.
+    pub async fn get_latest_by_project(&self) -> Result<Vec<(String, NaiveDateTime)>, BrokerError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT c.project, MAX(f.timestamp)
+            FROM files f JOIN collectors c ON f.collector_id = c.id
+            WHERE c.project IS NOT NULL
+            GROUP BY c.project
+            "#,
+        )
+        .fetch_all(&self.conn_pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let project: String = row.get(0);
+                let timestamp: Option<i64> = row.get(1);
+                let ts = timestamp.and_then(|ts| DateTime::from_timestamp(ts, 0))?;
+                Some((project, ts.naive_utc()))
+            })
+            .collect())
+    }
+
     pub async fn bootstrap_latest_table(&self) {
         if let Err(e) = sqlx::query(
             r#"

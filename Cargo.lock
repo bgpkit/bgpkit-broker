@@ -285,6 +285,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "log",
+ "metrics",
  "num_cpus",
  "oneio",
  "regex",
