@@ -1,5 +1,5 @@
 use crate::crawler::common::{
-    crawl_months_list, extract_link_size, fetch_body, get_crawler_month_concurrency,
+    crawl_months_list, directory_url, extract_link_size, fetch_body, get_crawler_month_concurrency,
     remove_trailing_slash, MIN_VALID_TIMESTAMP,
 };
 use crate::crawler::Collector;
@@ -54,7 +54,7 @@ async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem
     // RIBS
     for subdir in ["RIBS", "UPDATES"] {
         let url = format!("{}/{}", root_url, subdir);
-        let body = fetch_body(url.as_str()).await?;
+        let body = fetch_body(directory_url(url.as_str()).as_str()).await?;
         let collector_id_clone = collector_id.clone();
         let data_items: Vec<BrokerItem> = tokio::task::spawn_blocking(move || {
             let items = extract_link_size(body.as_str());
