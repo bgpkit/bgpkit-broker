@@ -29,11 +29,15 @@ impl LocalBrokerDb {
     }
 
     /// Newest file timestamp per project, for the crawler's freshness check.
+    ///
+    /// Reads the `latest` table (one row per collector and type) instead of aggregating the
+    /// files table: `MAX(timestamp)` per project scanned the 4.3 GB production catalogue for
+    /// 60-90 s per round, longer than the crawl itself.
     pub async fn get_latest_by_project(&self) -> Result<Vec<(String, NaiveDateTime)>, BrokerError> {
         let rows = sqlx::query(
             r#"
-            SELECT c.project, MAX(f.timestamp)
-            FROM files f JOIN collectors c ON f.collector_id = c.id
+            SELECT c.project, MAX(l.timestamp)
+            FROM latest l JOIN collectors c ON l.collector_name = c.name
             WHERE c.project IS NOT NULL
             GROUP BY c.project
             "#,
