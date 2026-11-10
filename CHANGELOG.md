@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.15.0 - 2026-11-10
+
+### New features
+
+* Crawler fetches can go through the path-preserving fetch mirror
+    * `BGPKIT_BROKER_FETCH_PROXY` sends listing fetches to the mirror (`<base>/<origin-host><path>`) and falls back to the origin per request, so an origin that refuses the crawler's address no longer stalls the index; `BGPKIT_BROKER_FETCH_PROXY_ORIGINS` limits which origins take that path
+    * The mirror candidate gets one short attempt instead of the origin's full retry budget, a failed month or subdirectory no longer discards the months that already succeeded, and a non-2xx body is a failure rather than a listing
+
+* Per-project freshness detection with crawler metrics
+    * Each round compares the newest slot per project against the previous round; three consecutive rounds without progress log a warning
+    * `/metrics` gains `bgpkit_broker_crawler_project_newest_timestamp_seconds`, `..._project_stalled_rounds`, `..._items_inserted_total` and `..._round_duration_seconds`
+
+* `snapshot extend` subcommand
+    * `bgpkit-broker snapshot extend <sqlite>` walks the PostgreSQL catalogue with keyset pagination from the file's newest slot, inserts what is missing, and rebuilds the `latest` table; collectors and file types the snapshot has never seen are created first, because the insert path resolves both from an in-memory cache
+
+### Bug fixes
+
+* An empty SQLite database reported 1970 as its newest timestamp
+    * `MAX(timestamp)` over an empty table is NULL and was read as `i64` 0, which also seeded the snapshot extension's cursor at the epoch
+
+* The per-project freshness query read the whole files table
+    * `MAX(timestamp)` per project was a full scan (60-90 s per round on the 4.3 GB production catalogue); it now reads the materialised latest table (`latest` in SQLite, `broker.latest_file` in PostgreSQL)
+
 ## v0.14.2 - 2026-11-02
 
 ### Bug fixes
