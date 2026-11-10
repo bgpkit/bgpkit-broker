@@ -8,6 +8,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use futures::stream::StreamExt;
 use regex::Regex;
 use tracing::debug;
+use tracing::warn;
 
 /// Crawl RIPE RIS MRT data dump for a given collector.
 ///
@@ -37,9 +38,26 @@ pub async fn crawl_ripe_ris(
     .buffer_unordered(get_crawler_month_concurrency());
 
     let mut res = vec![];
+    let mut failures = 0usize;
     while let Some(result) = stream.next().await {
-        let items = result?;
-        res.extend(items);
+        match result {
+            Ok(items) => res.extend(items),
+            // Months are independent fetches: one failing must not discard the ones that
+            // already succeeded. The next round retries the rest anyway.
+            Err(e) => {
+                failures += 1;
+                warn!(
+                    "collector {}: skipping a failed month crawl: {:?}",
+                    collector.id, e
+                );
+            }
+        }
+    }
+    if res.is_empty() && failures > 0 {
+        return Err(BrokerError::BrokerError(format!(
+            "collector {}: every month crawl failed ({} of them)",
+            collector.id, failures
+        )));
     }
     Ok(res)
 }

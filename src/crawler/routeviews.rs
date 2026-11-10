@@ -8,6 +8,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use futures::stream::StreamExt;
 use regex::Regex;
 use tracing::debug;
+use tracing::warn;
 
 /// Crawl RouteViews MRT data dump for a given collector.
 ///
@@ -38,9 +39,28 @@ pub async fn crawl_routeviews(
     .buffer_unordered(get_crawler_month_concurrency());
 
     let mut res = vec![];
+    let mut failures = 0usize;
     while let Some(result) = stream.next().await {
-        let items = result?;
-        res.extend(items);
+        match result {
+            Ok(items) => res.extend(items),
+            // Months and subdirectories are independent fetches: one failing (a 4xx, a
+            // timeout) must not discard the ones that already succeeded. The next round
+            // retries the rest anyway.
+            Err(e) => {
+                failures += 1;
+                warn!(
+                    "collector {}: skipping a failed month/subdir crawl: {:?}",
+                    collector.id, e
+                );
+            }
+        }
+    }
+    if res.is_empty() && failures > 0 {
+        // Nothing at all came back: surface it instead of reporting an empty success.
+        return Err(BrokerError::BrokerError(format!(
+            "collector {}: every month/subdir crawl failed ({} of them)",
+            collector.id, failures
+        )));
     }
     Ok(res)
 }
