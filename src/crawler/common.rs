@@ -5,6 +5,10 @@ use scraper::{Html, Selector};
 use std::time::Duration;
 use tracing::{debug, warn};
 
+/// Contactable identity for every archive request. RouteViews and RIPE block on rate, not on
+/// identity, so a UA that names us is what lets an operator tell our crawler from a scraper.
+const CRAWLER_USER_AGENT: &str = "bgpkit-broker/3 (+https://bgpkit.com; mingwei@bgpkit.com)";
+
 /// Minimum valid timestamp for BGP data (1998-01-01).
 /// The earliest collector (rrc00) started on 1999-10-01. 1998 provides a clear buffer
 /// while distinguishing from Unix epoch (1970) and actual BGP data collection.
@@ -305,12 +309,12 @@ pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
     let initial_backoff_ms = get_crawler_backoff_ms();
 
     let client = reqwest::ClientBuilder::new()
-        .user_agent("bgpkit-broker/3")
+        .user_agent(CRAWLER_USER_AGENT)
         .pool_max_idle_per_host(0)
         .timeout(Duration::from_secs(30))
         .build()?;
     let mirror_client = reqwest::ClientBuilder::new()
-        .user_agent("bgpkit-broker/3")
+        .user_agent(CRAWLER_USER_AGENT)
         .pool_max_idle_per_host(0)
         .timeout(Duration::from_secs(10))
         .build()?;
