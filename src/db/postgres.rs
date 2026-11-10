@@ -381,6 +381,67 @@ impl PostgresDb {
         Ok(())
     }
 
+    /// The collector catalogue as `Collector` values, for consumers that need to mirror
+    /// the writer's identity set (the SQLite snapshot extension).
+    pub fn collectors_as_list(&self) -> Result<Vec<Collector>, BrokerError> {
+        let collectors = self.collectors.read().map_err(|_| {
+            BrokerError::BrokerError("PostgreSQL collector cache lock poisoned".to_string())
+        })?;
+        Ok(collectors
+            .iter()
+            .map(|collector| Collector {
+                id: collector.name.clone(),
+                project: collector.project.clone(),
+                url: collector.url.clone(),
+            })
+            .collect())
+    }
+
+    /// Catalogue rows after a keyset cursor, oldest first, at most `limit` per call.
+    ///
+    /// The cursor is the full ordering key `(timestamp, collector_name, type)`: advancing on
+    /// the timestamp alone would skip the rest of a timestamp group that a batch boundary
+    /// split, because hundreds of collectors share each slot.
+    pub async fn get_items_after(
+        &self,
+        cursor: Option<(NaiveDateTime, String, String)>,
+        limit: i64,
+    ) -> Result<Vec<BrokerItem>, BrokerError> {
+        let rows = match cursor {
+            Some((timestamp, collector, data_type)) => {
+                sqlx::query(
+                    "SELECT collector_name, timestamp, type, rough_size, exact_size \
+                     FROM broker.file_search_view \
+                     WHERE (timestamp, collector_name, type) > ($1, $2, $3) \
+                     ORDER BY timestamp ASC, collector_name ASC, type ASC LIMIT $4",
+                )
+                .bind(timestamp.and_utc())
+                .bind(collector)
+                .bind(data_type)
+                .bind(limit)
+                .fetch_all(&self.conn_pool)
+                .await
+            }
+            None => {
+                sqlx::query(
+                    "SELECT collector_name, timestamp, type, rough_size, exact_size \
+                     FROM broker.file_search_view \
+                     ORDER BY timestamp ASC, collector_name ASC, type ASC LIMIT $1",
+                )
+                .bind(limit)
+                .fetch_all(&self.conn_pool)
+                .await
+            }
+        }
+        .map_err(database_error)?;
+
+        let collector_map = self.collector_map()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| pg_row_to_item(row, &collector_map))
+            .collect())
+    }
+
     fn collector_map(&self) -> Result<HashMap<String, BrokerCollector>, BrokerError> {
         self.collectors
             .read()
