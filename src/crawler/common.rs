@@ -138,37 +138,103 @@ pub fn extract_link_size(body: &str) -> Vec<(String, i64)> {
     res
 }
 
-/// Fetch the body of a URL with retry logic and exponential backoff.
+/// Base URL of the path-preserving fetch mirror, without a trailing slash.
 ///
-/// # Arguments
-/// * `url` - The URL to fetch
-///
-/// # Environment Variables
-/// * `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum number of retry attempts (default: 3)
-/// * `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff duration in milliseconds (default: 1000)
-///
-/// # Returns
-/// The body of the response as a string, or an error if all retries failed.
-pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
-    let max_retries = get_crawler_max_retries();
-    let initial_backoff_ms = get_crawler_backoff_ms();
+/// Environment variable: `BGPKIT_BROKER_FETCH_PROXY` (for example
+/// `https://m.bgpkit.com`). Unset means fetch origins directly.
+pub(crate) fn get_fetch_proxy() -> Option<String> {
+    let raw = std::env::var("BGPKIT_BROKER_FETCH_PROXY").ok()?;
+    let base = raw.trim().trim_end_matches('/');
+    if !(base.starts_with("http://") || base.starts_with("https://")) {
+        // A set-but-malformed value would otherwise fall back to direct fetching without
+        // a word, and the failures that follow look like origin trouble, not a bad setting.
+        warn!("ignoring BGPKIT_BROKER_FETCH_PROXY: value is not an http(s) base URL");
+        return None;
+    }
+    Some(base.to_string())
+}
 
-    let client = reqwest::ClientBuilder::new()
-        .user_agent("bgpkit-broker/3")
-        .pool_max_idle_per_host(0)
-        .timeout(Duration::from_secs(30))
-        .build()?;
+/// Origins the mirror may be used for.
+///
+/// Environment variable: `BGPKIT_BROKER_FETCH_PROXY_ORIGINS`, comma separated, default
+/// `archive.routeviews.org`. Keep it to the origins whose listings are safe to fetch
+/// through the mirror: agents serve a listing uncached (`X-Cache-Status: BYPASS` plus
+/// `Cache-Control: no-store`), but an agent running an image older than that fix would
+/// still cache the first copy for 30 days and freeze the listing.
+pub(crate) fn get_fetch_proxy_origins() -> Vec<String> {
+    match std::env::var("BGPKIT_BROKER_FETCH_PROXY_ORIGINS") {
+        Ok(raw) => raw
+            .split(',')
+            .map(|part| part.trim().to_ascii_lowercase())
+            .filter(|part| !part.is_empty())
+            .collect(),
+        Err(_) => vec!["archive.routeviews.org".to_string()],
+    }
+}
 
+/// Rewrite an origin URL into the mirror's `<base>/<origin-host><path>` form.
+///
+/// Returns `None` for non-HTTP URLs, for URLs already pointing at the mirror, and for
+/// origins outside the allowlist, so a caller can treat `None` as "fetch as-is".
+pub(crate) fn mirror_url(base: &str, origins: &[String], url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    // Already mirrored: do not nest the rewrite.
+    let base_rest = base
+        .strip_prefix("https://")
+        .or_else(|| base.strip_prefix("http://"))?;
+    let base_host = base_rest.split('/').next().unwrap_or_default();
+    let (host, path) = match rest.find('/') {
+        Some(idx) => rest.split_at(idx),
+        None => (rest, ""),
+    };
+    if host.eq_ignore_ascii_case(base_host) {
+        return None;
+    }
+    if !origins
+        .iter()
+        .any(|allowed| host.eq_ignore_ascii_case(allowed))
+    {
+        return None;
+    }
+    let base = base.trim_end_matches('/');
+    Some(format!("{}/{}{}", base, host, path))
+}
+
+/// Fetch one URL with retry logic and exponential backoff.
+async fn fetch_with_retries(
+    client: &reqwest::Client,
+    url: &str,
+    max_retries: u32,
+    initial_backoff_ms: u64,
+) -> Result<String, BrokerError> {
     let mut last_error: Option<BrokerError> = None;
 
     for attempt in 0..max_retries {
         match client.get(url).send().await {
-            Ok(response) => match response.text().await {
-                Ok(body) => return Ok(body),
-                Err(e) => {
-                    last_error = Some(e.into());
+            Ok(response) => {
+                let status = response.status();
+                // A non-2xx body is not data: the mirror answers rejections (403 for
+                // non-allowlisted origins, 502 for unavailable objects) with JSON, and parsing
+                // that as a listing silently yields zero files. Fail so the caller can fall back.
+                if !status.is_success() {
+                    last_error = Some(BrokerError::BrokerError(format!(
+                        "unexpected status {} for {}",
+                        status, url
+                    )));
+                    if status.is_client_error() {
+                        break;
+                    }
+                } else {
+                    match response.text().await {
+                        Ok(body) => return Ok(body),
+                        Err(e) => {
+                            last_error = Some(e.into());
+                        }
+                    }
                 }
-            },
+            }
             Err(e) => {
                 last_error = Some(e.into());
             }
@@ -202,6 +268,118 @@ pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
     }))
 }
 
+/// Ordered fetch targets for one origin URL: mirror first when configured and the origin
+/// is allowlisted, origin last. The flag marks the mirror candidate so it can be given a
+/// smaller budget than the origin.
+fn fetch_candidates(base: Option<&str>, origins: &[String], url: &str) -> Vec<(String, bool)> {
+    let mut candidates = Vec::with_capacity(2);
+    if let Some(mirrored) = base.and_then(|b| mirror_url(b, origins, url)) {
+        candidates.push((mirrored, true));
+    }
+    candidates.push((url.to_string(), false));
+    candidates
+}
+
+/// Fetch the body of a URL with retry logic and exponential backoff.
+///
+/// When `BGPKIT_BROKER_FETCH_PROXY` is set and the URL's origin is allowlisted, the mirror
+/// is tried first and the origin second, so a blocked mirror degrades to a direct fetch
+/// instead of stalling the crawl. The mirror gets one short attempt: it is an
+/// optimisation, and a mirror that accepts a connection and then hangs must not consume
+/// the origin's retry budget. The returned body is identical either way: the rewrite only
+/// changes the fetch address, never the URL recorded in the database.
+///
+/// # Arguments
+/// * `url` - The URL to fetch
+///
+/// # Environment Variables
+/// * `BGPKIT_BROKER_CRAWLER_MAX_RETRIES` - Maximum number of retry attempts (default: 3)
+/// * `BGPKIT_BROKER_CRAWLER_BACKOFF_MS` - Initial backoff duration in milliseconds (default: 1000)
+/// * `BGPKIT_BROKER_FETCH_PROXY` - Mirror base URL; unset means direct fetching
+/// * `BGPKIT_BROKER_FETCH_PROXY_ORIGINS` - Origins the mirror may serve (default: archive.routeviews.org)
+///
+/// # Returns
+/// The body of the response as a string, or an error if all retries failed.
+pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
+    let max_retries = get_crawler_max_retries();
+    let initial_backoff_ms = get_crawler_backoff_ms();
+
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("bgpkit-broker/3")
+        .pool_max_idle_per_host(0)
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let mirror_client = reqwest::ClientBuilder::new()
+        .user_agent("bgpkit-broker/3")
+        .pool_max_idle_per_host(0)
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let candidates = fetch_candidates(
+        get_fetch_proxy().as_deref(),
+        &get_fetch_proxy_origins(),
+        url,
+    );
+    fetch_from_candidates(
+        &client,
+        &mirror_client,
+        &candidates,
+        url,
+        max_retries,
+        initial_backoff_ms,
+    )
+    .await
+}
+
+/// Try each candidate in order, giving the mirror one short attempt and the origin the
+/// full retry budget. Split out from [`fetch_body`] so the fallback order and the status
+/// handling can be tested against a local server instead of the live archives.
+async fn fetch_from_candidates(
+    origin_client: &reqwest::Client,
+    mirror_client: &reqwest::Client,
+    candidates: &[(String, bool)],
+    url: &str,
+    max_retries: u32,
+    initial_backoff_ms: u64,
+) -> Result<String, BrokerError> {
+    let last_index = candidates.len() - 1;
+
+    let mut last_error: Option<BrokerError> = None;
+    for (idx, (target, is_mirror)) in candidates.iter().enumerate() {
+        let (target_client, target_retries) = if *is_mirror {
+            (mirror_client, 1)
+        } else {
+            (origin_client, max_retries)
+        };
+        match fetch_with_retries(target_client, target, target_retries, initial_backoff_ms).await {
+            Ok(body) => return Ok(body),
+            Err(e) => {
+                if idx < last_index {
+                    warn!(
+                        "fetch_body mirror failed for {} ({}), retrying origin directly: {:?}",
+                        url, target, e
+                    );
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| BrokerError::BrokerError(format!("fetch_body failed for {}", url))))
+}
+
+/// Canonical directory URL: origins answer a bare directory path with a 301, and the
+/// fetch mirror does not follow redirects, so directory listings must be requested with
+/// the trailing slash.
+pub(crate) fn directory_url(url: &str) -> String {
+    if url.ends_with('/') {
+        url.to_string()
+    } else {
+        format!("{}/", url)
+    }
+}
+
 /// Remove trailing slash from a string.
 ///
 /// # Arguments
@@ -225,7 +403,7 @@ pub(crate) async fn crawl_months_list(
 
     let month_link_pattern: Regex =
         Regex::new(r#"<a href="(....\...)/">.*"#).expect("invalid regex pattern");
-    let body = fetch_body(collector_root_url).await?;
+    let body = fetch_body(directory_url(collector_root_url).as_str()).await?;
     let mut res = vec![];
     for cap in month_link_pattern.captures_iter(body.as_str()) {
         let month = cap[1].to_owned();
@@ -249,6 +427,216 @@ pub(crate) async fn crawl_months_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_mirror_url() {
+        let base = "https://m.bgpkit.com";
+        let rv = vec!["archive.routeviews.org".to_string()];
+        assert_eq!(
+            mirror_url(
+                base,
+                &rv,
+                "https://archive.routeviews.org/bgpdata/2026.11/RIBS/"
+            )
+            .as_deref(),
+            Some("https://m.bgpkit.com/archive.routeviews.org/bgpdata/2026.11/RIBS/")
+        );
+        assert_eq!(
+            mirror_url(base, &rv, "http://archive.routeviews.org/bgpdata").as_deref(),
+            Some("https://m.bgpkit.com/archive.routeviews.org/bgpdata")
+        );
+        assert_eq!(
+            mirror_url(
+                "https://m.bgpkit.com/",
+                &rv,
+                "https://archive.routeviews.org/x"
+            )
+            .as_deref(),
+            Some("https://m.bgpkit.com/archive.routeviews.org/x")
+        );
+        // Already mirrored, or not an HTTP source: fetch as-is.
+        assert_eq!(
+            mirror_url(base, &rv, "https://m.bgpkit.com/archive.routeviews.org/x"),
+            None
+        );
+        assert_eq!(mirror_url(base, &rv, "s3://bucket/key"), None);
+        // Outside the allowlist: fetch as-is. The mirror caches listings, so only the
+        // origins named here may be routed through it.
+        assert_eq!(
+            mirror_url(base, &rv, "https://data.ris.ripe.net/rrc00/2026.11/"),
+            None
+        );
+        assert_eq!(
+            mirror_url(base, &rv, "https://archive.routeviews.org.evil.test/x"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_fetch_candidates() {
+        let rv = vec!["archive.routeviews.org".to_string()];
+        let url = "https://archive.routeviews.org/route-views2/bgpdata/";
+        assert_eq!(
+            fetch_candidates(Some("https://m.bgpkit.com"), &rv, url),
+            vec![
+                (
+                    "https://m.bgpkit.com/archive.routeviews.org/route-views2/bgpdata/".to_string(),
+                    true
+                ),
+                (url.to_string(), false),
+            ]
+        );
+        // No mirror configured: origin only.
+        assert_eq!(
+            fetch_candidates(None, &rv, url),
+            vec![(url.to_string(), false)]
+        );
+        // Origin outside the allowlist: origin only, even with a mirror configured.
+        let ris = "https://data.ris.ripe.net/rrc00/2026.11/";
+        assert_eq!(
+            fetch_candidates(Some("https://m.bgpkit.com"), &rv, ris),
+            vec![(ris.to_string(), false)]
+        );
+        // Already mirrored: do not nest.
+        let mirrored = "https://m.bgpkit.com/archive.routeviews.org/route-views2/bgpdata/";
+        assert_eq!(
+            fetch_candidates(Some("https://m.bgpkit.com"), &rv, mirrored),
+            vec![(mirrored.to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn test_directory_url() {
+        assert_eq!(
+            directory_url("https://archive.routeviews.org/bgpdata"),
+            "https://archive.routeviews.org/bgpdata/"
+        );
+        assert_eq!(
+            directory_url("https://archive.routeviews.org/bgpdata/"),
+            "https://archive.routeviews.org/bgpdata/"
+        );
+    }
+
+    /// Minimal single-shot HTTP stub: answers the next connection with a fixed status and
+    /// body. Returns its base URL and how many connections it served, so a test can assert
+    /// the mirror was tried before the origin.
+    fn spawn_stub(
+        status: &'static str,
+        body: &'static str,
+        expected_requests: usize,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stub");
+        let addr = listener.local_addr().expect("stub addr");
+        let served = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&served);
+        std::thread::spawn(move || {
+            for _ in 0..expected_requests {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        (format!("http://{addr}"), served)
+    }
+
+    fn test_client() -> reqwest::Client {
+        reqwest::ClientBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("test client")
+    }
+
+    #[tokio::test]
+    async fn test_fetch_falls_back_to_origin_on_mirror_4xx() {
+        // The mirror answers a rejection with a JSON body. Before the status check that
+        // body was returned as the listing and the crawl recorded zero files.
+        let (mirror, mirror_hits) =
+            spawn_stub("403 Forbidden", r#"{"error":"origin_not_allowed"}"#, 1);
+        let (origin, origin_hits) = spawn_stub("200 OK", "<a href=\"2026.11/\">2026.11/</a>", 1);
+        let candidates = vec![
+            (format!("{mirror}/archive.routeviews.org/x/"), true),
+            (format!("{origin}/archive.routeviews.org/x/"), false),
+        ];
+        let body = fetch_from_candidates(
+            &test_client(),
+            &test_client(),
+            &candidates,
+            "https://archive.routeviews.org/x/",
+            1,
+            1,
+        )
+        .await
+        .expect("origin fallback should succeed");
+        assert!(
+            body.contains("2026.11"),
+            "expected the origin listing, got {body}"
+        );
+        assert_eq!(mirror_hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(origin_hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_prefers_mirror_on_2xx() {
+        let (mirror, _mirror_hits) = spawn_stub("200 OK", "mirror-listing", 1);
+        let (origin, origin_hits) = spawn_stub("200 OK", "origin-listing", 1);
+        let candidates = vec![
+            (format!("{mirror}/route-views2/bgpdata/"), true),
+            (format!("{origin}/route-views2/bgpdata/"), false),
+        ];
+        let body = fetch_from_candidates(
+            &test_client(),
+            &test_client(),
+            &candidates,
+            "https://archive.routeviews.org/route-views2/bgpdata/",
+            1,
+            1,
+        )
+        .await
+        .expect("mirror should answer");
+        assert_eq!(body, "mirror-listing");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            origin_hits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "the origin must not be contacted when the mirror answers"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_reports_error_when_every_candidate_fails() {
+        let (mirror, _) = spawn_stub("502 Bad Gateway", r#"{"error":"no agent"}"#, 1);
+        let (origin, _) = spawn_stub("404 Not Found", "not here", 1);
+        let candidates = vec![
+            (format!("{mirror}/x/"), true),
+            (format!("{origin}/x/"), false),
+        ];
+        let err = fetch_from_candidates(
+            &test_client(),
+            &test_client(),
+            &candidates,
+            "https://archive.routeviews.org/x/",
+            1,
+            1,
+        )
+        .await
+        .expect_err("both candidates reject the request");
+        assert!(
+            format!("{err:?}").contains("404"),
+            "unexpected error: {err:?}"
+        );
+    }
 
     #[test]
     fn test_extract_link_size() {

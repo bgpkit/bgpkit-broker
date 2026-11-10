@@ -1,5 +1,5 @@
 use crate::crawler::common::{
-    crawl_months_list, extract_link_size, fetch_body, get_crawler_month_concurrency,
+    crawl_months_list, directory_url, extract_link_size, fetch_body, get_crawler_month_concurrency,
     remove_trailing_slash, MIN_VALID_TIMESTAMP,
 };
 use crate::crawler::Collector;
@@ -8,6 +8,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use futures::stream::StreamExt;
 use regex::Regex;
 use tracing::debug;
+use tracing::warn;
 
 /// Crawl RIPE RIS MRT data dump for a given collector.
 ///
@@ -37,9 +38,26 @@ pub async fn crawl_ripe_ris(
     .buffer_unordered(get_crawler_month_concurrency());
 
     let mut res = vec![];
+    let mut failures = 0usize;
     while let Some(result) = stream.next().await {
-        let items = result?;
-        res.extend(items);
+        match result {
+            Ok(items) => res.extend(items),
+            // Months are independent fetches: one failing must not discard the ones that
+            // already succeeded. The next round retries the rest anyway.
+            Err(e) => {
+                failures += 1;
+                warn!(
+                    "collector {}: skipping a failed month crawl: {:?}",
+                    collector.id, e
+                );
+            }
+        }
+    }
+    if res.is_empty() && failures > 0 {
+        return Err(BrokerError::BrokerError(format!(
+            "collector {}: every month crawl failed ({} of them)",
+            collector.id, failures
+        )));
     }
     Ok(res)
 }
@@ -47,7 +65,7 @@ pub async fn crawl_ripe_ris(
 async fn crawl_month(url: String, collector_id: String) -> Result<Vec<BrokerItem>, BrokerError> {
     let url = remove_trailing_slash(url.as_str());
     debug!("crawling data for {} ...", url.as_str());
-    let body = fetch_body(url.as_str()).await?;
+    let body = fetch_body(directory_url(url.as_str()).as_str()).await?;
     debug!("    download for {} finished ", url.as_str());
 
     let new_url = url.to_string();
