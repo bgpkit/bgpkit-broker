@@ -443,6 +443,17 @@ async fn update_database(
     let elapsed = start_time.elapsed();
     let elapsed_secs = elapsed.as_secs();
 
+    // Did the store actually move forward this round? A round can complete and insert
+    // nothing while an origin refuses the crawler or a mirror serves a frozen listing, so
+    // the round summary alone is not evidence that the crawl is healthy.
+    match db.get_latest_by_project().await {
+        Ok(latest) => bgpkit_broker::crawler::freshness::record_round(&latest),
+        Err(e) => warn!("could not read per-project freshness: {}", e),
+    }
+    metrics::counter!("bgpkit_broker_crawler_items_inserted_total")
+        .increment(total_inserted_count as u64);
+    metrics::gauge!("bgpkit_broker_crawler_round_duration_seconds").set(elapsed_secs as f64);
+
     // Log timing summary with warning if update took too long
     if let Some(interval) = context.update_interval_secs {
         let usage_percent = (elapsed_secs as f64 / interval as f64) * 100.0;

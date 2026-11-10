@@ -138,6 +138,24 @@ impl PostgresDb {
         Ok(timestamp.map(|timestamp| timestamp.naive_utc()))
     }
 
+    /// Newest file timestamp per project, for the crawler's freshness check.
+    pub async fn get_latest_by_project(&self) -> Result<Vec<(String, NaiveDateTime)>, BrokerError> {
+        let rows: Vec<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT p.name, max(f.ts_start) \
+             FROM broker.file f \
+             JOIN broker.collector c USING (collector_id) \
+             JOIN broker.project p USING (project_id) \
+             GROUP BY p.name",
+        )
+        .fetch_all(&self.conn_pool)
+        .await
+        .map_err(database_error)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(project, ts)| ts.map(|ts| (project, ts.naive_utc())))
+            .collect())
+    }
+
     pub async fn get_latest_files(&self) -> Result<Vec<BrokerItem>, BrokerError> {
         let rows = sqlx::query(
             "SELECT collector_name, timestamp, type, rough_size, exact_size \

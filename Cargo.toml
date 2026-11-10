@@ -68,6 +68,9 @@ axum = { version = "0.8", optional = true }
 tower-http = { version = "0.7", optional = true, features = ["cors"] }
 http = { version = "1.0", optional = true }
 axum-prometheus = { version = "0.10", optional = true }
+# Same major as the recorder axum-prometheus installs, so crawler metrics land in the
+# registry that /metrics already renders.
+metrics = { version = "0.24", optional = true }
 
 # database dependencies
 sqlx = { version = "0.9", features = [
@@ -106,6 +109,7 @@ cli = [
     # API
     "axum",
     "axum-prometheus",
+    "metrics",
     "http",
     "tower-http",
     # SSE
