@@ -1,6 +1,7 @@
 mod api;
 mod backup;
 mod bootstrap;
+mod snapshot;
 mod utils;
 
 use crate::api::LIVE_EVENT_BUFFER_SIZE;
@@ -13,7 +14,7 @@ use bgpkit_broker::db::ConnectRetryConfig;
 use bgpkit_broker::notifier::nats::NatsNotifier;
 use bgpkit_broker::{
     crawl_collector, load_collectors, BgpkitBroker, BrokerConfig, BrokerError, BrokerItem,
-    Collector, DatabaseBackend, DatabaseTarget, LocalBrokerDb, DEFAULT_PAGE_SIZE,
+    Collector, DatabaseBackend, DatabaseTarget, LocalBrokerDb, PostgresDb, DEFAULT_PAGE_SIZE,
 };
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Parser, Subcommand};
@@ -44,6 +45,23 @@ struct Cli {
 }
 
 const BOOTSTRAP_URL: &str = "https://spaces.bgpkit.org/broker/bgpkit_broker.sqlite3";
+
+#[derive(Subcommand)]
+enum SnapshotAction {
+    /// Insert the catalogue rows newer than the SQLite file's newest timestamp
+    Extend {
+        /// SQLite snapshot to extend in place
+        database: String,
+
+        /// PostgreSQL catalogue URL; defaults to BGPKIT_BROKER_POSTGRES_URL
+        #[clap(long)]
+        from_postgres: Option<String>,
+
+        /// Rows read from PostgreSQL per batch
+        #[clap(long, default_value_t = snapshot::DEFAULT_BATCH)]
+        batch: i64,
+    },
+}
 
 #[derive(Subcommand)]
 enum Commands {
@@ -115,6 +133,12 @@ enum Commands {
         /// disable bootstrap progress bar
         #[clap(short, long)]
         silent: bool,
+    },
+
+    /// Extend a published SQLite snapshot with the rows the writer has indexed since
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotAction,
     },
 
     /// Backup Broker database
@@ -881,6 +905,67 @@ fn main() {
                     exit(1);
                 }
             });
+        }
+        Commands::Snapshot { action } => {
+            if do_log {
+                enable_logging();
+            }
+            match action {
+                SnapshotAction::Extend {
+                    database,
+                    from_postgres,
+                    batch,
+                } => {
+                    let pg_url = match from_postgres
+                        .or_else(|| std::env::var("BGPKIT_BROKER_POSTGRES_URL").ok())
+                    {
+                        Some(url) => url,
+                        None => {
+                            error!(
+                                "no PostgreSQL catalogue: pass --from-postgres or set BGPKIT_BROKER_POSTGRES_URL"
+                            );
+                            exit(1);
+                        }
+                    };
+                    let rt = get_tokio_runtime();
+                    let outcome = rt.block_on(async {
+                        let sqlite = LocalBrokerDb::new(&database).await?;
+                        let postgres = PostgresDb::new(&pg_url, 2).await?;
+                        snapshot::extend(sqlite, &postgres, batch).await
+                    });
+                    match outcome {
+                        Ok(report) => {
+                            info!(
+                                "snapshot {}: {} rows inserted ({} examined), {} collectors added, newest {:?} -> {:?}",
+                                database,
+                                report.rows_inserted,
+                                report.rows_examined,
+                                report.collectors_added,
+                                report.newest_before,
+                                report.newest_after
+                            );
+                            println!(
+                                "inserted {} rows, examined {}, collectors added {}, newest {} -> {}",
+                                report.rows_inserted,
+                                report.rows_examined,
+                                report.collectors_added,
+                                report
+                                    .newest_before
+                                    .map(|t| t.to_string())
+                                    .unwrap_or_else(|| "none".to_string()),
+                                report
+                                    .newest_after
+                                    .map(|t| t.to_string())
+                                    .unwrap_or_else(|| "none".to_string()),
+                            );
+                        }
+                        Err(e) => {
+                            error!("failed to extend the snapshot: {}", e);
+                            exit(1);
+                        }
+                    }
+                }
+            }
         }
         Commands::Backup {
             from,

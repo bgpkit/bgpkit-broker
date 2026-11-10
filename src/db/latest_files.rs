@@ -12,17 +12,19 @@ use super::LocalBrokerDb;
 impl LocalBrokerDb {
     /// get the latest timestamp (ts_start) of data entries in broker database
     pub async fn get_latest_timestamp(&self) -> Result<Option<NaiveDateTime>, BrokerError> {
-        // FIXME: handle empty database case
-        let timestamp = sqlx::query(
+        // MAX() over an empty table is NULL, which the row reader would turn into 1970.
+        let timestamp: Option<i64> = sqlx::query(
             r#"
             SELECT MAX(timestamp) FROM files
             "#,
         )
-        .map(|row: SqliteRow| row.get::<i64, _>(0))
+        .map(|row: SqliteRow| row.get::<Option<i64>, _>(0))
         .fetch_one(&self.conn_pool)
         .await?;
 
-        let datetime = DateTime::from_timestamp(timestamp, 0).map(|dt| dt.naive_utc());
+        let datetime = timestamp
+            .and_then(|ts| DateTime::from_timestamp(ts, 0))
+            .map(|dt| dt.naive_utc());
         Ok(datetime)
     }
 

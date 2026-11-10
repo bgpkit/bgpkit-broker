@@ -240,6 +240,32 @@ impl LocalBrokerDb {
         Ok(())
     }
 
+    /// Ensure the two file types exist and refresh the in-memory type mapping.
+    ///
+    /// A snapshot that was produced by a crawler already carries them; a freshly created
+    /// file does not, and every insert would then drop its rows with "type name to id
+    /// mapping not found".
+    pub async fn ensure_file_types(&mut self) -> Result<(), BrokerError> {
+        for name in ["rib", "updates"] {
+            sqlx::query(
+                "INSERT INTO types (name) \
+                 SELECT ? WHERE NOT EXISTS (SELECT 1 FROM types WHERE name = ?)",
+            )
+            .bind(name)
+            .bind(name)
+            .execute(&self.conn_pool)
+            .await?;
+        }
+        self.types = sqlx::query("select id, name from types")
+            .map(|row: SqliteRow| BrokerItemType {
+                id: row.get::<i64, _>("id"),
+                name: row.get::<String, _>("name"),
+            })
+            .fetch_all(&self.conn_pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn reload_collectors(&mut self) {
         match sqlx::query("select id, name, url, project, updates_interval from collectors")
             .map(|row: SqliteRow| BrokerCollector {
@@ -640,6 +666,20 @@ impl LocalBrokerDb {
 
         self.force_checkpoint().await;
         Ok(inserted)
+    }
+
+    /// Whether the collectors table already has an entry with this name.
+    pub async fn collector_exists(&self, name: &str) -> Result<bool, BrokerError> {
+        let count: i64 = sqlx::query(
+            r#"
+            SELECT count(*) FROM collectors where name = ?
+            "#,
+        )
+        .bind(name)
+        .map(|row: SqliteRow| row.get::<i64, _>(0))
+        .fetch_one(&self.conn_pool)
+        .await?;
+        Ok(count > 0)
     }
 
     pub async fn insert_collector(&self, collector: &Collector) -> Result<(), BrokerError> {
