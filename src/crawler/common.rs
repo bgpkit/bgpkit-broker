@@ -157,10 +157,10 @@ pub(crate) fn get_fetch_proxy() -> Option<String> {
 /// Origins the mirror may be used for.
 ///
 /// Environment variable: `BGPKIT_BROKER_FETCH_PROXY_ORIGINS`, comma separated, default
-/// `archive.routeviews.org`. The mirror caches 200 responses for 30 days and does not
-/// revalidate, so a directory listing routed through a caching agent freezes at the first
-/// copy; until the mirror stops caching listings, only an origin whose listings never hit
-/// an agent cache may be listed here.
+/// `archive.routeviews.org`. Keep it to the origins whose listings are safe to fetch
+/// through the mirror: agents serve a listing uncached (`X-Cache-Status: BYPASS` plus
+/// `Cache-Control: no-store`), but an agent running an image older than that fix would
+/// still cache the first copy for 30 days and freeze the listing.
 pub(crate) fn get_fetch_proxy_origins() -> Vec<String> {
     match std::env::var("BGPKIT_BROKER_FETCH_PROXY_ORIGINS") {
         Ok(raw) => raw
@@ -320,14 +320,36 @@ pub(crate) async fn fetch_body(url: &str) -> Result<String, BrokerError> {
         &get_fetch_proxy_origins(),
         url,
     );
+    fetch_from_candidates(
+        &client,
+        &mirror_client,
+        &candidates,
+        url,
+        max_retries,
+        initial_backoff_ms,
+    )
+    .await
+}
+
+/// Try each candidate in order, giving the mirror one short attempt and the origin the
+/// full retry budget. Split out from [`fetch_body`] so the fallback order and the status
+/// handling can be tested against a local server instead of the live archives.
+async fn fetch_from_candidates(
+    origin_client: &reqwest::Client,
+    mirror_client: &reqwest::Client,
+    candidates: &[(String, bool)],
+    url: &str,
+    max_retries: u32,
+    initial_backoff_ms: u64,
+) -> Result<String, BrokerError> {
     let last_index = candidates.len() - 1;
 
     let mut last_error: Option<BrokerError> = None;
     for (idx, (target, is_mirror)) in candidates.iter().enumerate() {
         let (target_client, target_retries) = if *is_mirror {
-            (&mirror_client, 1)
+            (mirror_client, 1)
         } else {
-            (&client, max_retries)
+            (origin_client, max_retries)
         };
         match fetch_with_retries(target_client, target, target_retries, initial_backoff_ms).await {
             Ok(body) => return Ok(body),
@@ -492,6 +514,127 @@ mod tests {
         assert_eq!(
             directory_url("https://archive.routeviews.org/bgpdata/"),
             "https://archive.routeviews.org/bgpdata/"
+        );
+    }
+
+    /// Minimal single-shot HTTP stub: answers the next connection with a fixed status and
+    /// body. Returns its base URL and how many connections it served, so a test can assert
+    /// the mirror was tried before the origin.
+    fn spawn_stub(
+        status: &'static str,
+        body: &'static str,
+        expected_requests: usize,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stub");
+        let addr = listener.local_addr().expect("stub addr");
+        let served = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&served);
+        std::thread::spawn(move || {
+            for _ in 0..expected_requests {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        (format!("http://{addr}"), served)
+    }
+
+    fn test_client() -> reqwest::Client {
+        reqwest::ClientBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("test client")
+    }
+
+    #[tokio::test]
+    async fn test_fetch_falls_back_to_origin_on_mirror_4xx() {
+        // The mirror answers a rejection with a JSON body. Before the status check that
+        // body was returned as the listing and the crawl recorded zero files.
+        let (mirror, mirror_hits) =
+            spawn_stub("403 Forbidden", r#"{"error":"origin_not_allowed"}"#, 1);
+        let (origin, origin_hits) = spawn_stub("200 OK", "<a href=\"2026.11/\">2026.11/</a>", 1);
+        let candidates = vec![
+            (format!("{mirror}/archive.routeviews.org/x/"), true),
+            (format!("{origin}/archive.routeviews.org/x/"), false),
+        ];
+        let body = fetch_from_candidates(
+            &test_client(),
+            &test_client(),
+            &candidates,
+            "https://archive.routeviews.org/x/",
+            1,
+            1,
+        )
+        .await
+        .expect("origin fallback should succeed");
+        assert!(
+            body.contains("2026.11"),
+            "expected the origin listing, got {body}"
+        );
+        assert_eq!(mirror_hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(origin_hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_prefers_mirror_on_2xx() {
+        let (mirror, _mirror_hits) = spawn_stub("200 OK", "mirror-listing", 1);
+        let (origin, origin_hits) = spawn_stub("200 OK", "origin-listing", 1);
+        let candidates = vec![
+            (format!("{mirror}/route-views2/bgpdata/"), true),
+            (format!("{origin}/route-views2/bgpdata/"), false),
+        ];
+        let body = fetch_from_candidates(
+            &test_client(),
+            &test_client(),
+            &candidates,
+            "https://archive.routeviews.org/route-views2/bgpdata/",
+            1,
+            1,
+        )
+        .await
+        .expect("mirror should answer");
+        assert_eq!(body, "mirror-listing");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            origin_hits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "the origin must not be contacted when the mirror answers"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_reports_error_when_every_candidate_fails() {
+        let (mirror, _) = spawn_stub("502 Bad Gateway", r#"{"error":"no agent"}"#, 1);
+        let (origin, _) = spawn_stub("404 Not Found", "not here", 1);
+        let candidates = vec![
+            (format!("{mirror}/x/"), true),
+            (format!("{origin}/x/"), false),
+        ];
+        let err = fetch_from_candidates(
+            &test_client(),
+            &test_client(),
+            &candidates,
+            "https://archive.routeviews.org/x/",
+            1,
+            1,
+        )
+        .await
+        .expect_err("both candidates reject the request");
+        assert!(
+            format!("{err:?}").contains("404"),
+            "unexpected error: {err:?}"
         );
     }
 
