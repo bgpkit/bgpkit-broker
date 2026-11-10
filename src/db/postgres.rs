@@ -139,10 +139,13 @@ impl PostgresDb {
     }
 
     /// Newest file timestamp per project, for the crawler's freshness check.
+    ///
+    /// Reads `broker.latest_file` (one row per collector and type) instead of aggregating
+    /// 60M rows of `broker.file`, which took seconds on every crawl round.
     pub async fn get_latest_by_project(&self) -> Result<Vec<(String, NaiveDateTime)>, BrokerError> {
         let rows: Vec<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT p.name, max(f.ts_start) \
-             FROM broker.file f \
+            "SELECT p.name, max(l.ts_start) \
+             FROM broker.latest_file l \
              JOIN broker.collector c USING (collector_id) \
              JOIN broker.project p USING (project_id) \
              GROUP BY p.name",
